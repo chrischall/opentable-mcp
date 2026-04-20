@@ -1,3 +1,19 @@
+// Reservation tools: list, find-slots, book (two-step lock + make), cancel.
+//
+// All the GraphQL tools here use Apollo persisted queries — instead of
+// sending the full query text, we reference a sha256Hash pre-registered
+// on OpenTable's CDN. The hashes are pinned below; if OpenTable
+// redeploys we'll see `PersistedQueryNotFound` and need to re-capture
+// them via the extension's XHR logger.
+//
+// Book flow:
+//   1. BookDetailsStandardSlotLock — locks the slot for ~90s, returns slotLockId.
+//   2. /dapi/booking/make-reservation — consumes slotLockId + user PII + slot tokens.
+// Cancel is a single mutation keyed on (restaurantId, confirmationNumber, securityToken).
+//
+// User PII (name/email/phone) is read from the dining-dashboard SSR
+// on every book call — cheaper than a dedicated profile endpoint, and
+// the data we need is always there for authenticated users.
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';

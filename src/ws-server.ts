@@ -1,3 +1,16 @@
+// OpenTableWsServer: the localhost WebSocket bridge the Chrome extension
+// connects to. One active extension at a time (second connection is
+// closed immediately). Tools call `fetch()` and the server relays the
+// RPC to the extension's content script, which runs `window.fetch` in
+// the page's MAIN world with cookies/TLS that Akamai accepts.
+//
+// Frame schema is documented in extension/README.md → "WS protocol".
+// Timeouts:
+//   connectTimeoutMs (default 15s) — how long fetch() will wait for the
+//     extension to be `ready` before throwing `extension offline`.
+//   requestTimeoutMs (default 30s) — per-request timeout once a request
+//     has been sent.
+//   PING_INTERVAL_MS (20s) — keep the MV3 service worker awake.
 import { WebSocketServer, WebSocket } from 'ws';
 
 export interface FetchInit {

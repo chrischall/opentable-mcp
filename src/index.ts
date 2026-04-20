@@ -1,4 +1,14 @@
 #!/usr/bin/env node
+// opentable-mcp entrypoint.
+//
+// Boot sequence:
+//   1. OpenTableClient.start() — opens the WebSocket listener on
+//      127.0.0.1:37149. The companion Chrome extension connects here.
+//   2. Register tool handlers against the MCP server.
+//   3. Connect the MCP server to stdio for the host client.
+//
+// The WS listener outlives the MCP session. On SIGINT/SIGTERM we close
+// it so ports don't leak between client restarts.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { OpenTableClient } from './client.js';

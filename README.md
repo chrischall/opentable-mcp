@@ -47,6 +47,8 @@ npm run build
 
 After that, any MCP client that launches `node dist/bundle.js` will reach OpenTable through your signed-in tab.
 
+**Full setup + troubleshooting guide:** [`extension/README.md`](extension/README.md) covers the status-dot reference, WS protocol, request lifecycle, and how to capture new persisted-query hashes when OpenTable redeploys.
+
 ## Configure (Claude Desktop / Claude Code)
 
 ```json

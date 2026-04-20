@@ -1,3 +1,12 @@
+// OpenTableClient is the thin, tool-facing API over the extension bridge.
+// Every tool goes through fetchHtml() (SSR pages) or fetchJson() (API
+// endpoints) — which ultimately routes to the companion Chrome extension
+// via OpenTableWsServer. See extension/README.md for the transport and
+// CLAUDE.md for the architecture diagram.
+//
+// This file is deliberately small; error mapping (non-2xx, sign-in
+// interstitial, empty 204 body) lives here so tool authors never have
+// to think about it.
 import { OpenTableWsServer, type FetchInit, type FetchResult } from './ws-server.js';
 
 export class SessionNotAuthenticatedError extends Error {
