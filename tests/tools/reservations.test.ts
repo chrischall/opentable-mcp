@@ -4,7 +4,11 @@ import { registerReservationTools } from '../../src/tools/reservations.js';
 import { createTestHarness } from '../helpers.js';
 
 const mockFetchHtml = vi.fn();
-const mockClient = { fetchHtml: mockFetchHtml } as unknown as OpenTableClient;
+const mockFetchJson = vi.fn();
+const mockClient = {
+  fetchHtml: mockFetchHtml,
+  fetchJson: mockFetchJson,
+} as unknown as OpenTableClient;
 
 let harness: Awaited<ReturnType<typeof createTestHarness>>;
 beforeEach(() => vi.clearAllMocks());
@@ -103,6 +107,97 @@ describe('reservation tools', () => {
       expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(
         []
       );
+    });
+  });
+
+  describe('opentable_find_slots', () => {
+    it('POSTs the persisted-query body and returns formatted slots', async () => {
+      mockFetchJson.mockResolvedValue({
+        data: {
+          availability: [
+            {
+              restaurantId: 42,
+              availabilityDays: [
+                {
+                  slots: [
+                    {
+                      isAvailable: true,
+                      timeOffsetMinutes: 0,
+                      slotAvailabilityToken: 'tok-19',
+                      slotHash: 'h-19',
+                      type: 'Standard',
+                      attributes: ['default'],
+                      pointsValue: 100,
+                      __typename: 'AvailableSlot',
+                    },
+                    {
+                      isAvailable: true,
+                      timeOffsetMinutes: 30,
+                      slotAvailabilityToken: 'tok-1930',
+                      type: 'Standard',
+                      attributes: ['default'],
+                      pointsValue: 100,
+                      __typename: 'AvailableSlot',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      const result = await harness.callTool('opentable_find_slots', {
+        restaurant_id: 42,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+      });
+
+      expect(mockFetchJson).toHaveBeenCalledWith(
+        '/dapi/fe/gql?optype=query&opname=RestaurantsAvailability',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.objectContaining({
+            operationName: 'RestaurantsAvailability',
+            variables: expect.objectContaining({
+              restaurantIds: [42],
+              date: '2026-05-01',
+              time: '19:00',
+              partySize: 2,
+            }),
+            extensions: expect.objectContaining({
+              persistedQuery: expect.objectContaining({ sha256Hash: expect.any(String) }),
+            }),
+          }),
+        })
+      );
+      const parsed = JSON.parse(
+        (result.content[0] as { text: string }).text
+      ) as Array<{ time: string; reservation_token: string }>;
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0].time).toBe('19:00');
+      expect(parsed[1].time).toBe('19:30');
+    });
+
+    it('returns [] when the restaurant has no available slots', async () => {
+      mockFetchJson.mockResolvedValue({
+        data: {
+          availability: [
+            {
+              restaurantId: 42,
+              availabilityDays: [{ slots: [{ isAvailable: false, __typename: 'UnavailableSlot' }] }],
+            },
+          ],
+        },
+      });
+      const result = await harness.callTool('opentable_find_slots', {
+        restaurant_id: 42,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+      });
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual([]);
     });
   });
 });

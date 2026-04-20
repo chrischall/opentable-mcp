@@ -17,9 +17,19 @@ async function doFetch(init) {
     const url = init.path.startsWith('http')
       ? init.path
       : `https://www.opentable.com${init.path}`;
+
+    // Pull the CSRF token that capture-logger.js (main world) syncs into
+    // the html element's dataset. OpenTable's write endpoints require it.
+    // Not all GETs do, but it's harmless to send.
+    const headers = { ...(init.headers ?? {}) };
+    const csrf = document.documentElement.dataset.otMcpCsrf;
+    if (csrf && !headers['x-csrf-token'] && !headers['X-Csrf-Token']) {
+      headers['x-csrf-token'] = csrf;
+    }
+
     const resp = await fetch(url, {
       method: init.method,
-      headers: init.headers ?? {},
+      headers,
       body: init.body,
       credentials: 'include',
     });

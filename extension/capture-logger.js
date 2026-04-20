@@ -76,4 +76,17 @@
   };
 
   console.log('[opentable-mcp] capture logger installed (main world)');
+
+  // Sync the page's CSRF token into a DOM data attribute so the
+  // isolated-world content script (which can't see window globals) can
+  // pick it up for outbound POSTs. Re-syncs every 2s in case the page
+  // rotates the token on SPA navigation.
+  function syncCsrf() {
+    const token = /** @type {string | undefined} */ (window.__CSRF_TOKEN__);
+    if (typeof token === 'string' && token.length > 0) {
+      document.documentElement.dataset.otMcpCsrf = token;
+    }
+  }
+  syncCsrf();
+  setInterval(syncCsrf, 2000);
 })();
