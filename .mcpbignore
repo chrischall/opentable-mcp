@@ -1,0 +1,26 @@
+# Source — dist/bundle.js is all that's needed at runtime (esbuild inlines deps
+# except dotenv, which is externalised and optional via a try/catch import).
+src/
+tests/
+
+# Dev tooling
+node_modules/
+coverage/
+tsconfig.json
+vitest.config.ts
+*.skill
+
+# Docs / specs (dev artifacts)
+docs/
+
+# GitHub / CI
+.github/
+
+# Local config
+.claude/
+.env
+.env.*
+
+# Git
+.git/
+.gitignore
