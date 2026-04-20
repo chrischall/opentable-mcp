@@ -1,26 +1,26 @@
 # opentable-mcp
 
-OpenTable reservation management as an MCP server for Claude — search restaurants, book tables, manage reservations, favorites, and notify-me via natural language.
+OpenTable reservation reader as an MCP server for Claude — list your reservations, profile, and saved restaurants via natural language.
 
-> ⚠️ **v0.1.0 status: endpoints unverified, blocked by bot detection.** OpenTable does not publish a public API. This server was designed to call OpenTable's private web endpoints with an email+password cookie session (same pattern as [resy-mcp](https://github.com/chrischall/resy-mcp)), but OpenTable fingerprints TLS / HTTP‑2 traffic aggressively and resets the connection on Node's default `fetch`. A `curl` with a browser User-Agent gets `INTERNAL_ERROR`; plain `curl` gets a 503 from an S3 error page. The smoke probe (`npm run smoke`) currently returns 403 on login from any non-browser client tested so far.
->
-> The code, tests (47 passing), and packaging are complete — what's missing is a way to bypass the bot wall. See [open issue: pivot to browser automation or TLS impersonation](https://github.com/chrischall/opentable-mcp/issues/1).
+> **v0.2.0-alpha.1 status: partial.** Read-only, happy-path verified against a real account. OpenTable doesn't publish a public API, so the server fetches the user-facing SSR pages (behind Akamai bot detection) and extracts `__INITIAL_STATE__` via a TLS-fingerprinted HTTP client. Write operations (book / cancel / favorites-CRUD) are not yet implemented — see the Roadmap below.
 
-## Tools
+## How it works
 
-| Tool | Purpose |
-| --- | --- |
-| `opentable_get_profile` | Current user profile (name, email, loyalty tier) |
-| `opentable_search_restaurants` | Search restaurants with availability for a location + date + party size |
-| `opentable_get_restaurant` | Full restaurant details |
-| `opentable_find_slots` | List bookable slots at a restaurant |
-| `opentable_book` | Book a reservation (composite: find → book) |
-| `opentable_list_reservations` | Upcoming / past reservations |
-| `opentable_cancel` | Cancel by reservation_id |
-| `opentable_list_favorites` | Favorited restaurants |
-| `opentable_add_favorite` / `opentable_remove_favorite` | Manage favorites |
-| `opentable_list_notify` | Notify-me subscriptions |
-| `opentable_add_notify` / `opentable_remove_notify` | Manage notify-me |
+OpenTable is a Next.js app. Each authenticated page embeds its React state as `"__INITIAL_STATE__":{...}` in the HTML, and there is no corresponding public JSON API. This server:
+
+1. Accepts session cookies exported from an already-logged-in Chrome tab (Akamai's `_abck` plus OpenTable's `authCke` and friends).
+2. Uses [`cycletls`](https://www.npmjs.com/package/cycletls) to issue HTTPS requests with a desktop-Chrome JA3 TLS fingerprint — this is necessary because Akamai Bot Manager resets Node's default `fetch` with `HTTP/2 INTERNAL_ERROR`.
+3. Fetches the relevant user page (e.g. `/user/dining-dashboard`), extracts `__INITIAL_STATE__` via a brace-balanced JSON walker, and maps the subtree for that tool into tidy JSON.
+
+No Playwright. No headless Chromium download. No MFA/password handling.
+
+## Tools (v0.2.0-alpha.1)
+
+| Tool | Source page | Returns |
+| --- | --- | --- |
+| `opentable_list_reservations` | `/user/dining-dashboard` | Upcoming / past / all reservations with confirmation number, security token, date, time, party size, status |
+| `opentable_get_profile` | `/user/dining-dashboard` | Name, email, phones, loyalty points, home metro, member-since, VIP flag |
+| `opentable_list_favorites` | `/user/favorites` | Saved restaurants: id, name, cuisine, neighborhood, price band, rating, URL |
 
 ## Install
 
@@ -31,16 +31,20 @@ npm run build
 
 ## Configure
 
-Copy `.env.example` to `.env` and fill in:
+OpenTable's auth is passwordless OTP (email or SMS), not email+password. Rather than automate the OTP dance, v0.2 expects you to log in once in your real browser and hand it a snapshot of the session cookies.
 
-```
-OPENTABLE_EMAIL=you@example.com
-OPENTABLE_PASSWORD=changeme
-```
+**One-time setup:**
 
-For MCPB / Claude Desktop install, the packaged manifest prompts for `OpenTable Email` and `OpenTable Password` at configure time.
+1. Open an authenticated opentable.com tab in Chrome.
+2. DevTools → Console → `copy(document.cookie)`.
+3. Write the clipboard contents to a file, e.g. `~/.config/opentable-mcp/cookies.txt`, then `chmod 600 ~/.config/opentable-mcp/cookies.txt`.
+4. Point the server at it, either:
+   - `OPENTABLE_COOKIES_PATH=~/.config/opentable-mcp/cookies.txt`, or
+   - `OPENTABLE_COOKIES='<the raw cookie string>'` (wins over the file when both are set)
 
-Accounts with MFA enabled are not supported in v1. Use an account without MFA or create an app-specific credential.
+For MCPB / Claude Desktop install, the manifest prompts for "OpenTable Session Cookies" at configure time and propagates them via `OPENTABLE_COOKIES`.
+
+**Refreshing cookies.** Akamai rotates `_abck` roughly every few hours and invalidates cookies when it detects unusual behavior. When the server returns `SessionExpiredError`, re-export and update the file.
 
 ## Run (local stdio)
 
@@ -51,16 +55,21 @@ node dist/bundle.js
 ## Test
 
 ```bash
-npm test             # unit tests (mocked fetch)
-npm run smoke        # live endpoint probe — requires real .env
+npm test                                     # unit tests (mocked fetch)
+OPENTABLE_COOKIES_PATH=/tmp/ot-cookies.txt \
+  npx tsx scripts/e2e-list-reservations.ts   # live dashboard round-trip
 ```
+
+## Roadmap
+
+- **Phase 2** — read-only discovery tools: `opentable_search_restaurants`, `opentable_get_restaurant`, `opentable_find_slots`. Each fetches its own page and parses the search / venue / availability state.
+- **Phase 3** — write tools: `opentable_book`, `opentable_cancel`, `opentable_add_favorite`, `opentable_remove_favorite`. Needs reverse-engineering the POST endpoints the web app calls behind the Reserve / Cancel / Heart buttons.
+- **Dropped from v0.1.0 plan** — `*_notify` tools. OpenTable doesn't appear to expose a user-facing notify-me subscription feature the way Resy's Priority Notify does (`/user/notifications` etc. all 404).
 
 ## Notes
 
-- **Bot detection is the v0.1.0 blocker.** OpenTable rejects requests that don't match a real browser's TLS/HTTP‑2 fingerprint (Akamai Bot Manager). The client handles the symptom (403 + "bot-detection challenge") but can't defeat the cause. Paths forward tracked in [issue #1](https://github.com/chrischall/opentable-mcp/issues/1).
-- **OpenTable has no public JSON API.** The v0.1.0 spec's candidate endpoints under `/api/v2/...` don't exist — OpenTable is a Next.js SSR app and data is embedded in each page's HTML as `__INITIAL_STATE__`. The v0.2 architecture fetches the user-facing page and parses that state blob. See [`src/parse-dining-dashboard.ts`](src/parse-dining-dashboard.ts).
-- **End-to-end proof exists** — [`scripts/e2e-list-reservations.ts`](scripts/e2e-list-reservations.ts) uses [`cycletls`](https://www.npmjs.com/package/cycletls) (JA3 spoofing) plus Akamai + auth cookies exported from a real Chrome session to fetch live OpenTable from Node, and runs the output through the parser. No Playwright needed. The open question for v0.2 is now how to refresh those cookies sustainably without asking the user to re-export them.
-- **Auth is passwordless OTP** (SMS or email code), not email+password. The `OPENTABLE_PASSWORD` env variable in v0.1.0 is vestigial and will be dropped in v0.2.
+- **Cookie lifecycle is manual in v0.2.** Akamai's challenge cookie is short-lived and binds to the original browser's TLS fingerprint. A Playwright-backed refresh flow could make this automatic — that's a separate design question, tracked in [issue #1](https://github.com/chrischall/opentable-mcp/issues/1).
+- **No passwords in play.** OpenTable switched to passwordless OTP some time ago. If you've got an ancient account with a password: you'll still log in via the email-OTP flow these days.
 
 ---
 

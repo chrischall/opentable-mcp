@@ -3,42 +3,61 @@ import type { OpenTableClient } from '../../src/client.js';
 import { registerUserTools } from '../../src/tools/user.js';
 import { createTestHarness } from '../helpers.js';
 
-const mockRequest = vi.fn();
-const mockClient = { request: mockRequest } as unknown as OpenTableClient;
+const mockFetchHtml = vi.fn();
+const mockClient = { fetchHtml: mockFetchHtml } as unknown as OpenTableClient;
 
 let harness: Awaited<ReturnType<typeof createTestHarness>>;
-
 beforeEach(() => vi.clearAllMocks());
-afterAll(async () => { if (harness) await harness.close(); });
+afterAll(async () => {
+  if (harness) await harness.close();
+});
+
+function htmlWith(state: unknown): string {
+  return `<script>{"__INITIAL_STATE__":${JSON.stringify(state)}}</script>`;
+}
 
 describe('user tools', () => {
   it('setup', async () => {
-    harness = await createTestHarness((server) => registerUserTools(server, mockClient));
+    harness = await createTestHarness((server) =>
+      registerUserTools(server, mockClient)
+    );
   });
 
   describe('opentable_get_profile', () => {
-    it('calls GET /api/v2/users/me and returns a sanitised profile', async () => {
-      mockRequest.mockResolvedValue({
-        first_name: 'Chris',
-        last_name: 'Chall',
-        email: 'chris@example.com',
-        phone: '+15551234567',
-        loyalty: { tier: 'Gold', points: 1234 },
-        member_since: '2020-01-15',
-        payment_methods: [{ id: 99, brand: 'visa' }], // should be stripped
-      });
+    it('fetches the dining-dashboard page and returns a formatted profile', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith({
+          header: {
+            userProfile: {
+              gpid: 999,
+              firstName: 'Kai',
+              lastName: 'Smith',
+              email: 'kai@example.com',
+              mobilePhoneNumber: { number: '5550001234', countryId: '1' },
+              points: 1200,
+              eligibleToEarnPoints: true,
+              metro: { displayName: 'Boston' },
+              countryId: 'US',
+              createDate: '2021-03-01T00:00:00',
+              isVip: true,
+              isConcierge: false,
+            },
+          },
+        })
+      );
 
       const result = await harness.callTool('opentable_get_profile');
 
-      expect(mockRequest).toHaveBeenCalledWith('GET', '/api/v2/users/me');
+      expect(mockFetchHtml).toHaveBeenCalledWith('/user/dining-dashboard');
       expect(result.isError).toBeFalsy();
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"first_name": "Chris"');
-      expect(text).toContain('"email": "chris@example.com"');
-      expect(text).toContain('"phone": "+15551234567"');
-      expect(text).toContain('"loyalty_tier": "Gold"');
-      expect(text).toContain('"points_balance": 1234');
-      expect(text).not.toContain('payment_methods');
+      const parsed = JSON.parse(
+        (result.content[0] as { text: string }).text
+      ) as { email: string; points: number; metro: string; is_vip: boolean; mobile_phone: string };
+      expect(parsed.email).toBe('kai@example.com');
+      expect(parsed.points).toBe(1200);
+      expect(parsed.metro).toBe('Boston');
+      expect(parsed.is_vip).toBe(true);
+      expect(parsed.mobile_phone).toBe('+1 5550001234');
     });
   });
 });

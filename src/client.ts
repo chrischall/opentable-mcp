@@ -1,6 +1,7 @@
+import { existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { CookieJar } from './cookie-jar.js';
 
 try {
   const { config } = await import('dotenv');
@@ -11,137 +12,144 @@ try {
 }
 
 const BASE_URL = 'https://www.opentable.com';
-const LOGIN_PATH = '/authenticate/api/login';
 
-const SPOOF_HEADERS = {
-  Origin: BASE_URL,
-  Referer: `${BASE_URL}/`,
-  'User-Agent':
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  Accept: 'application/json, text/plain, */*',
-  'Accept-Language': 'en-US,en;q=0.9',
-} as const;
+// Desktop Chrome 131 on macOS. If Akamai starts rejecting, capture the
+// ClientHello from a real browser session and bump these.
+const CHROME_131_JA3 =
+  '771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,' +
+  '0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0';
+const CHROME_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-export type OpenTableBody = undefined | Record<string, unknown> | URLSearchParams;
+function defaultCookiesPath(): string {
+  return (
+    process.env.OPENTABLE_COOKIES_PATH ||
+    join(homedir(), '.config', 'opentable-mcp', 'cookies.txt')
+  );
+}
+
+export class SessionExpiredError extends Error {
+  constructor(cookiesPath: string) {
+    super(
+      `OpenTable session cookies at ${cookiesPath} are invalid or expired. ` +
+        `Re-export document.cookie from an authenticated browser session on opentable.com.`
+    );
+    this.name = 'SessionExpiredError';
+  }
+}
+
+export class CookiesMissingError extends Error {
+  constructor(cookiesPath: string) {
+    super(
+      `Cookies file not found at ${cookiesPath}. ` +
+        `Export document.cookie from an authenticated browser session on opentable.com ` +
+        `and write it to that path (chmod 600 recommended).`
+    );
+    this.name = 'CookiesMissingError';
+  }
+}
+
+export interface OpenTableClientOptions {
+  cookiesPath?: string;
+  ja3?: string;
+  userAgent?: string;
+}
+
+// cycletls v2's TS types export only the constructor; the returned
+// callable doesn't expose a typed overload for GET-shaped calls. Treat the
+// live instance as a loose callable + `.exit` method.
+type CycleTLSCallable = ((
+  url: string,
+  opts: Record<string, unknown>,
+  method: string
+) => Promise<{ status: number; data: unknown; headers?: Record<string, unknown> }>) & {
+  exit(): Promise<void>;
+};
 
 export class OpenTableClient {
-  private readonly jar = new CookieJar();
-  private authenticated = false;
-  private loginPromise: Promise<void> | null = null;
+  private readonly cookiesPath: string;
+  private readonly ja3: string;
+  private readonly userAgent: string;
+  private cycle: CycleTLSCallable | null = null;
+  private closing = false;
 
-  async request<T>(method: string, path: string, body?: OpenTableBody): Promise<T> {
-    await this.ensureAuthenticated();
-    return this.doRequest<T>(method, path, body, false);
+  constructor(opts: OpenTableClientOptions = {}) {
+    this.cookiesPath = opts.cookiesPath ?? defaultCookiesPath();
+    this.ja3 = opts.ja3 ?? CHROME_131_JA3;
+    this.userAgent = opts.userAgent ?? CHROME_UA;
   }
 
-  private async ensureAuthenticated(): Promise<void> {
-    if (this.authenticated) return;
-    if (!this.loginPromise) {
-      this.loginPromise = this.login()
-        .then(() => {
-          this.authenticated = true;
-        })
-        .finally(() => {
-          this.loginPromise = null;
-        });
-    }
-    return this.loginPromise;
-  }
-
-  private async login(): Promise<void> {
-    const email = process.env.OPENTABLE_EMAIL;
-    const password = process.env.OPENTABLE_PASSWORD;
-    if (!email || !password) {
-      const missing = [!email && 'OPENTABLE_EMAIL', !password && 'OPENTABLE_PASSWORD']
-        .filter(Boolean)
-        .join(' and ');
-      throw new Error(`${missing} must be set`);
-    }
-
-    const response = await fetch(`${BASE_URL}${LOGIN_PATH}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...SPOOF_HEADERS,
+  /**
+   * Fetch a user-facing OpenTable page and return its HTML body.
+   * Throws SessionExpiredError if the request comes back 403 (bot wall or
+   * invalidated cookies), or CookiesMissingError if the cookie file is gone.
+   */
+  async fetchHtml(path: string): Promise<string> {
+    const cookie = this.readCookieHeader();
+    const inst = await this.ensureCycle();
+    const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+    const resp = await inst(
+      url,
+      {
+        ja3: this.ja3,
+        userAgent: this.userAgent,
+        headers: {
+          Accept:
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+          Cookie: cookie,
+        },
+        timeout: 25,
       },
-      body: JSON.stringify({ email, password }),
-    });
+      'GET'
+    );
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(
-        `OpenTable login failed: ${response.status} ${response.statusText}: ${text.slice(0, 200)}`
-      );
+    if (resp.status === 403) throw new SessionExpiredError(this.cookiesPath);
+    if (resp.status !== 200) {
+      throw new Error(`OpenTable API error: ${resp.status} for GET ${path}`);
     }
-
-    this.jar.ingest(response.headers.getSetCookie?.() ?? null);
+    return typeof resp.data === 'string' ? resp.data : String(resp.data);
   }
 
-  private async doRequest<T>(
-    method: string,
-    path: string,
-    body: OpenTableBody,
-    isRetry: boolean
-  ): Promise<T> {
-    const isForm = body instanceof URLSearchParams;
-    const headers: Record<string, string> = { ...SPOOF_HEADERS };
-    const cookie = this.jar.toHeader();
-    if (cookie) headers.Cookie = cookie;
-    if (body !== undefined) {
-      headers['Content-Type'] = isForm
-        ? 'application/x-www-form-urlencoded'
-        : 'application/json';
+  /**
+   * Close the cycletls Go subprocess. Call this on server shutdown.
+   */
+  async close(): Promise<void> {
+    if (this.closing) return;
+    this.closing = true;
+    if (this.cycle) {
+      try {
+        await this.cycle.exit();
+      } catch {
+        // best effort
+      }
+      this.cycle = null;
     }
+  }
 
-    const response = await fetch(`${BASE_URL}${path}`, {
-      method,
-      headers,
-      ...(body !== undefined
-        ? { body: isForm ? (body as URLSearchParams).toString() : JSON.stringify(body) }
-        : {}),
-    });
+  private async ensureCycle(): Promise<CycleTLSCallable> {
+    if (this.cycle) return this.cycle;
+    const cycletlsModule = await import('cycletls');
+    const initCycleTLS = cycletlsModule.default as unknown as () => Promise<CycleTLSCallable>;
+    this.cycle = await initCycleTLS();
+    return this.cycle;
+  }
 
-    this.jar.ingest(response.headers.getSetCookie?.() ?? null);
+  private readCookieHeader(): string {
+    // Env var wins — convenient for MCPB install where the user can paste
+    // cookies into a prompt instead of managing a file.
+    const envCookies = process.env.OPENTABLE_COOKIES?.trim();
+    if (envCookies) return envCookies;
 
-    const text = await response.text();
-
-    const looksLikeAuthFailure =
-      response.status === 401 ||
-      response.status === 419 ||
-      (response.status === 500 && /unauthorized|auth|session|token/i.test(text));
-
-    if (looksLikeAuthFailure && !isRetry) {
-      this.jar.clear();
-      this.authenticated = false;
-      await this.ensureAuthenticated();
-      return this.doRequest<T>(method, path, body, true);
-    }
-    if (looksLikeAuthFailure) {
-      throw new Error(
-        'OpenTable session rejected — verify OPENTABLE_EMAIL / OPENTABLE_PASSWORD'
-      );
-    }
-
-    if (response.status === 429 && !isRetry) {
-      await new Promise<void>((r) => setTimeout(r, 2000));
-      return this.doRequest<T>(method, path, body, true);
-    }
-    if (response.status === 429) {
-      throw new Error('Rate limited by OpenTable API');
-    }
-
-    if (response.status === 403 && /captcha|bot|challenge/i.test(text)) {
-      throw new Error(
-        'OpenTable bot-detection challenge. Try again later or log in via a browser on this machine first.'
-      );
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        `OpenTable API error: ${response.status} ${response.statusText} for ${method} ${path}`
-      );
-    }
-
-    return (text ? JSON.parse(text) : null) as T;
+    if (!existsSync(this.cookiesPath)) throw new CookiesMissingError(this.cookiesPath);
+    const raw = readFileSync(this.cookiesPath, 'utf8').trim();
+    if (!raw) throw new CookiesMissingError(this.cookiesPath);
+    return raw;
   }
 }

@@ -3,8 +3,8 @@
   "manifest_version": "0.3",
   "name": "opentable-mcp",
   "display_name": "OpenTable",
-  "version": "0.1.0",
-  "description": "OpenTable reservation management for Claude — search restaurants, book tables, manage reservations, favorites, and notify-me",
+  "version": "0.2.0-alpha.1",
+  "description": "OpenTable reservation management for Claude — list reservations, profile, saved restaurants. Fetches SSR pages via a TLS-spoofed HTTP client and parses __INITIAL_STATE__. Auth is session-cookie based (paste in cookies exported from a logged-in Chrome tab).",
   "author": {
     "name": "Chris Chall",
     "email": "chris.c.hall@gmail.com",
@@ -31,40 +31,23 @@
       "command": "node",
       "args": ["${__dirname}/dist/bundle.js"],
       "env": {
-        "OPENTABLE_EMAIL": "${user_config.opentable_email}",
-        "OPENTABLE_PASSWORD": "${user_config.opentable_password}"
+        "OPENTABLE_COOKIES": "${user_config.opentable_cookies}"
       }
     }
   },
   "user_config": {
-    "opentable_email": {
+    "opentable_cookies": {
       "type": "string",
-      "title": "OpenTable Email",
-      "description": "Your OpenTable account email",
-      "required": true
-    },
-    "opentable_password": {
-      "type": "string",
-      "title": "OpenTable Password",
-      "description": "Your OpenTable account password",
+      "title": "OpenTable Session Cookies",
+      "description": "The full document.cookie string from a logged-in opentable.com tab. Open DevTools → Console and run `copy(document.cookie)`, then paste here. Must include the Akamai cookies (_abck, bm_sz, bm_so) plus the OpenTable auth cookies (authCke, ha_userSession). Refresh every few hours as these expire.",
       "required": true,
       "sensitive": true
     }
   },
   "tools": [
-    { "name": "opentable_get_profile",        "description": "Get the authenticated OpenTable user's profile" },
-    { "name": "opentable_search_restaurants", "description": "Search restaurants with availability" },
-    { "name": "opentable_get_restaurant",     "description": "Get full restaurant details by id" },
-    { "name": "opentable_find_slots",         "description": "List available reservation slots at a restaurant" },
-    { "name": "opentable_book",               "description": "Book a reservation (composite: find → book)" },
-    { "name": "opentable_list_reservations",  "description": "List upcoming/past reservations" },
-    { "name": "opentable_cancel",             "description": "Cancel a reservation by id" },
-    { "name": "opentable_list_favorites",     "description": "List favorited restaurants" },
-    { "name": "opentable_add_favorite",       "description": "Add a restaurant to favorites" },
-    { "name": "opentable_remove_favorite",    "description": "Remove a restaurant from favorites" },
-    { "name": "opentable_list_notify",        "description": "List notify-me subscriptions" },
-    { "name": "opentable_add_notify",         "description": "Subscribe to notify-me" },
-    { "name": "opentable_remove_notify",      "description": "Cancel a notify-me subscription" }
+    { "name": "opentable_list_reservations", "description": "List the user's OpenTable reservations (upcoming / past / all)" },
+    { "name": "opentable_get_profile",       "description": "Get the authenticated user's profile (name, email, loyalty points, metro)" },
+    { "name": "opentable_list_favorites",    "description": "List the user's saved restaurants" }
   ],
   "compatibility": {
     "platforms": ["darwin", "win32", "linux"],

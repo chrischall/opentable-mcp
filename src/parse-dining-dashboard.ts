@@ -1,15 +1,11 @@
 /**
- * Parse an OpenTable Dining Dashboard HTML page.
+ * Parse an OpenTable Dining Dashboard HTML page (/user/dining-dashboard).
  *
- * OpenTable is a Next.js/React SSR application: page state is embedded in
- * the HTML as `window.__INITIAL_STATE__ = {...}`. The client-side app
- * hydrates from that blob rather than calling a public JSON API. Our tools
- * therefore fetch the user-facing page and extract the state blob, rather
- * than hitting a REST endpoint.
- *
- * This module handles only the parsing layer. Fetching the HTML requires
- * bypassing Akamai Bot Manager, which is tracked separately — see README.
+ * The page is server-rendered by Next.js and embeds `__INITIAL_STATE__` in
+ * the HTML. We locate that blob (via `extractInitialState`) and shape the
+ * `diningDashboard` subtree into tool-friendly objects.
  */
+import { extractInitialState } from './initial-state.js';
 
 interface RawReservation {
   __typename?: string;
@@ -46,85 +42,10 @@ export interface FormattedReservation {
   security_token: string;
 }
 
-export class ParseError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ParseError';
-  }
-}
-
-/**
- * Extract `__INITIAL_STATE__` from an HTML string.
- *
- * OpenTable renders the state in one of two forms:
- *   1. `window.__INITIAL_STATE__ = {...};` — a JS assignment in a <script> tag.
- *   2. `"__INITIAL_STATE__":{...}` — a JSON key inside a larger embedded blob.
- * In both cases we locate the JSON object and walk it to find its matching
- * closing brace (can't use regex because the state contains nested objects
- * and escaped strings).
- */
-export function extractInitialState(html: string): Record<string, unknown> {
-  const markers = ['window.__INITIAL_STATE__', '"__INITIAL_STATE__"'];
-  let idx = -1;
-  let markerLen = 0;
-  for (const m of markers) {
-    const i = html.indexOf(m);
-    if (i >= 0) {
-      idx = i;
-      markerLen = m.length;
-      break;
-    }
-  }
-  if (idx < 0) {
-    throw new ParseError('__INITIAL_STATE__ marker not found in HTML');
-  }
-
-  // Find the first '{' after the marker (skip whitespace, `=`, `:`).
-  let start = idx + markerLen;
-  while (start < html.length && html[start] !== '{') start++;
-  if (start >= html.length) {
-    throw new ParseError('Could not locate start of __INITIAL_STATE__ JSON');
-  }
-
-  // Walk forward, counting braces while respecting strings, to find the match.
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let end = -1;
-  for (let i = start; i < html.length; i++) {
-    const ch = html[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (inString) {
-      if (ch === '\\') escape = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) {
-        end = i + 1;
-        break;
-      }
-    }
-  }
-  if (end < 0) {
-    throw new ParseError('Unmatched braces in __INITIAL_STATE__');
-  }
-
-  const json = html.slice(start, end);
-  try {
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch (err) {
-    throw new ParseError(
-      `Failed to parse __INITIAL_STATE__ JSON: ${(err as Error).message}`
-    );
-  }
-}
+// ParseError and extractInitialState are re-exported from ./initial-state
+// for backward compatibility with tests that imported them here.
+export { ParseError, extractInitialState } from './initial-state.js';
+import { ParseError } from './initial-state.js';
 
 /**
  * Split an ISO-ish datetime ("2026-04-26T19:00:00") into date + HH:MM.
