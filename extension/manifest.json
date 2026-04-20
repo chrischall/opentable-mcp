@@ -15,6 +15,12 @@
       "matches": ["https://www.opentable.com/*"],
       "js": ["content.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.opentable.com/*"],
+      "js": ["capture-logger.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ]
 }
