@@ -4,7 +4,7 @@
   "version": "0.3.0",
   "description": "Bridges the opentable-mcp server to your signed-in OpenTable tab.",
   "action": { "default_popup": "popup.html", "default_title": "opentable-mcp" },
-  "permissions": ["tabs", "alarms"],
+  "permissions": ["tabs", "alarms", "cookies"],
   "host_permissions": [
     "https://www.opentable.com/*",
     "http://127.0.0.1:37149/*"
