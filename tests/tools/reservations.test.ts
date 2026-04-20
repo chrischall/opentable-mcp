@@ -111,4 +111,135 @@ describe('reservation tools', () => {
       expect(parsed.cancelled).toBe(false);
     });
   });
+
+  describe('opentable_book', () => {
+    it('books the closest-time slot when desired_time is not an exact match', async () => {
+      mockRequest
+        // 1. find
+        .mockResolvedValueOnce({
+          availability: [
+            { token: 't-7pm', time: '19:00' },
+            { token: 't-8pm', time: '20:00' },
+          ],
+        })
+        // 2. book
+        .mockResolvedValueOnce({
+          reservation_id: 'res-1',
+          confirmation_number: 'ABC123',
+          restaurant_name: 'Milano',
+          profile_url: '/restaurant/milano-sf',
+          date: '2026-05-01',
+          time: '19:00',
+          party_size: 2,
+          status: 'confirmed',
+        });
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 'milano-sf',
+        date: '2026-05-01',
+        party_size: 2,
+        desired_time: '19:10',
+      });
+
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.reservation_id).toBe('res-1');
+      expect(parsed.confirmation_number).toBe('ABC123');
+      expect(parsed.restaurant_url).toBe('https://www.opentable.com/restaurant/milano-sf');
+      expect(parsed.time).toBe('19:00');
+
+      // Verify book call carries the chosen token
+      const bookCall = mockRequest.mock.calls[1];
+      expect(bookCall[0]).toBe('POST');
+      expect(bookCall[1]).toBe('/api/v2/restaurants/milano-sf/reservations');
+      expect(bookCall[2]).toMatchObject({ reservation_token: 't-7pm', party_size: 2 });
+    });
+
+    it('books the exact match if desired_time hits one', async () => {
+      mockRequest
+        .mockResolvedValueOnce({
+          availability: [
+            { token: 't-7pm', time: '19:00' },
+            { token: 't-730', time: '19:30' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          reservation_id: 'res-2',
+          restaurant_name: 'Milano',
+          time: '19:30',
+          party_size: 2,
+        });
+
+      await harness.callTool('opentable_book', {
+        restaurant_id: 'milano-sf',
+        date: '2026-05-01',
+        party_size: 2,
+        desired_time: '19:30',
+      });
+
+      expect(mockRequest.mock.calls[1][2]).toMatchObject({ reservation_token: 't-730' });
+    });
+
+    it('falls back to first slot when desired_time is omitted', async () => {
+      mockRequest
+        .mockResolvedValueOnce({
+          availability: [
+            { token: 't-first', time: '17:00' },
+            { token: 't-second', time: '19:00' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          reservation_id: 'res-3',
+          restaurant_name: 'Milano',
+          time: '17:00',
+          party_size: 2,
+        });
+
+      await harness.callTool('opentable_book', {
+        restaurant_id: 'milano-sf',
+        date: '2026-05-01',
+        party_size: 2,
+      });
+
+      expect(mockRequest.mock.calls[1][2]).toMatchObject({ reservation_token: 't-first' });
+    });
+
+    it('throws when no slots are available', async () => {
+      mockRequest.mockResolvedValueOnce({ availability: [] });
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 'milano-sf',
+        date: '2026-05-01',
+        party_size: 2,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/No available slots/i);
+    });
+
+    it('forwards special_requests in the book payload', async () => {
+      mockRequest
+        .mockResolvedValueOnce({
+          availability: [{ token: 't', time: '19:00' }],
+        })
+        .mockResolvedValueOnce({
+          reservation_id: 'res-4',
+          restaurant_name: 'Milano',
+          time: '19:00',
+          party_size: 2,
+        });
+
+      await harness.callTool('opentable_book', {
+        restaurant_id: 'milano-sf',
+        date: '2026-05-01',
+        party_size: 2,
+        special_requests: 'Window seat please',
+      });
+
+      expect(mockRequest.mock.calls[1][2]).toMatchObject({
+        special_requests: 'Window seat please',
+      });
+    });
+  });
 });
