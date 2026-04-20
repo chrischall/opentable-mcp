@@ -5,26 +5,19 @@ import { OpenTableClient } from './client.js';
 import { registerReservationTools } from './tools/reservations.js';
 import { registerUserTools } from './tools/user.js';
 import { registerFavoriteTools } from './tools/favorites.js';
-// Note: search / get_restaurant tools are intentionally NOT registered.
-// Their source + tests remain in this repo, but live calls against
-// public OpenTable pages (/s, /r, /) are blocked by Akamai Bot Manager's
-// behavioral-challenge page which our non-browser client cannot solve.
-// The /user/* paths below short-circuit that scrutiny via the auth
-// cookie; public paths don't. If a future transport (browser-bridge,
-// or Akamai policy change) unlocks those paths, re-import from
-// ./tools/search.js and ./tools/restaurants.js.
 
 const client = new OpenTableClient();
-const server = new McpServer({ name: 'opentable-mcp', version: '0.2.0-alpha.4' });
+await client.start();
+
+const server = new McpServer({ name: 'opentable-mcp', version: '0.3.0-alpha.1' });
 
 registerReservationTools(server, client);
 registerUserTools(server, client);
 registerFavoriteTools(server, client);
 
 console.error(
-  '[opentable-mcp] v0.2.0-alpha.1 — Next.js SSR architecture. ' +
-    'Requires session cookies exported from a real browser; see README. ' +
-    'Developed and maintained by AI (Claude Opus 4.7). Use at your own discretion.'
+  '[opentable-mcp] v0.3.0-alpha.1 — WebSocket bridge to Chrome extension on 127.0.0.1:37149. ' +
+    'Load the extension from ./extension/ and sign in at opentable.com.'
 );
 
 const shutdown = async () => {
