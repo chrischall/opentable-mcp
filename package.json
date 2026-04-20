@@ -1,6 +1,6 @@
 {
   "name": "opentable-mcp",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-alpha.3",
   "description": "OpenTable MCP server for Claude — developed and maintained by AI (Claude Code)",
   "author": "Claude Code (AI) <https://www.anthropic.com/claude>",
   "repository": {
@@ -35,7 +35,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "smoke": "tsx scripts/e2e-phase1.ts"
+    "smoke": "tsx scripts/e2e-phase1.ts",
+    "auth": "node scripts/setup-auth.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -9,7 +9,7 @@ import { registerSearchTools } from './tools/search.js';
 import { registerRestaurantTools } from './tools/restaurants.js';
 
 const client = new OpenTableClient();
-const server = new McpServer({ name: 'opentable-mcp', version: '0.2.0-alpha.2' });
+const server = new McpServer({ name: 'opentable-mcp', version: '0.2.0-alpha.3' });
 
 registerReservationTools(server, client);
 registerUserTools(server, client);

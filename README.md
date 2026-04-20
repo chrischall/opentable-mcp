@@ -2,7 +2,7 @@
 
 OpenTable reservation reader as an MCP server for Claude — list your reservations, profile, and saved restaurants via natural language.
 
-> **v0.2.0-alpha.2 status: partial.** Read-only, happy-path verified against a real account for `list_reservations` / `get_profile` / `list_favorites`. `search_restaurants` and `get_restaurant` parse the same SSR shape; they are unit-tested but not yet in-session live-verified (Akamai cookie rotation caught up with the test session). Write operations (book / cancel / favorites-CRUD) and `find_slots` are not yet implemented — see the Roadmap below.
+> **v0.2.0-alpha.3 status: partial.** Read-only, happy-path verified against a real account for `list_reservations` / `get_profile` / `list_favorites`. `search_restaurants` and `get_restaurant` parse the same SSR shape; unit-tested but not yet in-session live-verified (Akamai cookie rotation caught up with the test session — the new `npm run auth` flow resolves that). Write operations (book / cancel / favorites-CRUD) and `find_slots` are not yet implemented — see the Roadmap below.
 
 ## How it works
 
@@ -33,20 +33,47 @@ npm run build
 
 ## Configure
 
-OpenTable's auth is passwordless OTP (email or SMS), not email+password. Rather than automate the OTP dance, v0.2 expects you to log in once in your real browser and hand it a snapshot of the session cookies.
+OpenTable's auth is passwordless OTP (email or SMS), not email+password. Rather than automate the OTP dance, v0.2 ships a one-shot helper that launches your real Chrome, waits for you to sign in, and captures the session cookies.
 
-**One-time setup:**
+### Option A — `npm run auth` (recommended)
+
+```bash
+npm run auth                 # captures + writes to ~/.config/opentable-mcp/cookies.txt
+npm run auth -- .env         # instead writes OPENTABLE_COOKIES=<value> to .env
+npm run auth -- --print      # also prints the cookie string (for MCPB paste)
+```
+
+Launches the user's system Chrome (found automatically on macOS / Linux / Windows) with a dedicated profile at `~/.opentable-mcp/chrome-profile`. Navigate to OpenTable's login, sign in via email OTP — the script watches for the `authCke` cookie and exits once it appears, then exports the full cookie jar (Akamai `_abck`/`bm_*` + OpenTable `authCke`/`ha_userSession`).
+
+Installs `puppeteer-core` (~1 MB) on first run; it just drives your existing Chrome, no Chromium download. Pattern cribbed from [`creditkarma-mcp`](https://github.com/chrischall/creditkarma-mcp).
+
+The dedicated Chrome profile is persistent, so subsequent `npm run auth` runs typically don't require a full re-login — Chrome remembers you and the script just refreshes the Akamai cookies.
+
+> ⚠️ **macOS quirk:** if Chrome is already running, `Google Chrome.app` may delegate the launch to the existing instance and the script errors with `Failed to launch the browser process`. Quit Chrome first (Cmd-Q), run `npm run auth`, sign in, let the script exit — then reopen Chrome normally.
+
+### Option B — manual (DevTools)
 
 1. Open an authenticated opentable.com tab in Chrome.
 2. DevTools → Console → `copy(document.cookie)`.
-3. Write the clipboard contents to a file, e.g. `~/.config/opentable-mcp/cookies.txt`, then `chmod 600 ~/.config/opentable-mcp/cookies.txt`.
-4. Point the server at it, either:
-   - `OPENTABLE_COOKIES_PATH=~/.config/opentable-mcp/cookies.txt`, or
-   - `OPENTABLE_COOKIES='<the raw cookie string>'` (wins over the file when both are set)
+3. Write the clipboard contents to `~/.config/opentable-mcp/cookies.txt`, then `chmod 600`.
+
+### Cookie sources, in order of precedence
+
+1. `OPENTABLE_COOKIES` env var (direct, wins over file).
+2. `OPENTABLE_COOKIES_PATH` env var (path to file).
+3. Default: `~/.config/opentable-mcp/cookies.txt`.
 
 For MCPB / Claude Desktop install, the manifest prompts for "OpenTable Session Cookies" at configure time and propagates them via `OPENTABLE_COOKIES`.
 
-**Refreshing cookies.** Akamai rotates `_abck` roughly every few hours and invalidates cookies when it detects unusual behavior. When the server returns `SessionExpiredError`, re-export and update the file.
+### Refreshing cookies
+
+Akamai rotates `_abck` every few hours and tightens the noose when it detects unusual traffic. When the server returns `SessionExpiredError`:
+
+```bash
+npm run auth       # re-open Chrome, let it refresh cookies, write the file
+```
+
+Thirty seconds, no OTP round if Chrome's still authenticated.
 
 ## Run (local stdio)
 

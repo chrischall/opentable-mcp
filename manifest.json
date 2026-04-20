@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "opentable-mcp",
   "display_name": "OpenTable",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-alpha.3",
   "description": "OpenTable reservation management for Claude — list reservations, profile, saved restaurants. Fetches SSR pages via a TLS-spoofed HTTP client and parses __INITIAL_STATE__. Auth is session-cookie based (paste in cookies exported from a logged-in Chrome tab).",
   "author": {
     "name": "Chris Chall",
