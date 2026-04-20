@@ -151,6 +151,9 @@ describe('OpenTableClient — retry + error mapping', () => {
 
     const client = new OpenTableClient();
     const pending = client.request('GET', '/x');
+    // Attach a swallow-handler before advancing timers so Node doesn't flag
+    // the rejection as unhandled during the tick when it fires.
+    pending.catch(() => {});
 
     await vi.advanceTimersByTimeAsync(2000);
     await expect(pending).rejects.toThrow(/Rate limited/);
