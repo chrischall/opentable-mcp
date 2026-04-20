@@ -1,0 +1,73 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/dxt/main/dist/mcpb-manifest.schema.json",
+  "manifest_version": "0.3",
+  "name": "opentable-mcp",
+  "display_name": "OpenTable",
+  "version": "0.1.0",
+  "description": "OpenTable reservation management for Claude — search restaurants, book tables, manage reservations, favorites, and notify-me",
+  "author": {
+    "name": "Chris Chall",
+    "email": "chris.c.hall@gmail.com",
+    "url": "https://github.com/chrischall"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chrischall/opentable-mcp"
+  },
+  "homepage": "https://github.com/chrischall/opentable-mcp",
+  "support": "https://github.com/chrischall/opentable-mcp/issues",
+  "license": "MIT",
+  "keywords": [
+    "opentable",
+    "reservations",
+    "restaurants",
+    "dining",
+    "booking"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/bundle.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/bundle.js"],
+      "env": {
+        "OPENTABLE_EMAIL": "${user_config.opentable_email}",
+        "OPENTABLE_PASSWORD": "${user_config.opentable_password}"
+      }
+    }
+  },
+  "user_config": {
+    "opentable_email": {
+      "type": "string",
+      "title": "OpenTable Email",
+      "description": "Your OpenTable account email",
+      "required": true
+    },
+    "opentable_password": {
+      "type": "string",
+      "title": "OpenTable Password",
+      "description": "Your OpenTable account password",
+      "required": true,
+      "sensitive": true
+    }
+  },
+  "tools": [
+    { "name": "opentable_get_profile",        "description": "Get the authenticated OpenTable user's profile" },
+    { "name": "opentable_search_restaurants", "description": "Search restaurants with availability" },
+    { "name": "opentable_get_restaurant",     "description": "Get full restaurant details by id" },
+    { "name": "opentable_find_slots",         "description": "List available reservation slots at a restaurant" },
+    { "name": "opentable_book",               "description": "Book a reservation (composite: find → book)" },
+    { "name": "opentable_list_reservations",  "description": "List upcoming/past reservations" },
+    { "name": "opentable_cancel",             "description": "Cancel a reservation by id" },
+    { "name": "opentable_list_favorites",     "description": "List favorited restaurants" },
+    { "name": "opentable_add_favorite",       "description": "Add a restaurant to favorites" },
+    { "name": "opentable_remove_favorite",    "description": "Remove a restaurant from favorites" },
+    { "name": "opentable_list_notify",        "description": "List notify-me subscriptions" },
+    { "name": "opentable_add_notify",         "description": "Subscribe to notify-me" },
+    { "name": "opentable_remove_notify",      "description": "Cancel a notify-me subscription" }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "node": ">=18.0.0" }
+  }
+}
