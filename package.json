@@ -34,13 +34,10 @@
     "dev": "node dist/bundle.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "smoke": "tsx scripts/e2e-phase1.ts",
-    "auth": "node scripts/setup-auth.mjs"
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "cycletls": "^2.0.5",
     "dotenv": "^17.4.0",
     "ws": "^8.20.0",
     "zod": "^4.3.6"
