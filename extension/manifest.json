@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "opentable-mcp companion",
+  "version": "0.3.0",
+  "description": "Bridges the opentable-mcp server to your signed-in OpenTable tab.",
+  "action": { "default_popup": "popup.html", "default_title": "opentable-mcp" },
+  "permissions": ["tabs", "alarms"],
+  "host_permissions": [
+    "https://www.opentable.com/*",
+    "http://127.0.0.1:37149/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.opentable.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
