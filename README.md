@@ -57,8 +57,9 @@ npm run smoke        # live endpoint probe — requires real .env
 
 ## Notes
 
-- **Bot detection is the v0.1.0 blocker.** OpenTable rejects requests that don't match a real browser's TLS/HTTP‑2 fingerprint. The client handles the symptom (403 + "bot-detection challenge") but can't defeat the cause. Paths forward: browser automation (Playwright / `patchright`, same as the [Strider Labs reference implementation](https://github.com/markswendsen-code/mcp-opentable)), or TLS impersonation (e.g. `cycletls`, `node-libcurl-impersonate`).
-- Endpoint paths under `/api/v2/...` and the GraphQL search op are candidates — verified once bot detection is bypassed.
+- **Bot detection is the v0.1.0 blocker.** OpenTable rejects requests that don't match a real browser's TLS/HTTP‑2 fingerprint (Akamai Bot Manager). The client handles the symptom (403 + "bot-detection challenge") but can't defeat the cause. Paths forward tracked in [issue #1](https://github.com/chrischall/opentable-mcp/issues/1).
+- **OpenTable has no public JSON API.** The v0.1.0 spec's candidate endpoints under `/api/v2/...` don't exist — OpenTable is a Next.js SSR app and data is embedded in each page's HTML as `window.__INITIAL_STATE__`. The v0.2 pivot is to fetch pages via a real browser (Playwright / patchright) and parse that state blob. See [`src/parse-dining-dashboard.ts`](src/parse-dining-dashboard.ts) for the first parser — verified against a live authenticated session.
+- **Auth is passwordless OTP** (SMS or email code), not email+password. The `OPENTABLE_PASSWORD` env variable in v0.1.0 is vestigial and will be dropped in v0.2.
 
 ---
 
