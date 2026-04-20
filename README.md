@@ -1,28 +1,35 @@
 # opentable-mcp
 
-OpenTable reservation reader as an MCP server for Claude — list your reservations, profile, and saved restaurants via natural language.
+OpenTable reservation manager as an MCP server for Claude — find slots, book, cancel, manage favorites, and read your dashboard via natural language.
 
-> **v0.2.0-alpha.4 status: read-only user-data tools, live-verified.** Three tools ship, all backed by the authenticated `/user/*` SSR pages. Search, restaurant-detail, and write/booking tools are **not implemented** — OpenTable's Akamai Bot Manager serves a behavioral-challenge page for public paths (`/`, `/s`, `/r/…`) that no non-browser client can pass without running Chrome JS. The architectural story for those paths is in the Roadmap below.
+> **v0.3.0-alpha status: Chrome-extension bridge, 10 tools, read + write.** Every OpenTable request is relayed through your signed-in Chrome tab over a localhost WebSocket, so Akamai sees a real browser and we get clean 200s on paths that block Node `fetch` entirely.
 
 ## How it works
 
-OpenTable is a Next.js app with no public JSON API — each authenticated page embeds its React state as `"__INITIAL_STATE__":{...}` in the HTML. This server:
+OpenTable's edge (Akamai Bot Manager) serves a behavioral challenge to non-browser HTTP clients on `/`, `/s`, `/r/…`, `/dapi/…`, and `/booking/…`. cycletls, impersonated curl, and headless Chrome all hit 403 or a JS interstitial. The only thing Akamai never blocks is the actual signed-in Chrome tab.
 
-1. Accepts session cookies exported from an already-logged-in Chrome tab (Akamai's `_abck` plus OpenTable's `authCke` and friends).
-2. Uses [`cycletls`](https://www.npmjs.com/package/cycletls) to issue HTTPS requests with a desktop-Chrome JA3 TLS fingerprint (Node's default `fetch` is reset with `HTTP/2 INTERNAL_ERROR` by Akamai).
-3. Fetches the relevant `/user/*` page, extracts `__INITIAL_STATE__` via a brace-balanced JSON walker, and maps the subtree for that tool into tidy JSON.
+So instead of shipping another bot-evasion dance, this MCP server:
 
-No Playwright. No headless Chromium download. No MFA/password handling.
+1. Starts a WebSocket listener on `127.0.0.1:37149`.
+2. A companion Chrome extension (`./extension/`) connects from your signed-in browser and relays every request through the opentable.com tab via `fetch(..., { credentials: 'include' })` — real TLS, real cookies, real challenge-solved `_abck`.
+3. Parses JSON responses (public GraphQL / JSON endpoints) and SSR HTML (`/user/*`) into tool-shaped output.
+
+No cookie-pasting. No cycletls. No Playwright.
 
 ## Tools
 
-| Tool | Source page | Returns |
+| Tool | Kind | Source |
 | --- | --- | --- |
-| `opentable_list_reservations` | `/user/dining-dashboard` | Upcoming / past / all reservations with confirmation number, security token, date, time, party size, status |
-| `opentable_get_profile` | `/user/dining-dashboard` | Name, email, phones, loyalty points, home metro, member-since, VIP flag |
-| `opentable_list_favorites` | `/user/favorites` | Saved restaurants: id, name, cuisine, neighborhood, price band, rating, URL |
-
-Live-verified against a real account. Typical latency: one cycletls round-trip per call (~500 ms).
+| `opentable_list_reservations` | read | `/user/dining-dashboard` SSR |
+| `opentable_get_profile` | read | `/user/dining-dashboard` SSR |
+| `opentable_list_favorites` | read | `/user/favorites` SSR |
+| `opentable_search_restaurants` | read | `/dapi/fe/gql?opname=Autocomplete` |
+| `opentable_get_restaurant` | read | `/r/{slug}` SSR (`__INITIAL_STATE__`) |
+| `opentable_find_slots` | read | `/dapi/fe/gql?opname=RestaurantsAvailability` |
+| `opentable_book` | write | `SlotLock` → `/dapi/booking/make-reservation` |
+| `opentable_cancel` | write | `/dapi/fe/gql?opname=CancelReservation` |
+| `opentable_add_favorite` | write | `/dapi/wishlist/add` |
+| `opentable_remove_favorite` | write | `/dapi/wishlist/remove` |
 
 ## Install
 
@@ -31,44 +38,29 @@ npm install
 npm run build
 ```
 
-## Configure
+### Load the Chrome extension
 
-OpenTable's auth is passwordless email-OTP (or SMS). Rather than automate the OTP dance, `npm run auth` just reads the already-authenticated session cookies from your browser.
+1. Open `chrome://extensions`, enable Developer Mode.
+2. Click **Load unpacked** and select `./extension/` from this repo.
+3. Sign in to `https://www.opentable.com/` in that same Chrome profile.
+4. The extension badge shows a green dot when the WebSocket + tab + auth cookie are all detected.
 
-### `npm run auth`
+After that, any MCP client that launches `node dist/bundle.js` will reach OpenTable through your signed-in tab.
 
-```bash
-npm run auth                 # prompts → reads clipboard → writes ~/.config/opentable-mcp/cookies.txt
-npm run auth -- --open       # also opens opentable.com in your default browser
-npm run auth -- --print      # also prints the cookie string (for MCPB paste)
-npm run auth -- .env         # instead writes OPENTABLE_COOKIES=<value> to .env
+## Configure (Claude Desktop / Claude Code)
+
+```json
+{
+  "mcpServers": {
+    "opentable": {
+      "command": "node",
+      "args": ["/absolute/path/to/opentable-mcp/dist/bundle.js"]
+    }
+  }
+}
 ```
 
-The flow:
-
-1. Sign in to opentable.com in your regular **Chrome** or **Safari** (email-OTP click-through).
-2. Open DevTools (Chrome) or Web Inspector (Safari → Settings → Advanced → "Show features for web developers") → Console → run `copy(document.cookie)`.
-3. Come back to the terminal and press Enter — the script reads from your clipboard, validates that it has both `authCke` and `_abck`, and writes the mode-600 file the server reads.
-
-Why it has to be your regular browser: Akamai detects puppeteer-driven Chrome regardless of stealth flags (CDP presence and `--disable-blink-features=AutomationControlled` are both tells). Your actual browser has a real TLS/JS fingerprint Akamai is happy with; we just borrow the resulting cookies.
-
-### Cookie sources, in order of precedence
-
-1. `OPENTABLE_COOKIES` env var (direct, wins over file).
-2. `OPENTABLE_COOKIES_PATH` env var (path to file).
-3. Default: `~/.config/opentable-mcp/cookies.txt`.
-
-For MCPB / Claude Desktop install, the manifest prompts for "OpenTable Session Cookies" at configure time and propagates them via `OPENTABLE_COOKIES`.
-
-### Refreshing cookies
-
-Akamai rotates `_abck` every few hours. When the server returns `SessionExpiredError`:
-
-1. Visit opentable.com (you're still signed in).
-2. DevTools / Web Inspector Console → `copy(document.cookie)`.
-3. `npm run auth` → Enter.
-
-Thirty seconds, no OTP round.
+No env vars required — auth lives in the browser, not the MCP process.
 
 ## Run (local stdio)
 
@@ -79,35 +71,36 @@ node dist/bundle.js
 ## Test
 
 ```bash
-npm test                           # 52 unit tests (mocked fetch)
-npm run smoke                      # live round-trip of all 3 registered tools
+npm test                              # vitest, 72 unit tests, mocked fetch
+npm run build                         # tsc + esbuild bundle
+npx tsx scripts/probe-find-slots.ts   # live GET round-trip via extension
+npx tsx scripts/probe-list-res.ts     # live dashboard SSR
 ```
 
-## Why search / restaurant-detail / booking aren't included
+The `scripts/probe-*.ts` files spin up the MCP server, call one or two tools through the extension bridge, and print the response. They require the extension to be loaded and an opentable tab to be open.
 
-The short version: **`/user/*` paths let us in; every other OpenTable path gets a behavioral challenge we can't solve from Node.**
+## Troubleshooting
 
-The long version. Akamai Bot Manager applies different policies per URL group:
+- **Red dot in popup / "extension offline" errors.** Click the popup's Reconnect button, or reload the extension at `chrome://extensions`. The extension auto-reinjects content scripts into any existing opentable tab on reload.
+- **"Could not establish connection. Receiving end does not exist."** First call after an extension reload — the fallback path reinjects the content script and retries. If it persists, hard-reload the opentable tab (Cmd-Shift-R).
+- **Behavioral challenge page in Chrome.** Akamai sometimes interrupts a long-idle tab with a "verify you're human" interstitial. Click through it once and the tab is usable again.
+- **`list_favorites` doesn't reflect a fresh `add_favorite`.** The `/user/favorites` SSR page is cached for a few seconds. Re-list after ~10 s or verify via `opentable_get_profile`'s count.
 
-- **`/user/*`** (dining-dashboard, favorites) — the `authCke` session cookie short-circuits bot scrutiny; cycletls + our session cookies gets a clean 200 with the real page.
-- **Public paths** (`/`, `/s?...`, `/r/{slug}`) — strict TLS-fingerprint + JS-challenge validation. We tried three approaches; all failed:
-  - **cycletls** (JA3 spoof): 403 Access Denied from Akamai's edge.
-  - **impit** (Apify's Rust-based impersonator): 200 response, but served Akamai's behavioral challenge page (2.6 KB of JS that "solves" for a fresh `_abck` — real Chrome runs it automatically, Node can't).
-  - **puppeteer-core with stealth flags**: 403 + "Access Denied" (CDP presence is itself detectable).
+## Layout
 
-The parsers for search and restaurant detail (`src/parse-search.ts`, `src/parse-restaurant.ts`) and their tools (`src/tools/search.ts`, `src/tools/restaurants.ts`) exist in the repo — they're unit-tested and correct — but the tools are **not registered in `src/index.ts`** because their transport-layer fetch fails against live OpenTable. They're kept as research for future work.
+- `src/ws-server.ts` — `OpenTableWsServer`: accepts the extension WS, relays `fetch` RPCs.
+- `src/client.ts` — `OpenTableClient`: wraps the WS with `fetchJson` / `fetchHtml` + error-mapping.
+- `src/tools/*.ts` — one file per concern (reservations / restaurants / favorites / user / search). Each exports `registerXxxTools(server, client)`.
+- `src/parse-*.ts` — pure HTML/JSON parsers, fully unit-tested.
+- `extension/` — MV3 service worker, content script (fetch relay, isolated world), capture logger (MAIN world).
+- `tests/` — 1:1 mirror of `src/`, vitest.
+- `scripts/probe-*.ts` — live round-trip probes (require extension + sign-in).
 
-Real ways to unblock them:
+## Known quirks
 
-1. **In-browser fetch bridge.** A Chrome extension or userscript in the user's authenticated browser relays HTTP requests to the MCP server over localhost. Akamai is happy because every fetch is from the real browser. Most reliable; most setup overhead.
-2. **`curl-impersonate-chrome`.** Native binary, TLS fingerprint closer than cycletls. Probably gets past JA3-only checks; likely still hits the behavioral challenge. Worth a test, not a guaranteed win.
-3. **`undetected-chromedriver`-style automation.** Third-party Chromium builds that strip CDP tells. Maintenance burden.
-
-## Roadmap
-
-- **Deferred: `opentable_find_slots`.** OpenTable does NOT include slot availability in SSR HTML — the restaurant page hydrates, then POSTs to `/dapi/fe/gql?opname=RestaurantsAvailability` for slots. Same public-path Akamai wall as above, plus we'd need to capture the GraphQL query body.
-- **Deferred: write tools** — `opentable_book`, `opentable_cancel`, `opentable_add_favorite`, `opentable_remove_favorite`. Same wall.
-- **Dropped from v0.1.0 plan** — `*_notify` tools. OpenTable no longer exposes a user-facing notify-me subscription surface (`/user/notifications`, `/notify-me`, etc. all 404). `header.userNotifications` is a push-notification feed.
+- **Apollo persisted queries.** Slot search, slot lock, cancel, autocomplete — all use `extensions.persistedQuery.sha256Hash` with hashes captured from opentable.com. If OpenTable re-deploys, the server returns `PersistedQueryNotFound`; open the extension's capture log to re-grab them.
+- **`dining_area_id` is a required book arg.** `/r/<numeric-id>` 404s on OpenTable (URLs use slugs), so we can't auto-resolve rooms. Pass the restaurant's URL slug to `opentable_get_restaurant`, read `diningAreas[]`, and feed the id into `opentable_book`.
+- **Service worker sleep.** MV3 SWs sleep after ~30 s idle. The extension holds a 20 s ping + a 25 s `chrome.alarms` tick to stay warm. On cold wake, the first request may wait up to ~5 s for WS reconnect.
 
 ---
 
