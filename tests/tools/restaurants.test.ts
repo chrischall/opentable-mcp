@@ -108,6 +108,11 @@ describe('restaurant tools', () => {
       expect(text).toContain('"phone": "+14155551234"');
       expect(text).toContain('"features"');
       expect(text).toContain('"url": "https://www.opentable.com/restaurant/ristorante-milano-sf"');
+
+      // String-address shape emits `address`, NOT `address_city` — the full
+      // street address should never be promoted into the city slot.
+      expect(text).toContain('"address": "123 Market St, San Francisco, CA"');
+      expect(text).not.toMatch(/"address_city":\s*"123 Market St/);
     });
   });
 });

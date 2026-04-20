@@ -30,10 +30,12 @@ export function formatRestaurant(
     ? `${BASE_URL}${raw.profile_url.startsWith('/') ? raw.profile_url : `/${raw.profile_url}`}`
     : undefined;
 
-  const address =
-    typeof raw.address === 'string'
-      ? raw.address
-      : raw.address?.city ?? undefined;
+  // search results embed a structured address with a city field; the
+  // single-restaurant endpoint returns a flat string. Expose each under its
+  // own key so Claude never sees a street address promoted into `city`.
+  const addressCity =
+    typeof raw.address === 'object' ? raw.address?.city ?? undefined : undefined;
+  const addressString = typeof raw.address === 'string' ? raw.address : undefined;
 
   const slots =
     opts.date !== undefined && opts.partySize !== undefined
@@ -51,8 +53,8 @@ export function formatRestaurant(
     name: raw.name,
     cuisine: raw.cuisine,
     neighborhood: raw.neighborhood,
-    address_city: address,
-    address: typeof raw.address === 'string' ? raw.address : undefined,
+    address_city: addressCity,
+    address: addressString,
     phone: raw.phone,
     hours: raw.hours,
     description: raw.description,
