@@ -32,7 +32,7 @@ export class OpenTableWsServer {
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
   private pingTimer: NodeJS.Timeout | null = null;
-  private connectTimeoutMs = 10_000;
+  private connectTimeoutMs = 15_000;
   private requestTimeoutMs = 30_000;
   private readyResolvers: Array<() => void> = [];
 

@@ -8,14 +8,34 @@
 //   scratch (no in-memory state survives sleep).
 
 const WS_URL = 'ws://127.0.0.1:37149/';
-const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 10000];
+// Tight initial backoff so ephemeral MCP-client sessions (each spawns its
+// own server for a few seconds) can reach us during their short lifetime.
+const RECONNECT_BACKOFF_MS = [200, 500, 1000, 2000, 5000];
 let reconnectAttempt = 0;
 let ws = null;
 let currentTabId = null;
 const pendingReplies = new Map(); // id → {ws}
 
-chrome.runtime.onInstalled.addListener(() => openWs());
-chrome.runtime.onStartup.addListener(() => openWs());
+chrome.runtime.onInstalled.addListener(() => {
+  openWs();
+  reinjectAllOpenTableTabs();
+});
+chrome.runtime.onStartup.addListener(() => {
+  openWs();
+  reinjectAllOpenTableTabs();
+});
+
+// After an extension reload, existing tabs lose their content scripts.
+// Re-inject into every opentable.com tab so the fetch relay works without
+// requiring the user to hard-reload the page.
+async function reinjectAllOpenTableTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://www.opentable.com/*' });
+    await Promise.all(tabs.map((t) => t.id != null && reinjectContentScripts(t.id)));
+  } catch (e) {
+    // best-effort; sendFetchToTab has its own fallback
+  }
+}
 
 // Keep the SW alive by tick every 25s.
 chrome.alarms.create('keepalive', { periodInMinutes: 25 / 60 });
@@ -61,7 +81,7 @@ function openWs() {
   }
   ws.onopen = () => {
     reconnectAttempt = 0;
-    ws.send(JSON.stringify({ type: 'hello', protocol: 1, extensionVersion: '0.3.0' }));
+    ws.send(JSON.stringify({ type: 'hello', protocol: 1, extensionVersion: '0.3.1' }));
     ensureOpenTableTab().then(() => announceReadyIfPossible());
     updateBadge();
   };
@@ -137,11 +157,7 @@ async function handleFetchRequest(frame) {
     return;
   }
   try {
-    const reply = await chrome.tabs.sendMessage(currentTabId, {
-      type: 'fetch',
-      id: frame.id,
-      init: frame.init,
-    });
+    const reply = await sendFetchToTab(currentTabId, frame);
     ws.send(JSON.stringify({ type: 'response', id: frame.id, ...reply }));
   } catch (e) {
     ws.send(
@@ -153,6 +169,34 @@ async function handleFetchRequest(frame) {
       })
     );
   }
+}
+
+// Try the content-script bridge; on failure (extension reloaded, tab not yet
+// reached by content_scripts), re-inject the scripts and retry once.
+async function sendFetchToTab(tabId, frame) {
+  const msg = { type: 'fetch', id: frame.id, init: frame.init };
+  try {
+    return await chrome.tabs.sendMessage(tabId, msg);
+  } catch (e) {
+    const recoverable = /receiving end|no tab with id/i.test(String(e?.message ?? e));
+    if (!recoverable) throw e;
+    await reinjectContentScripts(tabId);
+    return chrome.tabs.sendMessage(tabId, msg);
+  }
+}
+
+async function reinjectContentScripts(tabId) {
+  // Isolated-world relay
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['content.js'],
+  });
+  // MAIN-world capture logger
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['capture-logger.js'],
+    world: 'MAIN',
+  });
 }
 
 function updateBadge() {
