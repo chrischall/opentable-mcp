@@ -2,66 +2,80 @@
 /**
  * OpenTable MCP auth setup.
  *
- * Launches the user's system Chrome with a dedicated profile, opens
- * opentable.com, waits for them to sign in (email OTP), then captures the
- * full cookie jar — Akamai's bot-manager cookies (`_abck`, `bm_sz`, `bm_so`,
- * `bm_sv`, `bm_lso`) plus OpenTable's auth (`authCke`, `ha_userSession`,
- * session IDs). All are required: Akamai cookies let us past the bot wall,
- * OpenTable cookies identify the logged-in user.
+ * Reads session cookies from the clipboard (after the user exports them
+ * from an authenticated opentable.com tab) and writes them to the
+ * cookies file the server reads.
+ *
+ * We originally tried puppeteer-core for a fully-automated flow (same as
+ * creditkarma-mcp does for creditkarma.com), but Akamai Bot Manager
+ * detects puppeteer-driven Chrome regardless of stealth flags and serves
+ * an Access Denied page. So: no automation. The user signs in themselves
+ * in their regular Chrome, which has a real TLS/JS fingerprint Akamai is
+ * happy with, and just pastes the cookies here.
  *
  * Usage:
  *   setup-auth.mjs                  -> writes to ~/.config/opentable-mcp/cookies.txt
  *   setup-auth.mjs <ENV_FILE>       -> writes OPENTABLE_COOKIES=<value> to ENV_FILE
- *   setup-auth.mjs --print          -> prints the cookie string to stdout
- *
- * Pattern cribbed from creditkarma-mcp/scripts/setup-auth.mjs.
+ *   setup-auth.mjs --open           -> also opens opentable.com in the default browser
+ *   setup-auth.mjs --print          -> also prints the cookie string to stdout
  */
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, '..');
-
-const LOGIN_URL = 'https://www.opentable.com/';
+const DEFAULT_COOKIE_FILE = path.join(
+  os.homedir(),
+  '.config',
+  'opentable-mcp',
+  'cookies.txt'
+);
 const AUTH_COOKIE_NAME = 'authCke';
-const TIMEOUT_MS = 10 * 60 * 1000;
-const DEFAULT_COOKIE_FILE = path.join(os.homedir(), '.config', 'opentable-mcp', 'cookies.txt');
-
-function findChrome() {
-  const candidates = {
-    darwin: [
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    ],
-    linux: [
-      '/usr/bin/google-chrome',
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-      '/snap/bin/chromium',
-    ],
-    win32: [
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    ],
-  }[process.platform] || [];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
-}
 
 /**
- * Update (or create) an env file, preserving other keys. 0600 perms.
+ * Try to read the system clipboard. Returns null if unavailable.
  */
+function readClipboard() {
+  const runners = {
+    darwin: ['pbpaste', []],
+    linux: ['xclip', ['-selection', 'clipboard', '-o']],
+    win32: ['powershell', ['-command', 'Get-Clipboard']],
+  };
+  const [cmd, args] = runners[process.platform] ?? [null, []];
+  if (!cmd) return null;
+  const result = spawnSync(cmd, args, { encoding: 'utf8' });
+  if (result.status !== 0) return null;
+  return result.stdout.trim();
+}
+
+function openInBrowser(url) {
+  const runners = {
+    darwin: 'open',
+    linux: 'xdg-open',
+    win32: 'start',
+  };
+  const cmd = runners[process.platform];
+  if (!cmd) return;
+  try {
+    execSync(`${cmd} ${JSON.stringify(url)}`, { stdio: 'ignore' });
+  } catch {
+    // best effort
+  }
+}
+
+async function prompt(question) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await new Promise((resolve) => rl.question(question, resolve));
+  } finally {
+    rl.close();
+  }
+}
+
 export function writeEnvVar(envPath, key, value) {
   let contents = '';
-  if (fs.existsSync(envPath)) {
-    contents = fs.readFileSync(envPath, 'utf8');
-  }
+  if (fs.existsSync(envPath)) contents = fs.readFileSync(envPath, 'utf8');
   const lineRe = new RegExp(`^${key}=.*$`, 'm');
   if (lineRe.test(contents)) {
     contents = contents.replace(lineRe, `${key}=${value}`);
@@ -72,135 +86,102 @@ export function writeEnvVar(envPath, key, value) {
   fs.writeFileSync(envPath, contents, { mode: 0o600 });
 }
 
-async function loadPuppeteer() {
-  try {
-    return (await import('puppeteer-core')).default;
-  } catch {
-    console.log('Installing puppeteer-core (~1 MB, one time)...');
-    execSync('npm install --no-save puppeteer-core', {
-      stdio: 'inherit',
-      cwd: projectRoot,
-    });
-    return (await import('puppeteer-core')).default;
+function validateCookieHeader(raw) {
+  if (!raw || raw.length < 100) {
+    return { ok: false, reason: 'empty or too short — expected a few KB' };
   }
+  if (!raw.includes(`${AUTH_COOKIE_NAME}=`)) {
+    return {
+      ok: false,
+      reason: `missing ${AUTH_COOKIE_NAME}= (are you signed in?)`,
+    };
+  }
+  if (!raw.includes('_abck=')) {
+    return {
+      ok: false,
+      reason:
+        'missing Akamai _abck cookie — did you copy from opentable.com specifically?',
+    };
+  }
+  return { ok: true };
 }
 
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('-h') || args.includes('--help')) {
-    console.log('Usage: setup-auth.mjs [--print] [ENV_FILE]');
+    console.log('Usage: setup-auth.mjs [--open] [--print] [ENV_FILE]');
     console.log('');
-    console.log('  No args: writes cookies to ~/.config/opentable-mcp/cookies.txt');
-    console.log('           (the default location the server reads).');
-    console.log('  --print: also prints the cookie string to stdout (for MCPB paste).');
+    console.log('  No args:  writes cookies to ~/.config/opentable-mcp/cookies.txt.');
+    console.log('  --open:   also opens opentable.com in your default browser.');
+    console.log('  --print:  also prints the cookie string to stdout (for MCPB paste).');
     console.log('  ENV_FILE: writes OPENTABLE_COOKIES=<value> to that env file.');
     return;
   }
+  const shouldOpen = args.includes('--open');
   const shouldPrint = args.includes('--print');
   const envFile = args.find((a) => !a.startsWith('-'));
 
-  const chromePath = findChrome();
-  if (!chromePath) {
-    console.error(
-      'Could not find Google Chrome. Install from https://chrome.google.com/ ' +
-        'or fall back to the manual DevTools cookie-copy flow in the README.'
+  console.log('');
+  console.log('OpenTable session capture');
+  console.log('─────────────────────────');
+  console.log('');
+  console.log('1. Open https://www.opentable.com/ in your regular Chrome.');
+  console.log('2. Sign in (email OTP — click "Use email instead" on the popup).');
+  console.log('3. Once signed in, open DevTools → Console and run:');
+  console.log('');
+  console.log('     copy(document.cookie)');
+  console.log('');
+  console.log('4. Come back here and press Enter.');
+  console.log('');
+  console.log(
+    '   (Nothing sensitive is printed back. Cookies go to a mode-600 file.)'
+  );
+  console.log('');
+
+  if (shouldOpen) openInBrowser('https://www.opentable.com/');
+
+  await prompt('Press Enter once you have copied the cookie string… ');
+
+  let raw = readClipboard();
+  if (!raw) {
+    console.log(
+      "Couldn't read the clipboard automatically. Paste the cookies below and press Enter:"
     );
-    process.exit(1);
+    raw = (await prompt('> ')).trim();
   }
 
-  const puppeteer = await loadPuppeteer();
+  // Some users paste with leading "Cookie: " or with surrounding quotes; strip.
+  raw = raw.replace(/^Cookie:\s*/i, '').replace(/^["']|["']$/g, '').trim();
 
-  const profileDir = path.join(os.homedir(), '.opentable-mcp', 'chrome-profile');
-  fs.mkdirSync(profileDir, { recursive: true });
-
-  console.log('');
-  console.log('Launching Chrome with a dedicated profile at:');
-  console.log(`  ${profileDir}`);
-  console.log('');
-  console.log('Sign in to OpenTable when the window opens. OpenTable uses');
-  console.log('passwordless OTP — enter your email, click "Use email instead",');
-  console.log('then paste the code from your inbox. The script will detect the');
-  console.log('login automatically and close the browser.');
-  console.log('');
-
-  // OpenTable is behind Akamai Bot Manager (TLS/HTTP-2 fingerprint + JS
-  // challenge) which trips hard on Chrome's default automation tells. Strip them:
-  //   - drop --enable-automation (sets navigator.webdriver + shows the infobar)
-  //   - add --disable-blink-features=AutomationControlled (the actual gate)
-  //   - override navigator.webdriver before any page script runs
-  const browser = await puppeteer.launch({
-    executablePath: chromePath,
-    userDataDir: profileDir,
-    headless: false,
-    defaultViewport: null,
-    ignoreDefaultArgs: ['--enable-automation'],
-    args: [
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-blink-features=AutomationControlled',
-    ],
-  });
-
-  const [page] = await browser.pages();
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  });
-  await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
-
-  const cookies = await waitForLogin(page);
-  killBrowser(browser);
-
-  if (!cookies) {
-    console.error(
-      `Timed out after ${TIMEOUT_MS / 60000} minutes without detecting a login.`
-    );
+  const check = validateCookieHeader(raw);
+  if (!check.ok) {
+    console.error(`✗ Cookie string looks wrong: ${check.reason}`);
+    console.error('  Re-run the setup when you are signed in to opentable.com.');
     process.exit(1);
   }
-
-  const cookieHeader = cookies
-    .map((c) => `${c.name}=${c.value}`)
-    .join('; ');
 
   if (envFile) {
-    writeEnvVar(path.resolve(envFile), 'OPENTABLE_COOKIES', cookieHeader);
+    writeEnvVar(path.resolve(envFile), 'OPENTABLE_COOKIES', raw);
     console.log('');
-    console.log(`Wrote OPENTABLE_COOKIES to ${envFile}`);
-    console.log('Restart Claude (or `node dist/bundle.js`) to pick it up.');
+    console.log(`✓ Wrote OPENTABLE_COOKIES to ${envFile}`);
+    console.log('  Restart Claude (or `node dist/bundle.js`) to pick it up.');
   } else {
     fs.mkdirSync(path.dirname(DEFAULT_COOKIE_FILE), { recursive: true });
-    fs.writeFileSync(DEFAULT_COOKIE_FILE, cookieHeader, { mode: 0o600 });
+    fs.writeFileSync(DEFAULT_COOKIE_FILE, raw, { mode: 0o600 });
     console.log('');
-    console.log(`Wrote ${cookieHeader.length} bytes to ${DEFAULT_COOKIE_FILE} (mode 600)`);
-    console.log('That is the default path the MCP server reads from.');
+    console.log(
+      `✓ Wrote ${raw.length} bytes to ${DEFAULT_COOKIE_FILE} (mode 600)`
+    );
+    console.log('  That is the default path the MCP server reads from.');
   }
 
   if (shouldPrint) {
     console.log('');
     console.log('OPENTABLE_COOKIES (paste into MCPB / Claude Desktop config):');
     console.log('');
-    console.log(cookieHeader);
+    console.log(raw);
     console.log('');
   }
-}
-
-function killBrowser(browser) {
-  const proc = browser.process();
-  if (proc && proc.exitCode === null) proc.kill('SIGKILL');
-}
-
-/**
- * Poll the page cookie jar every second until authCke appears, then return
- * the full cookie list for opentable.com (Akamai + OT domain cookies).
- */
-async function waitForLogin(page) {
-  const start = Date.now();
-  while (Date.now() - start < TIMEOUT_MS) {
-    const cookies = await page.cookies('https://www.opentable.com').catch(() => []);
-    const hasAuth = cookies.some((c) => c.name === AUTH_COOKIE_NAME && c.value);
-    if (hasAuth) return cookies;
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  return null;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

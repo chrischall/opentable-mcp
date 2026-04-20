@@ -35,27 +35,24 @@ npm run build
 
 OpenTable's auth is passwordless OTP (email or SMS), not email+password. Rather than automate the OTP dance, v0.2 ships a one-shot helper that launches your real Chrome, waits for you to sign in, and captures the session cookies.
 
-### Option A — `npm run auth` (recommended)
+### `npm run auth`
 
 ```bash
-npm run auth                 # captures + writes to ~/.config/opentable-mcp/cookies.txt
-npm run auth -- .env         # instead writes OPENTABLE_COOKIES=<value> to .env
+npm run auth                 # prompts → reads clipboard → writes ~/.config/opentable-mcp/cookies.txt
+npm run auth -- --open       # also opens opentable.com in your default browser
 npm run auth -- --print      # also prints the cookie string (for MCPB paste)
+npm run auth -- .env         # instead writes OPENTABLE_COOKIES=<value> to .env
 ```
 
-Launches the user's system Chrome (found automatically on macOS / Linux / Windows) with a dedicated profile at `~/.opentable-mcp/chrome-profile`. Navigate to OpenTable's login, sign in via email OTP — the script watches for the `authCke` cookie and exits once it appears, then exports the full cookie jar (Akamai `_abck`/`bm_*` + OpenTable `authCke`/`ha_userSession`).
+The script is deliberately un-automated: OpenTable's Akamai bot manager detects puppeteer-driven Chrome regardless of stealth flags (CDP + `--disable-blink-features=AutomationControlled` are tells it keys on). So the flow is:
 
-Installs `puppeteer-core` (~1 MB) on first run; it just drives your existing Chrome, no Chromium download. Pattern cribbed from [`creditkarma-mcp`](https://github.com/chrischall/creditkarma-mcp).
-
-The dedicated Chrome profile is persistent, so subsequent `npm run auth` runs typically don't require a full re-login — Chrome remembers you and the script just refreshes the Akamai cookies.
-
-> ⚠️ **macOS quirk:** if Chrome is already running, `Google Chrome.app` may delegate the launch to the existing instance and the script errors with `Failed to launch the browser process`. Quit Chrome first (Cmd-Q), run `npm run auth`, sign in, let the script exit — then reopen Chrome normally.
-
-### Option B — manual (DevTools)
-
-1. Open an authenticated opentable.com tab in Chrome.
+1. Sign in to opentable.com in your **regular** Chrome (email-OTP click-through).
 2. DevTools → Console → `copy(document.cookie)`.
-3. Write the clipboard contents to `~/.config/opentable-mcp/cookies.txt`, then `chmod 600`.
+3. Come back to the terminal and press Enter — the script reads from your clipboard, validates that it has both `authCke` and `_abck`, and writes the mode-600 file the server reads.
+
+Why your regular Chrome works where `puppeteer` can't: Akamai passes a real-user TLS/JS fingerprint and trips a bot on anything driven via CDP. Your browser does all the handshaking; we just copy the cookies.
+
+The cookies file is at `~/.config/opentable-mcp/cookies.txt` by default and is world-unreadable.
 
 ### Cookie sources, in order of precedence
 
@@ -69,9 +66,9 @@ For MCPB / Claude Desktop install, the manifest prompts for "OpenTable Session C
 
 Akamai rotates `_abck` every few hours and tightens the noose when it detects unusual traffic. When the server returns `SessionExpiredError`:
 
-```bash
-npm run auth       # re-open Chrome, let it refresh cookies, write the file
-```
+1. Visit opentable.com in your normal Chrome (you'll still be signed in).
+2. DevTools → Console → `copy(document.cookie)`.
+3. `npm run auth` → press Enter.
 
 Thirty seconds, no OTP round if Chrome's still authenticated.
 
