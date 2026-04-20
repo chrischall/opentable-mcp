@@ -63,4 +63,46 @@ export function registerReservationTools(
       return { content: [{ type: 'text' as const, text: JSON.stringify(slots, null, 2) }] };
     }
   );
+
+  interface RawReservation {
+    id?: string;
+    confirmation_number?: string;
+    restaurant_name?: string;
+    restaurant?: { name?: string };
+    date?: string;
+    time?: string;
+    party_size?: number;
+    status?: string;
+    special_requests?: string;
+  }
+
+  server.registerTool(
+    'opentable_list_reservations',
+    {
+      description:
+        'List the user\'s OpenTable reservations. Defaults to upcoming; pass scope="past" or scope="all" to broaden.',
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        scope: z.enum(['upcoming', 'past', 'all']).optional(),
+      },
+    },
+    async ({ scope }) => {
+      const scopeParam = scope ?? 'upcoming';
+      const data = await client.request<{ reservations?: RawReservation[] }>(
+        'GET',
+        `/api/v2/users/me/reservations?scope=${encodeURIComponent(scopeParam)}`
+      );
+      const formatted = (data.reservations ?? []).map((r) => ({
+        reservation_id: r.id ?? '',
+        confirmation_number: r.confirmation_number,
+        restaurant_name: r.restaurant_name ?? r.restaurant?.name ?? 'Unknown',
+        date: r.date ?? '',
+        time: r.time ?? '',
+        party_size: r.party_size ?? 0,
+        status: r.status,
+        special_requests: r.special_requests,
+      }));
+      return { content: [{ type: 'text' as const, text: JSON.stringify(formatted, null, 2) }] };
+    }
+  );
 }

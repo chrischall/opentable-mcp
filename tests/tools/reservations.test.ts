@@ -45,4 +45,42 @@ describe('reservation tools', () => {
       expect(parsed.map((s) => s.time)).toEqual(['18:00', '19:30', '20:00']);
     });
   });
+
+  describe('opentable_list_reservations', () => {
+    it('defaults to scope=upcoming and formats each entry', async () => {
+      mockRequest.mockResolvedValue({
+        reservations: [
+          {
+            id: 'res-1',
+            confirmation_number: 'ABC123',
+            restaurant_name: 'Milano',
+            date: '2026-05-01',
+            time: '19:00',
+            party_size: 2,
+            status: 'confirmed',
+          },
+        ],
+      });
+
+      const result = await harness.callTool('opentable_list_reservations');
+
+      expect(mockRequest).toHaveBeenCalledWith(
+        'GET',
+        '/api/v2/users/me/reservations?scope=upcoming'
+      );
+      expect(result.isError).toBeFalsy();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('"reservation_id": "res-1"');
+      expect(text).toContain('"confirmation_number": "ABC123"');
+    });
+
+    it('passes scope=past through', async () => {
+      mockRequest.mockResolvedValue({ reservations: [] });
+      await harness.callTool('opentable_list_reservations', { scope: 'past' });
+      expect(mockRequest).toHaveBeenCalledWith(
+        'GET',
+        '/api/v2/users/me/reservations?scope=past'
+      );
+    });
+  });
 });
