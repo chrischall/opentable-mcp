@@ -105,4 +105,33 @@ export function registerReservationTools(
       return { content: [{ type: 'text' as const, text: JSON.stringify(formatted, null, 2) }] };
     }
   );
+
+  server.registerTool(
+    'opentable_cancel',
+    {
+      description:
+        'Cancel an OpenTable reservation by its reservation_id (from opentable_book or opentable_list_reservations).',
+      inputSchema: { reservation_id: z.string() },
+    },
+    async ({ reservation_id }) => {
+      const data = await client.request<Record<string, unknown>>(
+        'POST',
+        `/api/v2/reservations/${reservation_id}/cancel`
+      );
+      const status = typeof data.status === 'string' ? data.status.toLowerCase() : undefined;
+      const hasErrorField = 'error' in data || 'error_message' in data;
+      const explicitSuccess =
+        (status !== undefined && /cancel/.test(status)) || data.ok === true;
+      const explicitFailure =
+        data.ok === false ||
+        (status !== undefined && /fail|error|denied/.test(status)) ||
+        hasErrorField;
+      const cancelled = explicitSuccess || !explicitFailure;
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify({ cancelled, raw: data }, null, 2) },
+        ],
+      };
+    }
+  );
 }

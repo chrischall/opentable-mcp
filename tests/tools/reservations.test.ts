@@ -83,4 +83,32 @@ describe('reservation tools', () => {
       );
     });
   });
+
+  describe('opentable_cancel', () => {
+    it('POSTs cancel and reports cancelled=true on positive signal', async () => {
+      mockRequest.mockResolvedValue({ status: 'cancelled' });
+
+      const result = await harness.callTool('opentable_cancel', {
+        reservation_id: 'res-1',
+      });
+
+      expect(mockRequest).toHaveBeenCalledWith(
+        'POST',
+        '/api/v2/reservations/res-1/cancel'
+      );
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.cancelled).toBe(true);
+      expect(parsed.raw).toEqual({ status: 'cancelled' });
+    });
+
+    it('reports cancelled=false on explicit error field', async () => {
+      mockRequest.mockResolvedValue({ error: 'already cancelled' });
+      const result = await harness.callTool('opentable_cancel', {
+        reservation_id: 'res-1',
+      });
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.cancelled).toBe(false);
+    });
+  });
 });
