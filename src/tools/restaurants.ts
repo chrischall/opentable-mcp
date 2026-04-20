@@ -4,8 +4,10 @@ import type { OpenTableClient } from '../client.js';
 import { parseRestaurant } from '../parse-restaurant.js';
 
 /**
- * `restaurant_id` can be either a numeric ID (e.g. 42) or a URL slug
- * (e.g. "gran-morsi-new-york"). Both forms work against /r/{...}.
+ * OpenTable's `/r/{...}` route expects a URL slug (e.g.
+ * "state-of-confusion-charlotte"). Numeric ids 404 on this route — pass
+ * the slug from a search result or the `restaurantUrl` field of another
+ * tool's response.
  */
 function restaurantPath(id: string | number): string {
   return `/r/${id}`;
@@ -24,7 +26,9 @@ export function registerRestaurantTools(
       inputSchema: {
         restaurant_id: z
           .union([z.string(), z.number().int().positive()])
-          .describe('Numeric restaurant id or URL slug (e.g. "gran-morsi-new-york")'),
+          .describe(
+            'URL slug (e.g. "state-of-confusion-charlotte"). Numeric ids 404 on /r/{...} — grab the slug from opentable_search_restaurants.'
+          ),
       },
     },
     async ({ restaurant_id }) => {

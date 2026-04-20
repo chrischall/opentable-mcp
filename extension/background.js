@@ -1,11 +1,20 @@
-// Service worker owns the WebSocket to the MCP server and routes
-// `fetch` requests to the content script in the opentable.com tab.
+// background.js — service worker + WebSocket client.
+//
+// Owns the outbound WS to the MCP server on 127.0.0.1:37149 and routes
+// `request` frames to the content script in the opentable.com tab. See
+// extension/README.md for the protocol.
 //
 // MV3 caveats:
 // - Service workers sleep after ~30s idle. We ping-pong every 20s and
 //   register a chrome.alarms tick every 25s to keep busy.
 // - When the worker wakes, we re-open the WS. State is rebuilt from
 //   scratch (no in-memory state survives sleep).
+// - Content scripts declared in manifest.json `content_scripts` only
+//   inject into NEW page loads. Tabs that were already open before an
+//   extension reload won't have them. `reinjectAllOpenTableTabs` (on
+//   install/startup) + `sendFetchToTab`'s per-call fallback
+//   (chrome.scripting.executeScript on "Receiving end does not exist")
+//   cover both cases.
 
 const WS_URL = 'ws://127.0.0.1:37149/';
 // Tight initial backoff so ephemeral MCP-client sessions (each spawns its

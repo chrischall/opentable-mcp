@@ -1,6 +1,19 @@
-// Runs on every opentable.com page at document_start. Relays fetch
-// requests from the service worker to the page-context fetch, which
-// inherits origin/cookies/TLS state the way Akamai expects.
+// content.js — the isolated-world fetch relay.
+//
+// Runs on every opentable.com page at document_start. Listens for
+// `{type:"fetch", init}` messages from the service worker, makes the
+// actual fetch from the page's own JS context (origin, cookies, TLS
+// all line up with what Akamai expects), and replies with
+// `{ok, status, body, url}`.
+//
+// Lives in Chrome's ISOLATED world by default — it can't see page
+// globals like `window.__CSRF_TOKEN__`. capture-logger.js (MAIN world)
+// mirrors the token onto `document.documentElement.dataset.otMcpCsrf`
+// so we can still read it here.
+//
+// If the extension reloads, this file gets unloaded from existing tabs
+// until the page reloads. background.js's `sendFetchToTab` fallback
+// re-injects us via chrome.scripting.executeScript when that happens.
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== 'fetch') return;

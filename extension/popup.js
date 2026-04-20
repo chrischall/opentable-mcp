@@ -1,3 +1,8 @@
+// Popup UI. Polls the service worker via chrome.runtime.sendMessage
+// every 2s for WS + tab state, and reads the opentable.com authCke
+// cookie directly to show the sign-in dot. Two buttons: open/focus an
+// opentable tab, force a WS reconnect.
+
 function setDot(id, color) {
   const el = document.getElementById(id);
   el.classList.remove('green', 'yellow', 'red');

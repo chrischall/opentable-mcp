@@ -1,3 +1,9 @@
+// Favorite tools: list (SSR), add + remove (wishlist JSON endpoints).
+//
+// Add/remove return 204 No Content on success. The /user/favorites SSR
+// page is cached — a fresh add may take ~10s to show up there, so we
+// treat the 204 as authoritative and don't round-trip through list to
+// "verify".
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
@@ -6,6 +12,8 @@ import { parseFavorites } from '../parse-favorites.js';
 const FAVORITES_PATH = '/user/favorites';
 const WISHLIST_ADD_PATH = '/dapi/wishlist/add';
 const WISHLIST_REMOVE_PATH = '/dapi/wishlist/remove';
+// OpenTable's default wishlist name is literally "Favorites"; other
+// names exist per-account but we stick to the default surface.
 const WISHLIST_NAME = 'Favorites';
 
 export function registerFavoriteTools(
