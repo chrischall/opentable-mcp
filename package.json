@@ -42,10 +42,12 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cycletls": "^2.0.5",
     "dotenv": "^17.4.0",
+    "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.2",
     "esbuild": "^0.28.0",
     "tsx": "^4.19.0",
