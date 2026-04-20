@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "opentable-mcp",
   "display_name": "OpenTable",
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.2",
   "description": "OpenTable reservation management for Claude — list reservations, profile, saved restaurants. Fetches SSR pages via a TLS-spoofed HTTP client and parses __INITIAL_STATE__. Auth is session-cookie based (paste in cookies exported from a logged-in Chrome tab).",
   "author": {
     "name": "Chris Chall",
@@ -45,9 +45,11 @@
     }
   },
   "tools": [
-    { "name": "opentable_list_reservations", "description": "List the user's OpenTable reservations (upcoming / past / all)" },
-    { "name": "opentable_get_profile",       "description": "Get the authenticated user's profile (name, email, loyalty points, metro)" },
-    { "name": "opentable_list_favorites",    "description": "List the user's saved restaurants" }
+    { "name": "opentable_list_reservations",  "description": "List the user's OpenTable reservations (upcoming / past / all)" },
+    { "name": "opentable_get_profile",        "description": "Get the authenticated user's profile (name, email, loyalty points, metro)" },
+    { "name": "opentable_list_favorites",     "description": "List the user's saved restaurants" },
+    { "name": "opentable_search_restaurants", "description": "Search OpenTable restaurants by term / location / date / party size" },
+    { "name": "opentable_get_restaurant",     "description": "Get full details for a single restaurant by id or slug" }
   ],
   "compatibility": {
     "platforms": ["darwin", "win32", "linux"],

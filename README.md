@@ -2,7 +2,7 @@
 
 OpenTable reservation reader as an MCP server for Claude — list your reservations, profile, and saved restaurants via natural language.
 
-> **v0.2.0-alpha.1 status: partial.** Read-only, happy-path verified against a real account. OpenTable doesn't publish a public API, so the server fetches the user-facing SSR pages (behind Akamai bot detection) and extracts `__INITIAL_STATE__` via a TLS-fingerprinted HTTP client. Write operations (book / cancel / favorites-CRUD) are not yet implemented — see the Roadmap below.
+> **v0.2.0-alpha.2 status: partial.** Read-only, happy-path verified against a real account for `list_reservations` / `get_profile` / `list_favorites`. `search_restaurants` and `get_restaurant` parse the same SSR shape; they are unit-tested but not yet in-session live-verified (Akamai cookie rotation caught up with the test session). Write operations (book / cancel / favorites-CRUD) and `find_slots` are not yet implemented — see the Roadmap below.
 
 ## How it works
 
@@ -14,13 +14,15 @@ OpenTable is a Next.js app. Each authenticated page embeds its React state as `"
 
 No Playwright. No headless Chromium download. No MFA/password handling.
 
-## Tools (v0.2.0-alpha.1)
+## Tools (v0.2.0-alpha.2)
 
 | Tool | Source page | Returns |
 | --- | --- | --- |
 | `opentable_list_reservations` | `/user/dining-dashboard` | Upcoming / past / all reservations with confirmation number, security token, date, time, party size, status |
 | `opentable_get_profile` | `/user/dining-dashboard` | Name, email, phones, loyalty points, home metro, member-since, VIP flag |
 | `opentable_list_favorites` | `/user/favorites` | Saved restaurants: id, name, cuisine, neighborhood, price band, rating, URL |
+| `opentable_search_restaurants` | `/s?term=...` | Up to ~50 restaurants per query with rating, address, phone, coordinates, description, URL (no slots — see notes) |
+| `opentable_get_restaurant` | `/r/{id-or-slug}` | Full restaurant details: cuisine, price, hours, features, payment options, address, phone, website, reviews summary |
 
 ## Install
 
@@ -62,9 +64,10 @@ OPENTABLE_COOKIES_PATH=/tmp/ot-cookies.txt \
 
 ## Roadmap
 
-- **Phase 2** — read-only discovery tools: `opentable_search_restaurants`, `opentable_get_restaurant`, `opentable_find_slots`. Each fetches its own page and parses the search / venue / availability state.
-- **Phase 3** — write tools: `opentable_book`, `opentable_cancel`, `opentable_add_favorite`, `opentable_remove_favorite`. Needs reverse-engineering the POST endpoints the web app calls behind the Reserve / Cancel / Heart buttons.
-- **Dropped from v0.1.0 plan** — `*_notify` tools. OpenTable doesn't appear to expose a user-facing notify-me subscription feature the way Resy's Priority Notify does (`/user/notifications` etc. all 404).
+- **Phase 2 (done, this release)** — `opentable_search_restaurants`, `opentable_get_restaurant`. Each fetches its own SSR page and parses the relevant subtree of `__INITIAL_STATE__`.
+- **Deferred: `opentable_find_slots`.** OpenTable does NOT include slot availability in server-rendered HTML — the restaurant page hydrates first, then fires a `RestaurantsAvailability` GraphQL POST to `/dapi/fe/gql` for slots. Building this tool requires capturing that query's body (it's not in URL params) and replaying it via cycletls. The work is mechanical but needs a fresh live cookie window.
+- **Phase 3 (not started)** — write tools: `opentable_book`, `opentable_cancel`, `opentable_add_favorite`, `opentable_remove_favorite`. Needs reverse-engineering the POST endpoints behind Reserve / Cancel / Heart. Same live-cookie constraint as `find_slots`.
+- **Dropped from v0.1.0 plan** — `*_notify` tools. OpenTable doesn't appear to expose a user-facing notify-me subscription feature the way Resy's Priority Notify does (`/user/notifications`, `/notify-me`, etc. all 404). `header.userNotifications` in state is empty and appears to be a push-notification feed, not a bookable-slot watch.
 
 ## Notes
 

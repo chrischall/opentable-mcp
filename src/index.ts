@@ -5,13 +5,17 @@ import { OpenTableClient } from './client.js';
 import { registerReservationTools } from './tools/reservations.js';
 import { registerUserTools } from './tools/user.js';
 import { registerFavoriteTools } from './tools/favorites.js';
+import { registerSearchTools } from './tools/search.js';
+import { registerRestaurantTools } from './tools/restaurants.js';
 
 const client = new OpenTableClient();
-const server = new McpServer({ name: 'opentable-mcp', version: '0.2.0-alpha.1' });
+const server = new McpServer({ name: 'opentable-mcp', version: '0.2.0-alpha.2' });
 
 registerReservationTools(server, client);
 registerUserTools(server, client);
 registerFavoriteTools(server, client);
+registerSearchTools(server, client);
+registerRestaurantTools(server, client);
 
 console.error(
   '[opentable-mcp] v0.2.0-alpha.1 — Next.js SSR architecture. ' +
