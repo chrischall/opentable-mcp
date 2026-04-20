@@ -4,7 +4,6 @@ import type { OpenTableClient } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
 import { parseUserProfile } from '../parse-user-profile.js';
-import { extractInitialState } from '../initial-state.js';
 
 const DINING_DASHBOARD_PATH = '/user/dining-dashboard';
 
@@ -126,7 +125,7 @@ export function registerReservationTools(
     'opentable_book',
     {
       description:
-        'Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). Automatically looks up the user\'s profile (name/email/phone) and the restaurant\'s default dining area. Returns confirmation_number + security_token (save both; you need them to cancel).',
+        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want. To find dining_area_id, call opentable_get_restaurant with the restaurant's URL slug (e.g. 'state-of-confusion-charlotte') — it returns the `diningAreas` list. The tool auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel.",
       inputSchema: {
         restaurant_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
@@ -137,20 +136,13 @@ export function registerReservationTools(
         dining_area_id: z
           .number()
           .int()
-          .optional()
-          .describe("Specific dining area id (from opentable_get_restaurant). If omitted, uses the restaurant's default indoor dining room."),
+          .describe("Dining area id (from opentable_get_restaurant → diningAreas[]). Required — OpenTable's numeric-id restaurant URLs 404, so we can't auto-resolve."),
       },
     },
     async ({ restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id }) => {
       const reservationDateTime = `${date}T${time}`;
-
-      // Look up profile + dining area in parallel.
-      const [profile, diningAreaId] = await Promise.all([
-        fetchProfile(client),
-        dining_area_id !== undefined
-          ? Promise.resolve(dining_area_id)
-          : fetchDefaultDiningAreaId(client, restaurant_id),
-      ]);
+      const diningAreaId = dining_area_id;
+      const profile = await fetchProfile(client);
 
       // Step 1 — lock the slot.
       const lockResponse = await client.fetchJson<{
@@ -358,34 +350,3 @@ async function fetchProfile(client: OpenTableClient): Promise<BookProfile> {
   };
 }
 
-interface DiningArea {
-  diningAreaId?: number;
-  tag?: string;
-  localeMatch?: boolean;
-  active?: boolean;
-  environment?: string;
-}
-
-async function fetchDefaultDiningAreaId(
-  client: OpenTableClient,
-  restaurantId: number
-): Promise<number> {
-  const html = await client.fetchHtml(`/r/${restaurantId}`);
-  const state = extractInitialState(html);
-  const rp = (state.restaurantProfile ?? {}) as {
-    restaurant?: { diningAreas?: DiningArea[] };
-  };
-  const areas = rp.restaurant?.diningAreas ?? [];
-  // Prefer an indoor Dining Room tag; fall back to the first active/localeMatch area.
-  const diningRoom = areas.find(
-    (a) => a.tag === 'Dining Room' && a.active !== false && a.localeMatch !== false
-  );
-  const fallback = areas.find((a) => a.active !== false && a.localeMatch !== false);
-  const pick = diningRoom ?? fallback ?? areas[0];
-  if (!pick?.diningAreaId) {
-    throw new Error(
-      `Could not resolve a default dining area for restaurant ${restaurantId}. Pass dining_area_id explicitly.`
-    );
-  }
-  return pick.diningAreaId;
-}
