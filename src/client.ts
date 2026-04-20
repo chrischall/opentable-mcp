@@ -64,6 +64,10 @@ export class OpenTableClient {
     const result = await this.server.fetch(serialised);
     this.throwIfNotOk(result, serialised.method, path);
     this.throwIfSignInPage(result);
+    // 204 No Content (common on void mutations like /dapi/wishlist/add): return null.
+    if (result.status === 204 || result.body === '') {
+      return null as T;
+    }
     try {
       return JSON.parse(result.body) as T;
     } catch (e) {
