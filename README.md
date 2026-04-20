@@ -2,7 +2,9 @@
 
 OpenTable reservation management as an MCP server for Claude — search restaurants, book tables, manage reservations, favorites, and notify-me via natural language.
 
-> ⚠️ OpenTable does not publish a comprehensive API. This server uses the same private endpoints opentable.com's web app calls, authenticated with your email + password (session cookie). Use at your own discretion.
+> ⚠️ **v0.1.0 status: endpoints unverified, blocked by bot detection.** OpenTable does not publish a public API. This server was designed to call OpenTable's private web endpoints with an email+password cookie session (same pattern as [resy-mcp](https://github.com/chrischall/resy-mcp)), but OpenTable fingerprints TLS / HTTP‑2 traffic aggressively and resets the connection on Node's default `fetch`. A `curl` with a browser User-Agent gets `INTERNAL_ERROR`; plain `curl` gets a 503 from an S3 error page. The smoke probe (`npm run smoke`) currently returns 403 on login from any non-browser client tested so far.
+>
+> The code, tests (47 passing), and packaging are complete — what's missing is a way to bypass the bot wall. See [open issue: pivot to browser automation or TLS impersonation](https://github.com/chrischall/opentable-mcp/issues/1).
 
 ## Tools
 
@@ -55,8 +57,8 @@ npm run smoke        # live endpoint probe — requires real .env
 
 ## Notes
 
-- Bot-detection: OpenTable may return a captcha challenge (403). If that happens, log in via a browser on this machine once to warm up the session, or retry later.
-- Endpoint paths are reverse-engineered; if live endpoints differ, run `npm run smoke` and adjust.
+- **Bot detection is the v0.1.0 blocker.** OpenTable rejects requests that don't match a real browser's TLS/HTTP‑2 fingerprint. The client handles the symptom (403 + "bot-detection challenge") but can't defeat the cause. Paths forward: browser automation (Playwright / `patchright`, same as the [Strider Labs reference implementation](https://github.com/markswendsen-code/mcp-opentable)), or TLS impersonation (e.g. `cycletls`, `node-libcurl-impersonate`).
+- Endpoint paths under `/api/v2/...` and the GraphQL search op are candidates — verified once bot detection is bypassed.
 
 ---
 

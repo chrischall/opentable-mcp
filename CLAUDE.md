@@ -25,6 +25,7 @@ Guidance for Claude working in this repo.
 - Prefer JSON bodies (OpenTable is JSON-first); use `URLSearchParams` only if a live endpoint demands form-encoding.
 - Write a failing test before implementation. Keep tests in `tests/tools/<name>.test.ts` and mock `OpenTableClient.request`.
 
-## Known unknowns
+## Known unknowns & v0.1.0 blocker
 
-Endpoint paths under `/api/v2/...` and the GraphQL search operation are candidates pending smoke verification. See `scripts/smoke.ts` and the "open questions" block in `docs/superpowers/specs/2026-04-20-opentable-mcp-design.md`.
+- **Bot detection** — OpenTable's edge resets HTTP/2 streams on Node `fetch` and non-browser `curl`. The 47 unit tests all pass, but `npm run smoke` returns 403 from the bot wall, not from an endpoint mismatch. Two paths forward: Playwright / `patchright` (matches the Strider Labs reference), or TLS impersonation (`cycletls`, `node-libcurl-impersonate`). Both rework `src/client.ts` only — the tool surface and tests stay the same.
+- **Endpoint paths** under `/api/v2/...` and the GraphQL search op are candidates. They'll resolve via smoke once the bot wall is bypassed. See the "open questions" block in `docs/superpowers/specs/2026-04-20-opentable-mcp-design.md`.
