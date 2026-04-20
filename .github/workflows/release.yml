@@ -48,11 +48,17 @@ jobs:
           npx @anthropic-ai/mcpb pack
           mv opentable-mcp.mcpb "opentable-mcp-${VERSION}.mcpb"
 
-      # Prerelease versions (e.g. 0.3.0-alpha.2) must be published under a
-      # non-"latest" dist-tag, otherwise `npm install opentable-mcp` would
-      # pick up a prerelease. Use the prerelease identifier as the tag
-      # (alpha / beta / rc).
+      # Publish to npm. Non-blocking — the MCPB bundle + GitHub Release
+      # are the primary distribution; npm is a bonus. First-time publish
+      # of a fresh package name requires the npm account to have publish
+      # rights and (for public packages) to have completed 2FA setup, so
+      # we tolerate failures and surface them in the workflow log.
+      #
+      # Prerelease versions (e.g. 0.3.0-alpha.2) must be published under
+      # a non-"latest" dist-tag, otherwise `npm install opentable-mcp`
+      # would pick up an alpha.
       - name: Publish to npm
+        continue-on-error: true
         run: |
           if [[ "$VERSION" == *-* ]]; then
             PRETAG=$(echo "$VERSION" | sed -E 's/.*-([^.0-9]+).*/\1/')
