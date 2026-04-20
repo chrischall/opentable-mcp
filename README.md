@@ -58,7 +58,8 @@ npm run smoke        # live endpoint probe — requires real .env
 ## Notes
 
 - **Bot detection is the v0.1.0 blocker.** OpenTable rejects requests that don't match a real browser's TLS/HTTP‑2 fingerprint (Akamai Bot Manager). The client handles the symptom (403 + "bot-detection challenge") but can't defeat the cause. Paths forward tracked in [issue #1](https://github.com/chrischall/opentable-mcp/issues/1).
-- **OpenTable has no public JSON API.** The v0.1.0 spec's candidate endpoints under `/api/v2/...` don't exist — OpenTable is a Next.js SSR app and data is embedded in each page's HTML as `window.__INITIAL_STATE__`. The v0.2 pivot is to fetch pages via a real browser (Playwright / patchright) and parse that state blob. See [`src/parse-dining-dashboard.ts`](src/parse-dining-dashboard.ts) for the first parser — verified against a live authenticated session.
+- **OpenTable has no public JSON API.** The v0.1.0 spec's candidate endpoints under `/api/v2/...` don't exist — OpenTable is a Next.js SSR app and data is embedded in each page's HTML as `__INITIAL_STATE__`. The v0.2 architecture fetches the user-facing page and parses that state blob. See [`src/parse-dining-dashboard.ts`](src/parse-dining-dashboard.ts).
+- **End-to-end proof exists** — [`scripts/e2e-list-reservations.ts`](scripts/e2e-list-reservations.ts) uses [`cycletls`](https://www.npmjs.com/package/cycletls) (JA3 spoofing) plus Akamai + auth cookies exported from a real Chrome session to fetch live OpenTable from Node, and runs the output through the parser. No Playwright needed. The open question for v0.2 is now how to refresh those cookies sustainably without asking the user to re-export them.
 - **Auth is passwordless OTP** (SMS or email code), not email+password. The `OPENTABLE_PASSWORD` env variable in v0.1.0 is vestigial and will be dropped in v0.2.
 
 ---

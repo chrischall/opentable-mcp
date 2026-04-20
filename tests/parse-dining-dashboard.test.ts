@@ -108,6 +108,14 @@ describe('extractInitialState', () => {
     expect(() => extractInitialState('<html></html>')).toThrow(ParseError);
   });
 
+  it('parses the SSR JSON-key form ("__INITIAL_STATE__":{...})', () => {
+    // OpenTable embeds the state as a JSON key inside a larger blob rather
+    // than as a JS assignment. Same extractor should handle both.
+    const html = `<script>{"apolloState":{},"__INITIAL_STATE__":{"foo":1,"nested":{"bar":2}}}</script>`;
+    const state = extractInitialState(html);
+    expect(state).toEqual({ foo: 1, nested: { bar: 2 } });
+  });
+
   it('throws ParseError when braces are unmatched', () => {
     expect(() =>
       extractInitialState(`<script>window.__INITIAL_STATE__ = {"a":1</script>`)

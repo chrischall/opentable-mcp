@@ -54,22 +54,33 @@ export class ParseError extends Error {
 }
 
 /**
- * Extract `window.__INITIAL_STATE__` from an HTML string.
+ * Extract `__INITIAL_STATE__` from an HTML string.
  *
- * OpenTable renders the state as a JSON literal inside a <script> tag. We
- * locate the assignment and then walk the JSON to find its matching closing
- * brace (can't use regex because the state contains nested objects and
- * escaped strings).
+ * OpenTable renders the state in one of two forms:
+ *   1. `window.__INITIAL_STATE__ = {...};` — a JS assignment in a <script> tag.
+ *   2. `"__INITIAL_STATE__":{...}` — a JSON key inside a larger embedded blob.
+ * In both cases we locate the JSON object and walk it to find its matching
+ * closing brace (can't use regex because the state contains nested objects
+ * and escaped strings).
  */
 export function extractInitialState(html: string): Record<string, unknown> {
-  const marker = 'window.__INITIAL_STATE__';
-  const idx = html.indexOf(marker);
+  const markers = ['window.__INITIAL_STATE__', '"__INITIAL_STATE__"'];
+  let idx = -1;
+  let markerLen = 0;
+  for (const m of markers) {
+    const i = html.indexOf(m);
+    if (i >= 0) {
+      idx = i;
+      markerLen = m.length;
+      break;
+    }
+  }
   if (idx < 0) {
-    throw new ParseError('window.__INITIAL_STATE__ not found in HTML');
+    throw new ParseError('__INITIAL_STATE__ marker not found in HTML');
   }
 
-  // Find the first '{' after the marker (skip whitespace and `=`).
-  let start = idx + marker.length;
+  // Find the first '{' after the marker (skip whitespace, `=`, `:`).
+  let start = idx + markerLen;
   while (start < html.length && html[start] !== '{') start++;
   if (start >= html.length) {
     throw new ParseError('Could not locate start of __INITIAL_STATE__ JSON');
