@@ -1,6 +1,6 @@
 {
   "name": "opentable-mcp",
-  "version": "0.2.0-alpha.4",
+  "version": "0.3.0-alpha.1",
   "description": "OpenTable MCP server for Claude — developed and maintained by AI (Claude Code)",
   "author": "Claude Code (AI) <https://www.anthropic.com/claude>",
   "repository": {
@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "build": "tsc --noEmit && npm run bundle",
-    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --external:dotenv --outfile=dist/bundle.js",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --external:dotenv --banner:js='import { createRequire as __createRequire } from \"module\"; const require = __createRequire(import.meta.url);' --outfile=dist/bundle.js",
     "dev": "node dist/bundle.js",
     "test": "vitest run",
     "test:watch": "vitest",
