@@ -94,3 +94,118 @@ describe('OpenTableClient — login', () => {
     expect(loginCalls.length).toBe(1);
   });
 });
+
+describe('OpenTableClient — retry + error mapping', () => {
+  it('re-logs in and retries once on 401', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] })) // login 1
+      .mockResolvedValueOnce(mkResponse({ status: 401, statusText: 'Unauthorized' })) // GET /x fail
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=b'] })) // login 2
+      .mockResolvedValueOnce(mkResponse({ body: { ok: true } })); // GET /x retry succeeds
+
+    const client = new OpenTableClient();
+    const result = await client.request<{ ok: boolean }>('GET', '/x');
+
+    expect(result).toEqual({ ok: true });
+    const loginCalls = mockFetch.mock.calls.filter((c) =>
+      typeof c[0] === 'string' && c[0].includes('/authenticate/api/login')
+    );
+    expect(loginCalls.length).toBe(2);
+  });
+
+  it('throws session-rejected after two consecutive 401s', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] }))
+      .mockResolvedValueOnce(mkResponse({ status: 401 }))
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=b'] }))
+      .mockResolvedValueOnce(mkResponse({ status: 401 }));
+
+    const client = new OpenTableClient();
+    await expect(client.request('GET', '/x')).rejects.toThrow(/session rejected/i);
+  });
+
+  it('sleeps and retries on 429', async () => {
+    vi.useFakeTimers();
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] }))
+      .mockResolvedValueOnce(mkResponse({ status: 429, statusText: 'Too Many Requests' }))
+      .mockResolvedValueOnce(mkResponse({ body: { ok: true } }));
+
+    const client = new OpenTableClient();
+    const pending = client.request<{ ok: boolean }>('GET', '/x');
+
+    // Advance past the 2s backoff
+    await vi.advanceTimersByTimeAsync(2000);
+    const result = await pending;
+
+    expect(result).toEqual({ ok: true });
+    vi.useRealTimers();
+  });
+
+  it('throws rate-limited after two consecutive 429s', async () => {
+    vi.useFakeTimers();
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] }))
+      .mockResolvedValueOnce(mkResponse({ status: 429 }))
+      .mockResolvedValueOnce(mkResponse({ status: 429 }));
+
+    const client = new OpenTableClient();
+    const pending = client.request('GET', '/x');
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(pending).rejects.toThrow(/Rate limited/);
+    vi.useRealTimers();
+  });
+
+  it('throws bot-detection message on 403 with captcha body', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] }))
+      .mockResolvedValueOnce(
+        mkResponse({ status: 403, body: { message: 'captcha required' } })
+      );
+
+    const client = new OpenTableClient();
+    await expect(client.request('GET', '/x')).rejects.toThrow(/bot-detection/i);
+  });
+
+  it('treats 500 with auth-like body as auth failure and re-logs', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] }))
+      .mockResolvedValueOnce(
+        mkResponse({ status: 500, body: { error: 'unauthorized token' } })
+      )
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=b'] }))
+      .mockResolvedValueOnce(mkResponse({ body: { ok: true } }));
+
+    const client = new OpenTableClient();
+    const result = await client.request<{ ok: boolean }>('GET', '/x');
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('throws a generic API error for non-2xx with no special handling', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] }))
+      .mockResolvedValueOnce(mkResponse({ status: 503, statusText: 'Unavailable' }));
+
+    const client = new OpenTableClient();
+    await expect(client.request('GET', '/x')).rejects.toThrow(
+      /OpenTable API error: 503/
+    );
+  });
+
+  it('serialises URLSearchParams as form-encoded', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mkResponse({ setCookie: ['OT_SESSION=a'] }))
+      .mockResolvedValueOnce(mkResponse({ body: { ok: true } }));
+
+    const client = new OpenTableClient();
+    const body = new URLSearchParams({ foo: 'bar' });
+    await client.request('POST', '/thing', body);
+
+    const postCall = mockFetch.mock.calls[1];
+    expect(postCall[1].headers['Content-Type']).toBe(
+      'application/x-www-form-urlencoded'
+    );
+    expect(postCall[1].body).toBe('foo=bar');
+  });
+});

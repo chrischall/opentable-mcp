@@ -81,7 +81,7 @@ export class OpenTableClient {
     method: string,
     path: string,
     body: OpenTableBody,
-    _isRetry: boolean
+    isRetry: boolean
   ): Promise<T> {
     const isForm = body instanceof URLSearchParams;
     const headers: Record<string, string> = { ...SPOOF_HEADERS };
@@ -103,13 +103,45 @@ export class OpenTableClient {
 
     this.jar.ingest(response.headers.getSetCookie?.() ?? null);
 
+    const text = await response.text();
+
+    const looksLikeAuthFailure =
+      response.status === 401 ||
+      response.status === 419 ||
+      (response.status === 500 && /unauthorized|auth|session|token/i.test(text));
+
+    if (looksLikeAuthFailure && !isRetry) {
+      this.jar.clear();
+      this.authenticated = false;
+      await this.ensureAuthenticated();
+      return this.doRequest<T>(method, path, body, true);
+    }
+    if (looksLikeAuthFailure) {
+      throw new Error(
+        'OpenTable session rejected — verify OPENTABLE_EMAIL / OPENTABLE_PASSWORD'
+      );
+    }
+
+    if (response.status === 429 && !isRetry) {
+      await new Promise<void>((r) => setTimeout(r, 2000));
+      return this.doRequest<T>(method, path, body, true);
+    }
+    if (response.status === 429) {
+      throw new Error('Rate limited by OpenTable API');
+    }
+
+    if (response.status === 403 && /captcha|bot|challenge/i.test(text)) {
+      throw new Error(
+        'OpenTable bot-detection challenge. Try again later or log in via a browser on this machine first.'
+      );
+    }
+
     if (!response.ok) {
       throw new Error(
         `OpenTable API error: ${response.status} ${response.statusText} for ${method} ${path}`
       );
     }
 
-    const text = await response.text();
     return (text ? JSON.parse(text) : null) as T;
   }
 }
