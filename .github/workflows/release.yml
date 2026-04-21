@@ -48,6 +48,29 @@ jobs:
           npx @anthropic-ai/mcpb pack
           mv opentable-mcp.mcpb "opentable-mcp-${VERSION}.mcpb"
 
+      # Package SKILL.md into a .skill archive — a zip with SKILL.md at
+      # <skill-name>/SKILL.md so it drops cleanly into ~/.claude/skills/.
+      # No-op if SKILL.md is missing (keeps the release working during
+      # the interim between adding the step and writing the skill file).
+      - name: Package skill
+        run: |
+          if [ ! -f SKILL.md ]; then
+            echo "SKILL.md not present — skipping skill packaging"
+            exit 0
+          fi
+          python3 - <<'EOF'
+          import zipfile, pathlib, os
+
+          version = os.environ["VERSION"]
+          skill_name = "opentable-mcp"
+          out = pathlib.Path(f"{skill_name}-{version}.skill")
+
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+              zf.write(pathlib.Path("SKILL.md"), f"{skill_name}/SKILL.md")
+
+          print(f"Packaged {out} ({out.stat().st_size} bytes)")
+          EOF
+
       # Publish to npm. Non-blocking — the MCPB bundle + GitHub Release
       # are the primary distribution; npm is a bonus. First-time publish
       # of a fresh package name requires the npm account to have publish
@@ -70,6 +93,11 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3.0.0
         with:
+          # Glob matches both the .mcpb bundle and .skill archive. The
+          # action is happy to skip any pattern that doesn't match, so
+          # this works whether or not SKILL.md existed at build time.
           files: |
             opentable-mcp-${{ env.VERSION }}.mcpb
+            opentable-mcp-${{ env.VERSION }}.skill
           generate_release_notes: true
+          fail_on_unmatched_files: false
