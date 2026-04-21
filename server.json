@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.chrischall/opentable-mcp",
+  "description": "OpenTable reservation management — find slots, book, cancel, list reservations, manage favorites, search restaurants. Requires a companion Chrome extension in the user's signed-in opentable.com tab (no cookie paste, no password handling).",
+  "repository": {
+    "url": "https://github.com/chrischall/opentable-mcp",
+    "source": "github"
+  },
+  "version": "0.4.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "opentable-mcp",
+      "version": "0.4.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
