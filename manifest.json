@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "opentable-mcp",
   "display_name": "OpenTable",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "OpenTable reservation management for Claude — find slots, book, cancel, list reservations, manage favorites, search restaurants. Relays every request through a companion Chrome extension running in your signed-in opentable.com tab, so there's no cookie paste or bot-wall dance.",
   "author": {
     "name": "Chris Chall",
@@ -29,23 +29,61 @@
     "entry_point": "dist/bundle.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/dist/bundle.js"]
+      "args": [
+        "${__dirname}/dist/bundle.js"
+      ]
     }
   },
   "tools": [
-    { "name": "opentable_list_reservations", "description": "List the user's OpenTable reservations (upcoming / past / all)." },
-    { "name": "opentable_get_profile",       "description": "Get the authenticated user's profile (name, email, loyalty points, metro)." },
-    { "name": "opentable_list_favorites",    "description": "List the user's saved restaurants." },
-    { "name": "opentable_search_restaurants","description": "Search OpenTable by term, location, date/time, and party size." },
-    { "name": "opentable_get_restaurant",    "description": "Get full details for a restaurant by URL slug (cuisine, hours, dining areas, etc.)." },
-    { "name": "opentable_find_slots",        "description": "List available reservation slots for a restaurant on a given date + party size." },
-    { "name": "opentable_book",              "description": "Book an OpenTable reservation using a fresh slot from opentable_find_slots." },
-    { "name": "opentable_cancel",            "description": "Cancel a reservation given its restaurant_id + confirmation_number + security_token." },
-    { "name": "opentable_add_favorite",      "description": "Add a restaurant to the user's Saved Restaurants." },
-    { "name": "opentable_remove_favorite",   "description": "Remove a restaurant from the user's Saved Restaurants." }
+    {
+      "name": "opentable_list_reservations",
+      "description": "List the user's OpenTable reservations (upcoming / past / all)."
+    },
+    {
+      "name": "opentable_get_profile",
+      "description": "Get the authenticated user's profile (name, email, loyalty points, metro)."
+    },
+    {
+      "name": "opentable_list_favorites",
+      "description": "List the user's saved restaurants."
+    },
+    {
+      "name": "opentable_search_restaurants",
+      "description": "Search OpenTable by term, location, date/time, and party size."
+    },
+    {
+      "name": "opentable_get_restaurant",
+      "description": "Get full details for a restaurant by URL slug (cuisine, hours, dining areas, etc.)."
+    },
+    {
+      "name": "opentable_find_slots",
+      "description": "List available reservation slots for a restaurant on a given date + party size."
+    },
+    {
+      "name": "opentable_book",
+      "description": "Book an OpenTable reservation using a fresh slot from opentable_find_slots."
+    },
+    {
+      "name": "opentable_cancel",
+      "description": "Cancel a reservation given its restaurant_id + confirmation_number + security_token."
+    },
+    {
+      "name": "opentable_add_favorite",
+      "description": "Add a restaurant to the user's Saved Restaurants."
+    },
+    {
+      "name": "opentable_remove_favorite",
+      "description": "Remove a restaurant from the user's Saved Restaurants."
+    }
   ],
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
-    "runtimes": { "node": ">=18.0.0" }
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
   }
 }

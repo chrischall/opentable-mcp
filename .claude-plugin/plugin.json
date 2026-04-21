@@ -1,7 +1,7 @@
 {
   "name": "opentable-mcp",
   "displayName": "OpenTable",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "OpenTable reservation management for Claude — find slots, book, cancel, list reservations, manage favorites, search restaurants. Relays through a companion Chrome extension in your signed-in opentable.com tab.",
   "author": {
     "name": "Chris Hall",
@@ -10,7 +10,14 @@
   "homepage": "https://github.com/chrischall/opentable-mcp",
   "repository": "https://github.com/chrischall/opentable-mcp",
   "license": "MIT",
-  "keywords": ["opentable", "reservations", "restaurants", "dining", "booking", "mcp"],
+  "keywords": [
+    "opentable",
+    "reservations",
+    "restaurants",
+    "dining",
+    "booking",
+    "mcp"
+  ],
   "skills": "./SKILL.md",
   "mcp": "./.mcp.json"
 }
