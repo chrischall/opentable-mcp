@@ -21,7 +21,7 @@ import { registerRestaurantTools } from './tools/restaurants.js';
 const client = new OpenTableClient();
 await client.start();
 
-const server = new McpServer({ name: 'opentable-mcp', version: '0.7.0' });
+const server = new McpServer({ name: 'opentable-mcp', version: '0.8.0' });
 
 registerReservationTools(server, client);
 registerUserTools(server, client);
@@ -30,7 +30,7 @@ registerSearchTools(server, client);
 registerRestaurantTools(server, client);
 
 console.error(
-  '[opentable-mcp] v0.7.0 — WebSocket bridge to Chrome extension on 127.0.0.1:37149. ' +
+  '[opentable-mcp] v0.8.0 — WebSocket bridge to Chrome extension on 127.0.0.1:37149. ' +
     'Load the extension from ./extension/ and sign in at opentable.com.'
 );
 

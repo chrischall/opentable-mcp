@@ -1,7 +1,7 @@
 {
   "name": "opentable-mcp",
   "displayName": "OpenTable",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "OpenTable reservation management for Claude — find slots, book, cancel, list reservations, manage favorites, search restaurants. Relays through a companion Chrome extension in your signed-in opentable.com tab.",
   "author": {
     "name": "Chris Hall",
