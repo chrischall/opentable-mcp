@@ -90,8 +90,15 @@ export class OpenTableClient {
 
   private throwIfNotOk(result: FetchResult, method: string, path: string): void {
     if (result.status >= 200 && result.status < 300) return;
+    // Include the response body (trimmed) — OpenTable's 4xx bodies usually name
+    // the missing/invalid field, which is essential for debugging write tools.
+    const bodyPreview = result.body
+      ? ` — ${result.body.slice(0, 500).replace(/\s+/g, ' ').trim()}${
+          result.body.length > 500 ? '…' : ''
+        }`
+      : '';
     throw new Error(
-      `OpenTable API error: ${result.status} for ${method} ${path}`
+      `OpenTable API error: ${result.status} for ${method} ${path}${bodyPreview}`
     );
   }
 

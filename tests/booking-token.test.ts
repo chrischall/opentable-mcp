@@ -10,7 +10,12 @@ const samplePayload: BookingTokenPayload = {
   time: '19:00',
   reservationToken: 'rt_xxx',
   slotHash: 'sh_xxx',
-  paymentMethodId: 'pm_xxx',
+  paymentCard: {
+    id: 'card_xxx',
+    last4: '4242',
+    expiryMmYy: '1028',
+    provider: 'spreedly',
+  },
   ccRequired: true,
   issuedAt: '2026-04-21T00:00:00Z',
 };
@@ -33,8 +38,8 @@ describe('booking-token', () => {
     expect(() => decodeBookingToken(junk)).toThrow(/booking_token/i);
   });
 
-  it('round-trips a no-guarantee payload (paymentMethodId=null, ccRequired=false)', () => {
-    const payload: BookingTokenPayload = { ...samplePayload, paymentMethodId: null, ccRequired: false };
+  it('round-trips a no-guarantee payload (paymentCard=null, ccRequired=false)', () => {
+    const payload: BookingTokenPayload = { ...samplePayload, paymentCard: null, ccRequired: false };
     const token = encodeBookingToken(payload);
     expect(decodeBookingToken(token)).toEqual(payload);
   });

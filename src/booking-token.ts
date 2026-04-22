@@ -5,6 +5,23 @@
 // docs/superpowers/specs/2026-04-21-cc-required-booking-design.md for
 // the rationale.
 
+/** Card details the `make-reservation` payload needs for a CC-required
+ *  booking. The four fields are OpenTable's payload keys; we stash them
+ *  here so opentable_book doesn't have to re-fetch the booking-details
+ *  page just to assemble the POST. */
+export interface BookingTokenPaymentCard {
+  /** `creditCardToken` in the POST. Matches `wallet.savedCards[].cardId`. */
+  id: string;
+  /** `creditCardLast4` in the POST. */
+  last4: string;
+  /** `creditCardMMYY` in the POST — e.g. `"1028"` for October 2028. */
+  expiryMmYy: string;
+  /** `creditCardProvider` in the POST. `"spreedly"` for OpenTable's
+   *  tokenization vendor; kept as a field so we can re-tool if they
+   *  switch. */
+  provider: string;
+}
+
 export interface BookingTokenPayload {
   slotLockId: number;
   restaurantId: number;
@@ -14,8 +31,8 @@ export interface BookingTokenPayload {
   time: string;
   reservationToken: string;
   slotHash: string;
-  /** `pm_…` for CC-required bookings, `null` otherwise. */
-  paymentMethodId: string | null;
+  /** Full card reference for CC-required bookings. `null` otherwise. */
+  paymentCard: BookingTokenPaymentCard | null;
   ccRequired: boolean;
   issuedAt: string; // ISO-8601
 }
@@ -31,7 +48,7 @@ const REQUIRED_KEYS: Array<keyof BookingTokenPayload> = [
   'slotHash',
   'ccRequired',
   'issuedAt',
-  // paymentMethodId intentionally omitted — can legitimately be null.
+  // paymentCard intentionally omitted — can legitimately be null.
 ];
 
 export function encodeBookingToken(payload: BookingTokenPayload): string {
@@ -55,8 +72,8 @@ export function decodeBookingToken(token: string): BookingTokenPayload {
       throw new Error(`booking_token is missing required field: ${key}`);
     }
   }
-  if (!('paymentMethodId' in obj)) {
-    (obj as { paymentMethodId: string | null }).paymentMethodId = null;
+  if (!('paymentCard' in obj)) {
+    (obj as { paymentCard: BookingTokenPaymentCard | null }).paymentCard = null;
   }
   return obj as unknown as BookingTokenPayload;
 }

@@ -14,6 +14,7 @@
 // User PII (name/email/phone) is read from the dining-dashboard SSR
 // on every book call — cheaper than a dedicated profile endpoint, and
 // the data we need is always there for authenticated users.
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
@@ -70,6 +71,25 @@ const AVAILABILITY_PATH = '/dapi/fe/gql?optype=query&opname=RestaurantsAvailabil
 const SLOT_LOCK_PATH = '/dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock';
 const MAKE_RESERVATION_PATH = '/dapi/booking/make-reservation';
 const CANCEL_RESERVATION_PATH = '/dapi/fe/gql?optype=mutation&opname=CancelReservation';
+
+/** OpenTable uses Spreedly for card tokenization. Saved-card `cardId`s
+ *  are already Spreedly tokens; we don't run any tokenization ourselves. */
+const CC_PROVIDER = 'spreedly';
+
+/** Hardcoded in OpenTable's FE — URL the user would be redirected to if
+ *  the card's bank triggers a 3D-Secure (SCA) challenge. We never hit it
+ *  for pre-authenticated saved cards, but the make-reservation validator
+ *  requires the field when creditCard* fields are set. */
+const SCA_REDIRECT_URL = 'https://www.opentable.com/booking/payments-sca';
+
+/** Format `month` + `year` as `"MMYY"` — OpenTable's make-reservation
+ *  expects `creditCardMMYY` in that form. e.g. (10, 2028) → "1028". */
+function expiryMmYy(month: number | null, year: number | null): string {
+  if (month == null || year == null) return '';
+  const mm = String(month).padStart(2, '0');
+  const yy = String(year % 100).padStart(2, '0');
+  return `${mm}${yy}`;
+}
 
 /** Minimum viable `variables` for the RestaurantsAvailability query. */
 function buildAvailabilityVariables(input: {
@@ -253,10 +273,21 @@ export function registerReservationTools(
         );
       }
 
-      // Step 4 — mint the booking_token. paymentMethodId is only carried
-      // for CC-required slots; a non-CC booking doesn't need one.
-      const paymentMethodId =
-        summary.cc_required && summary.default_card ? summary.default_card.id : null;
+      // Step 4 — mint the booking_token. paymentCard carries everything
+      // make-reservation needs for a CC-required POST (id, last4, expiry,
+      // provider). For no-CC slots we leave it null.
+      const paymentCard =
+        summary.cc_required && summary.default_card
+          ? {
+              id: summary.default_card.id,
+              last4: summary.default_card.last4,
+              expiryMmYy: expiryMmYy(
+                summary.default_card.expiry_month,
+                summary.default_card.expiry_year
+              ),
+              provider: CC_PROVIDER,
+            }
+          : null;
       const booking_token = encodeBookingToken({
         slotLockId,
         restaurantId: restaurant_id,
@@ -266,7 +297,7 @@ export function registerReservationTools(
         time,
         reservationToken: reservation_token,
         slotHash: slot_hash,
-        paymentMethodId,
+        paymentCard,
         ccRequired: summary.cc_required,
         issuedAt: new Date().toISOString(),
       });
@@ -342,7 +373,7 @@ export function registerReservationTools(
       const diningAreaId = dining_area_id;
 
       let slotLockId: number;
-      let paymentMethodId: string | null = null;
+      let paymentCard: { id: string; last4: string; expiryMmYy: string; provider: string } | null = null;
       let ccRequired = false;
 
       if (booking_token) {
@@ -361,7 +392,7 @@ export function registerReservationTools(
           );
         }
         slotLockId = payload.slotLockId;
-        paymentMethodId = payload.paymentMethodId;
+        paymentCard = payload.paymentCard;
         ccRequired = payload.ccRequired;
       } else {
         // No token — run the SSR-page CC-required check first, so we
@@ -428,7 +459,21 @@ export function registerReservationTools(
 
       const profile = await fetchProfile(client);
 
-      // make-reservation — threads paymentMethodId only when present.
+      // CC-required bookings need five extra fields (all derived from the
+      // saved card's metadata, which the preview already stashed in the
+      // booking_token). OpenTable's validator rejects `paymentMethodId`
+      // outright; the actual Spreedly token is `creditCardToken` and the
+      // card's last4 + expiry are separate flat fields.
+      const ccFields = paymentCard
+        ? {
+            creditCardToken: paymentCard.id,
+            creditCardLast4: paymentCard.last4,
+            creditCardMMYY: paymentCard.expiryMmYy,
+            creditCardProvider: paymentCard.provider,
+            scaRedirectUrl: SCA_REDIRECT_URL,
+          }
+        : {};
+
       const reservation = await client.fetchJson<{
         success?: boolean;
         reservationId?: number;
@@ -440,6 +485,8 @@ export function registerReservationTools(
         reservationStateId?: number;
         errorCode?: string;
         errorMessage?: string;
+        partnerScaRequired?: boolean;
+        partnerScaRedirectUrl?: string | null;
       }>(MAKE_RESERVATION_PATH, {
         method: 'POST',
         body: {
@@ -469,9 +516,23 @@ export function registerReservationTools(
           nonBookableExperiences: [],
           katakanaFirstName: '',
           katakanaLastName: '',
-          ...(paymentMethodId ? { paymentMethodId } : {}),
+          correlationId: randomUUID(),
+          ...ccFields,
         },
       });
+
+      // 3-D Secure challenge — only fires for cards that haven't been
+      // pre-authenticated by the issuer. Our default saved cards on
+      // opentable.com are almost always pre-authenticated, so this is
+      // rare. When it does fire we can't complete the challenge from
+      // outside the browser; surface the redirect URL and bail.
+      if (reservation?.partnerScaRequired === true) {
+        throw new Error(
+          `This card requires 3-D Secure authentication (SCA), which can't be completed from the MCP. Complete the booking in your browser: ${
+            reservation.partnerScaRedirectUrl ?? 'https://www.opentable.com/booking'
+          }`
+        );
+      }
 
       if (reservation?.errorCode || reservation?.success === false) {
         const raw = `${reservation.errorCode ?? 'unknown'}${

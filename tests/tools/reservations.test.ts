@@ -257,7 +257,13 @@ describe('reservation tools', () => {
       expect(decoded.ccRequired).toBe(true);
       expect(decoded.slotLockId).toBe(902203460);
       expect(decoded.partySize).toBe(5);
-      expect(decoded.paymentMethodId).toBe('card_REDACTED_DEFAULT');
+      expect(decoded.paymentCard).toEqual({
+        id: 'card_REDACTED_DEFAULT',
+        last4: '4242',
+        // Fixture has expiryMonth: 10, expiryYear: 2028
+        expiryMmYy: '1028',
+        provider: 'spreedly',
+      });
     });
 
     it('on a no-CC slot returns policy.type=none, payment_method=null, still issues a token', async () => {
@@ -286,7 +292,7 @@ describe('reservation tools', () => {
       expect(typeof body.booking_token).toBe('string');
       const decoded = decodeBookingToken(body.booking_token);
       expect(decoded.ccRequired).toBe(false);
-      expect(decoded.paymentMethodId).toBeNull();
+      expect(decoded.paymentCard).toBeNull();
     });
 
     it('throws when CC-required and no default card on file', async () => {
@@ -348,7 +354,7 @@ describe('reservation tools', () => {
         time: '20:45',
         reservationToken: 'rt',
         slotHash: 'sh',
-        paymentMethodId: 'card_real',
+        paymentCard: { id: 'card_real', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
         ccRequired: true,
         issuedAt: '2026-04-21T00:00:00Z',
       });
@@ -358,13 +364,23 @@ describe('reservation tools', () => {
         if (path.includes('make-reservation')) {
           const body = init?.body as Record<string, unknown>;
           expect(body.slotLockId).toBe(12345);
-          expect(body.paymentMethodId).toBe('card_real');
+          // paymentMethodId MUST NOT appear — OpenTable's validator rejects it.
+          expect(body).not.toHaveProperty('paymentMethodId');
+          // But the five CC fields SHOULD be present for a CC-required book.
+          expect(body.creditCardToken).toBe('card_real');
+          expect(body.creditCardLast4).toBe('4242');
+          expect(body.creditCardMMYY).toBe('1028');
+          expect(body.creditCardProvider).toBe('spreedly');
+          expect(body.scaRedirectUrl).toBe('https://www.opentable.com/booking/payments-sca');
+          // And correlationId should be a UUID.
+          expect(body.correlationId).toMatch(/^[0-9a-f]{8}-/);
           return {
             success: true,
             reservationId: 424242,
             confirmationNumber: 8675309,
             securityToken: 'st_real',
             points: 100,
+            partnerScaRequired: false,
           };
         }
         throw new Error(`unexpected fetchJson path: ${path}`);
@@ -415,7 +431,7 @@ describe('reservation tools', () => {
         time: '20:45',
         reservationToken: 'rt',
         slotHash: 'sh',
-        paymentMethodId: 'card_real',
+        paymentCard: { id: 'card_real', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
         ccRequired: true,
         issuedAt: '2026-04-21T00:00:00Z',
       });
@@ -451,7 +467,7 @@ describe('reservation tools', () => {
         time: '20:45',
         reservationToken: 'rt',
         slotHash: 'sh',
-        paymentMethodId: 'card_real',
+        paymentCard: { id: 'card_real', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
         ccRequired: true,
         issuedAt: '2026-04-21T00:00:00Z',
       });
