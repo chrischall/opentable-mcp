@@ -20,8 +20,40 @@ import type { OpenTableClient } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
 import { parseUserProfile } from '../parse-user-profile.js';
+import { parseBookingDetailsState } from '../parse-booking-details-state.js';
+import { extractInitialState } from '../initial-state.js';
+import { encodeBookingToken, decodeBookingToken } from '../booking-token.js';
 
 const DINING_DASHBOARD_PATH = '/user/dining-dashboard';
+
+/**
+ * URL for the SSR /booking/details page. OpenTable shows this page right
+ * before the user clicks "Complete Reservation" and it ships the
+ * cancellation policy + saved cards + CC-required flag in its
+ * __INITIAL_STATE__. See parse-booking-details-state.ts for what we
+ * pull out.
+ */
+function bookingDetailsPath(input: {
+  restaurant_id: number;
+  date: string;
+  time: string;
+  party_size: number;
+  slot_hash: string;
+  reservation_token: string;
+  dining_area_id: number;
+}): string {
+  const params = new URLSearchParams({
+    rid: String(input.restaurant_id),
+    datetime: `${input.date}T${input.time}`,
+    covers: String(input.party_size),
+    partySize: String(input.party_size),
+    seating: 'default',
+    slotHash: input.slot_hash,
+    slotAvailabilityToken: input.reservation_token,
+    diningAreaId: String(input.dining_area_id),
+  });
+  return `/booking/details?${params.toString()}`;
+}
 
 // Apollo persisted-query hashes captured from opentable.com on 2026-04-20.
 // If OpenTable re-deploys and invalidates these, the server returns
@@ -132,6 +164,138 @@ export function registerReservationTools(
       return {
         content: [
           { type: 'text' as const, text: JSON.stringify(slots, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    'opentable_book_preview',
+    {
+      description:
+        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        restaurant_id: z.number().int().positive(),
+        date: z.string().describe('YYYY-MM-DD'),
+        time: z.string().describe('HH:MM (24h) — must match a slot returned by find_slots'),
+        party_size: z.number().int().positive(),
+        reservation_token: z.string().describe('slot_availability_token from opentable_find_slots'),
+        slot_hash: z.string().describe('slot_hash from opentable_find_slots'),
+        dining_area_id: z
+          .number()
+          .int()
+          .describe('Dining area id (from opentable_get_restaurant → diningAreas[])'),
+      },
+    },
+    async ({ restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id }) => {
+      const reservationDateTime = `${date}T${time}`;
+
+      // Step 1 — fetch the /booking/details SSR page (CC flag + policy + cards).
+      const detailsHtml = await client.fetchHtml(
+        bookingDetailsPath({
+          restaurant_id,
+          date,
+          time,
+          party_size,
+          slot_hash,
+          reservation_token,
+          dining_area_id,
+        })
+      );
+      const state = extractInitialState(detailsHtml);
+      const summary = parseBookingDetailsState(state);
+
+      // Step 2 — CC-required: we must have a default saved card.
+      if (summary.cc_required && !summary.default_card) {
+        throw new Error(
+          'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
+        );
+      }
+
+      // Step 3 — slot-lock (reserves the slot for ~90s; returns slotLockId).
+      const lockResponse = await client.fetchJson<{
+        data?: {
+          lockSlot?: {
+            success?: boolean;
+            slotLock?: { slotLockId?: number };
+            slotLockErrors?: unknown;
+          };
+        };
+      }>(SLOT_LOCK_PATH, {
+        method: 'POST',
+        headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
+        body: {
+          operationName: 'BookDetailsStandardSlotLock',
+          variables: {
+            input: {
+              restaurantId: restaurant_id,
+              seatingOption: 'DEFAULT',
+              reservationDateTime,
+              partySize: party_size,
+              databaseRegion: 'NA',
+              slotHash: slot_hash,
+              reservationType: 'STANDARD',
+              diningAreaId: dining_area_id,
+            },
+          },
+          extensions: {
+            persistedQuery: { version: 1, sha256Hash: BOOK_SLOT_LOCK_HASH },
+          },
+        },
+      });
+      const slotLockId = lockResponse?.data?.lockSlot?.slotLock?.slotLockId;
+      if (!slotLockId || lockResponse?.data?.lockSlot?.success !== true) {
+        throw new Error(
+          `OpenTable failed to lock slot for preview: ${JSON.stringify(
+            lockResponse?.data?.lockSlot ?? lockResponse
+          )}`
+        );
+      }
+
+      // Step 4 — mint the booking_token.
+      const paymentMethodId = summary.default_card?.id ?? null;
+      const booking_token = encodeBookingToken({
+        slotLockId,
+        restaurantId: restaurant_id,
+        diningAreaId: dining_area_id,
+        partySize: party_size,
+        date,
+        time,
+        reservationToken: reservation_token,
+        slotHash: slot_hash,
+        paymentMethodId,
+        ccRequired: summary.cc_required,
+        issuedAt: new Date().toISOString(),
+      });
+
+      const chargesDescription = summary.cc_required
+        ? `Nothing charged now — ${summary.default_card!.brand} •••• ${summary.default_card!.last4} held only. ${summary.policy.description}`
+        : 'Nothing charged now — no card required.';
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                booking_token,
+                reservation: { date, time, party_size, restaurant_id, dining_area_id },
+                cancellation_policy: summary.policy,
+                payment_method: summary.default_card
+                  ? { brand: summary.default_card.brand, last4: summary.default_card.last4 }
+                  : null,
+                charges_at_booking: {
+                  amount_usd: 0,
+                  description: chargesDescription,
+                },
+                cc_required: summary.cc_required,
+                policy_type: summary.policy_type,
+              },
+              null,
+              2
+            ),
+          },
         ],
       };
     }

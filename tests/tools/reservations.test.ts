@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import type { OpenTableClient } from '../../src/client.js';
 import { registerReservationTools } from '../../src/tools/reservations.js';
 import { createTestHarness } from '../helpers.js';
+import { decodeBookingToken, encodeBookingToken } from '../../src/booking-token.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixture = (name: string) =>
+  JSON.parse(readFileSync(join(here, '..', 'fixtures', name), 'utf8'));
 
 const mockFetchHtml = vi.fn();
 const mockFetchJson = vi.fn();
@@ -198,6 +206,58 @@ describe('reservation tools', () => {
         party_size: 2,
       });
       expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual([]);
+    });
+  });
+
+  describe('opentable_book_preview', () => {
+    it('fetches /booking/details + slot-lock and returns the CC policy + token', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-cc.json'))
+      );
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 902203460 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 2827,
+        date: '2026-05-01',
+        time: '20:45',
+        party_size: 5,
+        reservation_token: 'rt_xxx',
+        slot_hash: '1663920856',
+        dining_area_id: 1,
+      });
+
+      // Called the SSR page
+      expect(mockFetchHtml).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/booking\/details\?.*rid=2827/)
+      );
+      // And the slot-lock mutation
+      expect(mockFetchJson).toHaveBeenCalledWith(
+        '/dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock',
+        expect.objectContaining({ method: 'POST' })
+      );
+
+      expect(result.isError).toBeFalsy();
+      const body = JSON.parse((result.content[0] as { text: string }).text) as {
+        booking_token: string;
+        cancellation_policy: { type: string; amount_usd: number; per_person: boolean };
+        payment_method: { brand: string; last4: string } | null;
+        charges_at_booking: { amount_usd: number; description: string };
+      };
+      expect(body.cancellation_policy.type).toBe('no_show_fee');
+      expect(body.cancellation_policy.amount_usd).toBe(50);
+      expect(body.cancellation_policy.per_person).toBe(true);
+      expect(body.payment_method).toEqual({ brand: 'Mastercard', last4: '4242' });
+      expect(body.charges_at_booking.amount_usd).toBe(0);
+      expect(body.charges_at_booking.description).toMatch(/held only/i);
+      expect(body.charges_at_booking.description).toContain('4242');
+
+      const decoded = decodeBookingToken(body.booking_token);
+      expect(decoded.ccRequired).toBe(true);
+      expect(decoded.slotLockId).toBe(902203460);
+      expect(decoded.partySize).toBe(5);
+      expect(decoded.paymentMethodId).toBe('card_REDACTED_DEFAULT');
     });
   });
 });
