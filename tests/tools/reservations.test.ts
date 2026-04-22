@@ -295,6 +295,41 @@ describe('reservation tools', () => {
       expect(decoded.paymentCard).toBeNull();
     });
 
+    it('throws a same-day conflict error before touching slot-lock', async () => {
+      const conflictState = {
+        ...fixture('booking-details-state-no-cc.json'),
+        upcomingReservationConflicts: [
+          {
+            dateTime: '2026-05-01T20:00',
+            confirmationNumber: 2110515622,
+            partySize: 5,
+            restaurant: { restaurantId: 2827, name: 'Rowes Wharf Sea Grille' },
+          },
+        ],
+      };
+      mockFetchHtml.mockResolvedValue(htmlWith(conflictState));
+      mockFetchJson.mockRejectedValue(new Error('should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 48750,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/same day/i);
+      expect(text).toContain('Rowes Wharf Sea Grille');
+      expect(text).toContain('2110515622');
+      expect(text).toMatch(/opentable_cancel/);
+      // slot-lock must not have fired — we refused pre-flight.
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
     it('throws when CC-required and no default card on file', async () => {
       const noCardState = {
         ...fixture('booking-details-state-cc.json'),
@@ -342,6 +377,38 @@ describe('reservation tools', () => {
       const text = (result.content[0] as { text: string }).text;
       expect(text).toMatch(/credit-card guarantee/i);
       expect(text).toMatch(/opentable_book_preview/);
+    });
+
+    it('on a standard slot without a booking_token, refuses with a same-day-conflict error', async () => {
+      const conflictState = {
+        ...fixture('booking-details-state-no-cc.json'),
+        upcomingReservationConflicts: [
+          {
+            dateTime: '2026-05-01T20:00',
+            confirmationNumber: 2110515622,
+            partySize: 5,
+            restaurant: { restaurantId: 2827, name: 'Rowes Wharf Sea Grille' },
+          },
+        ],
+      };
+      mockFetchHtml.mockResolvedValue(htmlWith(conflictState));
+      mockFetchJson.mockRejectedValue(new Error('should not be called'));
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 48750,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/same day/i);
+      expect(text).toContain('Rowes Wharf Sea Grille');
+      expect(mockFetchJson).not.toHaveBeenCalled();
     });
 
     it('commits cleanly when called with a valid booking_token (skips re-lock)', async () => {

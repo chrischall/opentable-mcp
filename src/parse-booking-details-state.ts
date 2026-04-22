@@ -31,11 +31,28 @@ export interface SavedCard {
   is_default: boolean;
 }
 
+/** A reservation the diner already has that may conflict with a new
+ *  booking at the same date/time. OpenTable surfaces these on the
+ *  /booking/details page's `upcomingReservationConflicts` array and
+ *  refuses overlapping same-day reservations with a 409. */
+export interface ReservationConflict {
+  /** ISO-8601 local datetime, e.g. `"2026-05-01T20:00"`. */
+  date_time: string;
+  confirmation_number: number;
+  restaurant_id: number;
+  restaurant_name: string;
+  party_size: number;
+}
+
 export interface BookingDetailsSummary {
   cc_required: boolean;
   policy_type: CardPolicyType;
   policy: CancellationPolicy;
   default_card: SavedCard | null;
+  /** Existing reservations OpenTable flags as potential conflicts. Empty
+   *  when none. Callers should surface actionable errors when any entry
+   *  falls on the same date the user is trying to book. */
+  conflicts: ReservationConflict[];
 }
 
 interface RawTimeSlot {
@@ -82,6 +99,18 @@ interface RawRestaurant {
   features?: RawFeatures;
 }
 
+interface RawConflictRestaurant {
+  restaurantId?: number;
+  name?: string;
+}
+
+interface RawConflict {
+  dateTime?: string;
+  confirmationNumber?: number;
+  partySize?: number;
+  restaurant?: RawConflictRestaurant;
+}
+
 interface RawBookingDetailsState {
   // Some captures live at `state.xxx`, some at top level. Accept both.
   state?: RawBookingDetailsState;
@@ -89,6 +118,7 @@ interface RawBookingDetailsState {
   messages?: RawMessages;
   restaurant?: RawRestaurant;
   wallet?: RawWallet;
+  upcomingReservationConflicts?: RawConflict[];
 }
 
 function normalisePolicyType(t: string | null | undefined): CardPolicyType {
@@ -172,10 +202,51 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
     }
   }
 
+  const rawConflicts = root.upcomingReservationConflicts ?? [];
+  const conflicts: ReservationConflict[] = [];
+  for (const c of rawConflicts) {
+    if (
+      typeof c.dateTime !== 'string' ||
+      typeof c.confirmationNumber !== 'number' ||
+      typeof c.restaurant?.restaurantId !== 'number'
+    ) {
+      continue;
+    }
+    conflicts.push({
+      date_time: c.dateTime,
+      confirmation_number: c.confirmationNumber,
+      restaurant_id: c.restaurant.restaurantId,
+      restaurant_name: c.restaurant.name ?? '',
+      party_size: c.partySize ?? 0,
+    });
+  }
+
   return {
     cc_required: ccRequired,
     policy_type: policyType,
     policy,
     default_card: defaultCard,
+    conflicts,
   };
+}
+
+/**
+ * Filter conflicts to those on the same calendar date as the caller's
+ * target. OpenTable's `dateTime` is a local-tz ISO string like
+ * `"2026-05-01T20:00"` — we just compare the YYYY-MM-DD prefix.
+ *
+ * Excludes conflicts against the same (restaurant_id, confirmation_number)
+ * if provided — useful for modify flows where the existing reservation
+ * itself shows up in the conflicts list.
+ */
+export function sameDayConflicts(
+  conflicts: ReservationConflict[],
+  date: string,
+  excludeConfirmation?: number
+): ReservationConflict[] {
+  return conflicts.filter(
+    (c) =>
+      c.date_time.slice(0, 10) === date &&
+      c.confirmation_number !== excludeConfirmation
+  );
 }

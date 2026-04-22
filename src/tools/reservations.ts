@@ -21,7 +21,7 @@ import type { OpenTableClient } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
 import { parseUserProfile } from '../parse-user-profile.js';
-import { parseBookingDetailsState } from '../parse-booking-details-state.js';
+import { parseBookingDetailsState, sameDayConflicts } from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
 import { encodeBookingToken, decodeBookingToken } from '../booking-token.js';
 
@@ -89,6 +89,26 @@ function expiryMmYy(month: number | null, year: number | null): string {
   const mm = String(month).padStart(2, '0');
   const yy = String(year % 100).padStart(2, '0');
   return `${mm}${yy}`;
+}
+
+/** Build a human-readable error when OpenTable would reject the booking
+ *  as a same-day conflict. Called pre-flight from book/book_preview
+ *  whenever the /booking/details page reports overlapping reservations
+ *  — avoids the opaque HTTP 409 that the server would otherwise return
+ *  from make-reservation. */
+function sameDayConflictError(
+  conflicts: ReturnType<typeof sameDayConflicts>,
+  date: string
+): Error {
+  const lines = conflicts.map((c) => {
+    const time = c.date_time.length >= 16 ? c.date_time.slice(11, 16) : '?';
+    const party = c.party_size ? ` party ${c.party_size}` : '';
+    return `  • ${time} at ${c.restaurant_name} (confirmation ${c.confirmation_number}${party})`;
+  });
+  return new Error(
+    `OpenTable won't let you book two reservations on the same day. You already have ${conflicts.length === 1 ? 'one reservation' : `${conflicts.length} reservations`} on ${date}:\n${lines.join('\n')}\n` +
+      'Cancel or modify the existing reservation first (opentable_cancel), then retry.'
+  );
 }
 
 /** Minimum viable `variables` for the RestaurantsAvailability query. */
@@ -226,7 +246,15 @@ export function registerReservationTools(
       const state = extractInitialState(detailsHtml);
       const summary = parseBookingDetailsState(state);
 
-      // Step 2 — CC-required: we must have a default saved card.
+      // Step 2a — same-day conflict (OpenTable's "double trouble" check).
+      // Fail early with a clear error rather than letting make-reservation
+      // come back with an opaque 409.
+      const conflicts = sameDayConflicts(summary.conflicts, date);
+      if (conflicts.length > 0) {
+        throw sameDayConflictError(conflicts, date);
+      }
+
+      // Step 2b — CC-required: we must have a default saved card.
       if (summary.cc_required && !summary.default_card) {
         throw new Error(
           'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
@@ -409,6 +437,14 @@ export function registerReservationTools(
           })
         );
         const summary = parseBookingDetailsState(extractInitialState(detailsHtml));
+
+        // Same-day conflict — fail early with a clear message instead
+        // of letting make-reservation 409 below.
+        const conflicts = sameDayConflicts(summary.conflicts, date);
+        if (conflicts.length > 0) {
+          throw sameDayConflictError(conflicts, date);
+        }
+
         if (summary.cc_required) {
           throw new Error(
             'This slot requires a credit-card guarantee. Call opentable_book_preview first to review the cancellation policy, then pass the returned booking_token back to opentable_book.'
