@@ -253,8 +253,10 @@ export function registerReservationTools(
         );
       }
 
-      // Step 4 — mint the booking_token.
-      const paymentMethodId = summary.default_card?.id ?? null;
+      // Step 4 — mint the booking_token. paymentMethodId is only carried
+      // for CC-required slots; a non-CC booking doesn't need one.
+      const paymentMethodId =
+        summary.cc_required && summary.default_card ? summary.default_card.id : null;
       const booking_token = encodeBookingToken({
         slotLockId,
         restaurantId: restaurant_id,
@@ -282,9 +284,10 @@ export function registerReservationTools(
                 booking_token,
                 reservation: { date, time, party_size, restaurant_id, dining_area_id },
                 cancellation_policy: summary.policy,
-                payment_method: summary.default_card
-                  ? { brand: summary.default_card.brand, last4: summary.default_card.last4 }
-                  : null,
+                payment_method:
+                  summary.cc_required && summary.default_card
+                    ? { brand: summary.default_card.brand, last4: summary.default_card.last4 }
+                    : null,
                 charges_at_booking: {
                   amount_usd: 0,
                   description: chargesDescription,
@@ -305,7 +308,7 @@ export function registerReservationTools(
     'opentable_book',
     {
       description:
-        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want. To find dining_area_id, call opentable_get_restaurant with the restaurant's URL slug (e.g. 'state-of-confusion-charlotte') — it returns the `diningAreas` list. The tool auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel.",
+        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel.",
       inputSchema: {
         restaurant_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
@@ -317,54 +320,115 @@ export function registerReservationTools(
           .number()
           .int()
           .describe("Dining area id (from opentable_get_restaurant → diningAreas[]). Required — OpenTable's numeric-id restaurant URLs 404, so we can't auto-resolve."),
+        booking_token: z
+          .string()
+          .optional()
+          .describe(
+            'Opaque token from opentable_book_preview. REQUIRED for CC-required slots (book will refuse otherwise). Optional for standard slots — when present, skips a redundant re-lock.'
+          ),
       },
     },
-    async ({ restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id }) => {
+    async ({
+      restaurant_id,
+      date,
+      time,
+      party_size,
+      reservation_token,
+      slot_hash,
+      dining_area_id,
+      booking_token,
+    }) => {
       const reservationDateTime = `${date}T${time}`;
       const diningAreaId = dining_area_id;
-      const profile = await fetchProfile(client);
 
-      // Step 1 — lock the slot.
-      const lockResponse = await client.fetchJson<{
-        data?: {
-          lockSlot?: {
-            success?: boolean;
-            slotLock?: { slotLockId?: number };
-            slotLockErrors?: unknown;
+      let slotLockId: number;
+      let paymentMethodId: string | null = null;
+      let ccRequired = false;
+
+      if (booking_token) {
+        // Token path — preview did the heavy lifting; we trust the payload
+        // subject to a tamper check against the caller's own args.
+        const payload = decodeBookingToken(booking_token);
+        if (
+          payload.restaurantId !== restaurant_id ||
+          payload.date !== date ||
+          payload.time !== time ||
+          payload.partySize !== party_size ||
+          payload.diningAreaId !== dining_area_id
+        ) {
+          throw new Error(
+            'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, or dining area). Call opentable_book_preview again with the current args.'
+          );
+        }
+        slotLockId = payload.slotLockId;
+        paymentMethodId = payload.paymentMethodId;
+        ccRequired = payload.ccRequired;
+      } else {
+        // No token — run the SSR-page CC-required check first, so we
+        // can refuse before locking the slot for nothing.
+        const detailsHtml = await client.fetchHtml(
+          bookingDetailsPath({
+            restaurant_id,
+            date,
+            time,
+            party_size,
+            slot_hash,
+            reservation_token,
+            dining_area_id,
+          })
+        );
+        const summary = parseBookingDetailsState(extractInitialState(detailsHtml));
+        if (summary.cc_required) {
+          throw new Error(
+            'This slot requires a credit-card guarantee. Call opentable_book_preview first to review the cancellation policy, then pass the returned booking_token back to opentable_book.'
+          );
+        }
+
+        // Standard-no-guarantee path: lock the slot ourselves.
+        const lockResponse = await client.fetchJson<{
+          data?: {
+            lockSlot?: {
+              success?: boolean;
+              slotLock?: { slotLockId?: number };
+              slotLockErrors?: unknown;
+            };
           };
-        };
-      }>(SLOT_LOCK_PATH, {
-        method: 'POST',
-        headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
-        body: {
-          operationName: 'BookDetailsStandardSlotLock',
-          variables: {
-            input: {
-              restaurantId: restaurant_id,
-              seatingOption: 'DEFAULT',
-              reservationDateTime,
-              partySize: party_size,
-              databaseRegion: 'NA',
-              slotHash: slot_hash,
-              reservationType: 'STANDARD',
-              diningAreaId,
+        }>(SLOT_LOCK_PATH, {
+          method: 'POST',
+          headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
+          body: {
+            operationName: 'BookDetailsStandardSlotLock',
+            variables: {
+              input: {
+                restaurantId: restaurant_id,
+                seatingOption: 'DEFAULT',
+                reservationDateTime,
+                partySize: party_size,
+                databaseRegion: 'NA',
+                slotHash: slot_hash,
+                reservationType: 'STANDARD',
+                diningAreaId,
+              },
+            },
+            extensions: {
+              persistedQuery: { version: 1, sha256Hash: BOOK_SLOT_LOCK_HASH },
             },
           },
-          extensions: {
-            persistedQuery: { version: 1, sha256Hash: BOOK_SLOT_LOCK_HASH },
-          },
-        },
-      });
-      const slotLockId = lockResponse?.data?.lockSlot?.slotLock?.slotLockId;
-      if (!slotLockId || lockResponse?.data?.lockSlot?.success !== true) {
-        throw new Error(
-          `OpenTable failed to lock slot for booking: ${JSON.stringify(
-            lockResponse?.data?.lockSlot ?? lockResponse
-          )}`
-        );
+        });
+        const lockedId = lockResponse?.data?.lockSlot?.slotLock?.slotLockId;
+        if (!lockedId || lockResponse?.data?.lockSlot?.success !== true) {
+          throw new Error(
+            `OpenTable failed to lock slot for booking: ${JSON.stringify(
+              lockResponse?.data?.lockSlot ?? lockResponse
+            )}`
+          );
+        }
+        slotLockId = lockedId;
       }
 
-      // Step 2 — make the reservation.
+      const profile = await fetchProfile(client);
+
+      // make-reservation — threads paymentMethodId only when present.
       const reservation = await client.fetchJson<{
         success?: boolean;
         reservationId?: number;
@@ -405,15 +469,20 @@ export function registerReservationTools(
           nonBookableExperiences: [],
           katakanaFirstName: '',
           katakanaLastName: '',
+          ...(paymentMethodId ? { paymentMethodId } : {}),
         },
       });
 
       if (reservation?.errorCode || reservation?.success === false) {
-        throw new Error(
-          `OpenTable book failed: ${reservation.errorCode ?? 'unknown'}${
-            reservation.errorMessage ? ` — ${reservation.errorMessage}` : ''
-          }`
-        );
+        const raw = `${reservation.errorCode ?? 'unknown'}${
+          reservation.errorMessage ? ` — ${reservation.errorMessage}` : ''
+        }`;
+        if (/slot.?lock.?expired/i.test(raw) || /SLOT_LOCK_EXPIRED/i.test(raw)) {
+          throw new Error(
+            'Slot lock expired. Call opentable_find_slots for a fresh slot, then re-preview with opentable_book_preview.'
+          );
+        }
+        throw new Error(`OpenTable book failed: ${raw}`);
       }
       if (!reservation?.confirmationNumber) {
         throw new Error(
@@ -436,6 +505,7 @@ export function registerReservationTools(
                 party_size,
                 points: reservation.points ?? 0,
                 status: 'Pending',
+                cc_required: ccRequired,
               },
               null,
               2

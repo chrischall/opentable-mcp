@@ -259,5 +259,241 @@ describe('reservation tools', () => {
       expect(decoded.partySize).toBe(5);
       expect(decoded.paymentMethodId).toBe('card_REDACTED_DEFAULT');
     });
+
+    it('on a no-CC slot returns policy.type=none, payment_method=null, still issues a token', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-no-cc.json'))
+      );
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 48750,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const body = JSON.parse((result.content[0] as { text: string }).text);
+      expect(body.cancellation_policy.type).toBe('none');
+      expect(body.payment_method).toBeNull();
+      expect(body.cc_required).toBe(false);
+      expect(typeof body.booking_token).toBe('string');
+      const decoded = decodeBookingToken(body.booking_token);
+      expect(decoded.ccRequired).toBe(false);
+      expect(decoded.paymentMethodId).toBeNull();
+    });
+
+    it('throws when CC-required and no default card on file', async () => {
+      const noCardState = {
+        ...fixture('booking-details-state-cc.json'),
+        wallet: { savedCards: [], selectedPaymentCardId: null },
+      };
+      mockFetchHtml.mockResolvedValue(htmlWith(noCardState));
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 1 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 2827,
+        date: '2026-05-01',
+        time: '20:45',
+        party_size: 5,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/default payment method/i);
+      expect(text).toContain('opentable.com/account/payment-methods');
+    });
+  });
+
+  describe('opentable_book — CC-required gating + booking_token path', () => {
+    it('refuses to commit a CC-required slot without a booking_token', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-cc.json'))
+      );
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 2827,
+        date: '2026-05-01',
+        time: '20:45',
+        party_size: 5,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/credit-card guarantee/i);
+      expect(text).toMatch(/opentable_book_preview/);
+    });
+
+    it('commits cleanly when called with a valid booking_token (skips re-lock)', async () => {
+      const token = encodeBookingToken({
+        slotLockId: 12345,
+        restaurantId: 2827,
+        diningAreaId: 1,
+        partySize: 5,
+        date: '2026-05-01',
+        time: '20:45',
+        reservationToken: 'rt',
+        slotHash: 'sh',
+        paymentMethodId: 'card_real',
+        ccRequired: true,
+        issuedAt: '2026-04-21T00:00:00Z',
+      });
+
+      // Only the make-reservation JSON call should fire — no slot-lock, no booking-details SSR.
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+        if (path.includes('make-reservation')) {
+          const body = init?.body as Record<string, unknown>;
+          expect(body.slotLockId).toBe(12345);
+          expect(body.paymentMethodId).toBe('card_real');
+          return {
+            success: true,
+            reservationId: 424242,
+            confirmationNumber: 8675309,
+            securityToken: 'st_real',
+            points: 100,
+          };
+        }
+        throw new Error(`unexpected fetchJson path: ${path}`);
+      });
+      // fetchHtml is still called by fetchProfile for PII.
+      mockFetchHtml.mockResolvedValue(
+        htmlWith({
+          header: {
+            userProfile: {
+              firstName: 'Test',
+              lastName: 'User',
+              email: 'test@example.com',
+              mobilePhoneNumber: { number: '5551234567', countryId: 'US' },
+              countryId: 'US',
+            },
+          },
+          diningDashboard: {
+            upcomingReservations: [],
+            pastReservations: [],
+          },
+        })
+      );
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 2827,
+        date: '2026-05-01',
+        time: '20:45',
+        party_size: 5,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+        booking_token: token,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const body = JSON.parse((result.content[0] as { text: string }).text);
+      expect(body.confirmation_number).toBe(8675309);
+      expect(body.cc_required).toBe(true);
+    });
+
+    it('rejects a booking_token whose fields do not match the call args', async () => {
+      const token = encodeBookingToken({
+        slotLockId: 12345,
+        restaurantId: 2827,
+        diningAreaId: 1,
+        partySize: 5,
+        date: '2026-05-01',
+        time: '20:45',
+        reservationToken: 'rt',
+        slotHash: 'sh',
+        paymentMethodId: 'card_real',
+        ccRequired: true,
+        issuedAt: '2026-04-21T00:00:00Z',
+      });
+
+      // fetchJson / fetchHtml must never fire — rejection must be synchronous.
+      mockFetchJson.mockRejectedValue(new Error('should not be called'));
+      mockFetchHtml.mockRejectedValue(new Error('should not be called'));
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 2827,
+        date: '2026-05-01',
+        time: '20:45',
+        party_size: 4, // changed from 5
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+        booking_token: token,
+      });
+
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+    });
+
+    it('maps a SLOT_LOCK_EXPIRED failure to an actionable message', async () => {
+      const token = encodeBookingToken({
+        slotLockId: 12345,
+        restaurantId: 2827,
+        diningAreaId: 1,
+        partySize: 5,
+        date: '2026-05-01',
+        time: '20:45',
+        reservationToken: 'rt',
+        slotHash: 'sh',
+        paymentMethodId: 'card_real',
+        ccRequired: true,
+        issuedAt: '2026-04-21T00:00:00Z',
+      });
+
+      mockFetchHtml.mockResolvedValue(
+        htmlWith({
+          header: {
+            userProfile: {
+              firstName: 'Test',
+              lastName: 'User',
+              email: 'test@example.com',
+              mobilePhoneNumber: { number: '5551234567', countryId: 'US' },
+              countryId: 'US',
+            },
+          },
+          diningDashboard: {
+            upcomingReservations: [],
+            pastReservations: [],
+          },
+        })
+      );
+      mockFetchJson.mockResolvedValue({
+        success: false,
+        errorCode: 'SLOT_LOCK_EXPIRED',
+        errorMessage: 'slot lock expired',
+      });
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 2827,
+        date: '2026-05-01',
+        time: '20:45',
+        party_size: 5,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+        booking_token: token,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/slot lock expired/i);
+      expect(text).toMatch(/opentable_find_slots/);
+    });
   });
 });
