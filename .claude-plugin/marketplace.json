@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "MCP server for OpenTable — find slots, book, cancel, list reservations, manage favorites, search restaurants. Uses a companion Chrome extension so every request comes from your real signed-in browser (no cookie paste, no bot-wall dance).",
-    "version": "0.6.0"
+    "version": "0.7.0"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
       "displayName": "OpenTable",
       "source": "./",
       "description": "OpenTable reservation management for Claude — relays through a companion Chrome extension in your signed-in opentable.com tab.",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "author": {
         "name": "Chris Hall"
       },
