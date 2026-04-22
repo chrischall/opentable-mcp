@@ -89,7 +89,8 @@ The server throws `SessionNotAuthenticatedError` (with a clear message) if it de
 ### Bookings
 | Tool | Description |
 |------|-------------|
-| `opentable_book(restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id)` | Book a slot. Requires fresh `reservation_token` + `slot_hash` from `find_slots` and `dining_area_id` from `get_restaurant`. Auto-fetches the user's profile for the booking payload. Returns `confirmation_number` + `security_token` (save both — they're required for cancel). |
+| `opentable_book_preview(restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id)` | Preview a booking: runs slot-lock + fetches /booking/details, returns the cancellation policy, the saved card that would be held/charged, and a short-lived `booking_token`. REQUIRED before `opentable_book` for CC-required slots; safe to call for others. Holds the slot for ~60-90s. |
+| `opentable_book(restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id, booking_token?)` | Book a slot. For CC-required slots, pass the `booking_token` from `opentable_book_preview` — the tool errors out pointing you at preview if you don't. For non-guaranteed slots, `booking_token` is optional (but harmless). Returns `confirmation_number` + `security_token` (save both — they're required for cancel). |
 | `opentable_cancel(restaurant_id, confirmation_number, security_token)` | Cancel by the triple returned from `book` or `list_reservations`. |
 
 ### Favorites
@@ -101,7 +102,7 @@ The server throws `SessionNotAuthenticatedError` (with a clear message) if it de
 
 ## Workflows
 
-**Book a specific restaurant for a specific evening:**
+**Book a specific restaurant for a specific evening (no-CC slot):**
 ```
 opentable_search_restaurants(term: "state of confusion", location: "Charlotte")
   → note the restaurant_id (numeric) + URL slug
@@ -111,6 +112,23 @@ opentable_find_slots(restaurant_id, date: "2026-05-01", time: "19:00", party_siz
   → pick a slot, grab reservation_token + slot_hash
 opentable_book(restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id)
   → save confirmation_number + security_token
+```
+
+**Book a CC-required slot (prime-time at a busy restaurant):**
+```
+opentable_find_slots(...)                                   # pick one
+opentable_book_preview(restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id)
+  → shows cancellation_policy (e.g. "$50/guest no-show fee, cancel 24h ahead for no charge")
+  → shows payment_method (e.g. Mastercard •••• 4242)
+  → returns booking_token
+
+   [Surface the policy + card to the user. Let them confirm in plain English.]
+
+opentable_book(..., booking_token: <from preview>)          # commits
+  → save confirmation_number + security_token
+
+If opentable_book is called on a CC-required slot without booking_token, it
+errors out with "call opentable_book_preview first". That's the gate.
 ```
 
 **"What's available tonight for 2 at a nice Italian spot?":**
@@ -136,6 +154,7 @@ opentable_add_favorite(restaurant_id)
 
 ## Notes
 
+- **CC-required bookings must go through preview first.** Restaurants that hold your card for a no-show fee (common at prime-time tables) require `opentable_book_preview` before `opentable_book`. The preview surfaces the cancellation policy and the saved card last-4; the `booking_token` it returns is opaque, stateless, and expires with OpenTable's ~60–90 s slot lock. If the user has no default payment method on opentable.com, preview throws a link to the account settings page. Plain `opentable_book` (no token) refuses CC-required slots with a pointer to preview.
 - **Slot tokens are short-lived.** `reservation_token` + `slot_hash` from `find_slots` typically expire within a minute or two. Call `find_slots` just before `book`, and if the user is deliberating, re-fetch.
 - **`dining_area_id` is mandatory for book.** OpenTable's `/r/<numeric-id>` routes 404 — there's no way to auto-resolve the default dining room. Always call `opentable_get_restaurant(slug)` first and pick a room from `diningAreas[]`.
 - **`/user/favorites` has a read-after-write lag.** A fresh `add_favorite` may not show up in `list_favorites` for ~10 s. The 204 response from add/remove is authoritative.

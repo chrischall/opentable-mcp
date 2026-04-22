@@ -55,7 +55,8 @@ and a signed-in opentable tab.
 | `opentable_search_restaurants` | `tools/search.ts` | POST `/dapi/fe/gql?opname=Autocomplete` | read |
 | `opentable_get_restaurant` | `tools/restaurants.ts` | GET `/r/{slug}` SSR | read |
 | `opentable_find_slots` | `tools/reservations.ts` | POST `/dapi/fe/gql?opname=RestaurantsAvailability` | read |
-| `opentable_book` | `tools/reservations.ts` | POST `BookDetailsStandardSlotLock` → POST `/dapi/booking/make-reservation` | write |
+| `opentable_book_preview` | `tools/reservations.ts` | GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` | read |
+| `opentable_book` | `tools/reservations.ts` | (token path) POST `/dapi/booking/make-reservation`; (no-token path) GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` → POST `/dapi/booking/make-reservation` | write |
 | `opentable_cancel` | `tools/reservations.ts` | POST `/dapi/fe/gql?opname=CancelReservation` | write |
 | `opentable_add_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/add` | write |
 | `opentable_remove_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/remove` | write |
@@ -77,6 +78,7 @@ and a signed-in opentable tab.
 - **CSRF tokens live on `window.__CSRF_TOKEN__`** (MAIN world) but `content.js` runs in an isolated world. `capture-logger.js` syncs the token to `document.documentElement.dataset.otMcpCsrf` every 2s so `content.js` can include it in headers for write endpoints.
 - **Persisted-query cache lag on `/user/favorites`.** After `add_favorite` returns 204, the SSR dashboard may not reflect the new entry for ~10s. Document this in the tool description, don't fight the cache.
 - **Sign-in detection.** `OpenTableClient.throwIfSignInPage` checks for `/authenticate/` in the response URL or sign-in markers in a short response body. When it throws, the user must sign into opentable.com in the bridged Chrome tab.
+- **CC-required slots route through preview.** The slot-lock response doesn't carry the CC-required flag or cancellation policy — those live in the `/booking/details` SSR page's `__INITIAL_STATE__` (`timeSlot.creditCardRequired`, `messages.cancellationPolicyMessage`, `wallet.savedCards`). `opentable_book_preview` fetches that page + slot-locks, and mints a `booking_token` that `opentable_book` consumes. `booking_token` is opaque, stateless base64-JSON — no server-side cache — with a tamper check (restaurant/date/time/party/dining-area must match the caller's own args). OpenTable's ~90 s slot-lock TTL is the only expiry; a stale token surfaces as `SLOT_LOCK_EXPIRED` which `opentable_book` maps to an actionable error.
 
 ## Live probing workflow
 
