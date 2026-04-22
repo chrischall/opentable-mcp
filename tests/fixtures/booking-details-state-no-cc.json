@@ -1,0 +1,58 @@
+{
+  "_comment": "Standard no-guarantee slot — creditCardRequired:false, no cancellationPolicyMessage text. Shape mirrors a real /booking/details SSR response for a non-CC restaurant.",
+  "timeSlot": {
+    "isAvailable": true,
+    "slotHash": "3758053322",
+    "slotAvailabilityToken": "eyJ2IjoyLCJtIjoxLCJwIjowLCJjIjo0LCJzIjowLCJuIjowfQ",
+    "creditCardRequired": false,
+    "creditCardRequiredForStandard": false,
+    "creditCardPolicyId": null,
+    "creditCardPolicyType": null,
+    "creditCardDeposit": null,
+    "reservationType": "Standard",
+    "attributes": ["default"],
+    "pointsType": "Standard",
+    "pointsValue": 100,
+    "diningAreasBySeating": [
+      {
+        "diningAreaId": 48750,
+        "tableCategory": "default",
+        "slotTypes": ["Standard"],
+        "environment": "Indoor"
+      }
+    ]
+  },
+  "messages": {
+    "cancellationPolicyMessage": null,
+    "creditCardDayMessage": []
+  },
+  "restaurant": {
+    "restaurantId": 1272781,
+    "name": "State of Confusion",
+    "features": {
+      "creditCardCancellationDayLimit": null,
+      "paymentProcessor": "stripe"
+    }
+  },
+  "wallet": {
+    "savedCards": [
+      {
+        "active": true,
+        "cardId": "card_REDACTED_DEFAULT",
+        "expiryMonth": 10,
+        "expiryYear": 2028,
+        "last4": "4242",
+        "type": "Mastercard",
+        "default": true,
+        "expired": false
+      }
+    ],
+    "selectedPaymentCardId": "card_REDACTED_DEFAULT"
+  },
+  "reservationDateTime": {
+    "reservationDate": "2026-05-01",
+    "reservationTime": "19:00"
+  },
+  "partySize": 2,
+  "diningAreaId": 48750
+}

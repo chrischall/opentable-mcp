@@ -285,3 +285,67 @@ and miss the whole point.
 
 No changes to: `src/ws-server.ts`, `src/client.ts`, `extension/*` (the
 capture logger already exists and is what we'll use for investigation).
+
+---
+
+## Investigation results (2026-04-22)
+
+Captured from Rowes Wharf Sea Grille (rid 2827) — a real CC-required
+restaurant with a "$50 per person" no-show fee — via the extension's
+XHR logger plus `__INITIAL_STATE__` of the `/booking/details` page.
+
+**Where the CC-required flag lives:** not in the `BookDetailsStandardSlotLock`
+response (which is identical to a no-guarantee slot-lock and carries
+only `slotLockId`). The flag lives in the SSR `__INITIAL_STATE__` of
+the `/booking/details` page at:
+
+```
+state.timeSlot.creditCardRequired          (boolean)
+state.timeSlot.creditCardPolicyType        ("Hold" | "Deposit" | …)
+state.timeSlot.creditCardPolicyId          (string; policy reference)
+state.timeSlot.creditCardDeposit           (object or null)
+```
+
+**Where the cancellation policy text lives:**
+
+```
+state.messages.cancellationPolicyMessage.cancellationMessage.message
+state.messages.creditCardDayMessage[0].message   (duplicate in many cases)
+state.restaurant.features.creditCardCancellationDayLimit   (number of days)
+```
+
+Verbatim sample text:
+> "This restaurant requires a credit card to secure this reservation. …
+> No-shows or cancellations less than 24 hours in advance will be
+> subject to a charge of $50 per person."
+
+The dollar amount + "per person" vs "total" is only in the free-text
+message. We surface `raw_text` verbatim and best-effort-parse the
+amount via regex; when parsing fails we still return the raw text so
+the LLM / user can read it.
+
+**Where saved cards live:**
+
+```
+state.wallet.savedCards          (array; each has cardId, last4, type, default)
+state.wallet.selectedPaymentCardId  (id of the card OpenTable will use)
+```
+
+No separate payment-methods endpoint needed — the page ships the cards
+as part of the SSR state.
+
+**Preview request shape (revised):**
+
+```
+GET /booking/details?rid=<id>&datetime=<ISO>&covers=<N>&seating=default&dtp=1&...
+  → HTML (SSR) → extractInitialState → parseBookingDetailsState
+```
+
+The slot-lock step is still needed (it reserves the slot for ~90s and
+returns the `slotLockId` we need for `make-reservation`). It is called
+separately from the booking-details SSR fetch.
+
+**`make-reservation` additions for CC-required** (to be verified by
+running the live probe once Task 13 is built): likely requires at least
+`paymentMethodId` / `savedCardId` pointing at `wallet.selectedPaymentCardId`.
+Commit the live probe's discovered payload shape when it's known.

@@ -1,0 +1,68 @@
+{
+  "_comment": "Minimal synthetic booking-details __INITIAL_STATE__ for a CC-required slot. Field paths match live captures from Rowes Wharf Sea Grille on 2026-04-22 (see docs/superpowers/specs/2026-04-21-cc-required-booking-design.md → Investigation results). Trimmed to the fields the MCP reads; extra fields in the real response are ignored.",
+  "timeSlot": {
+    "isAvailable": true,
+    "slotHash": "1663920856",
+    "slotAvailabilityToken": "eyJ2IjoyLCJtIjowLCJwIjowLCJjIjo2LCJzIjowLCJuIjowfQ",
+    "creditCardRequired": true,
+    "creditCardRequiredForStandard": false,
+    "creditCardPolicyId": "609cfbe344f1c50dbd6fd2d3:v11",
+    "creditCardPolicyType": "Hold",
+    "creditCardDeposit": null,
+    "reservationType": "Standard",
+    "attributes": ["default"],
+    "pointsType": "Standard",
+    "pointsValue": 100,
+    "diningAreasBySeating": [
+      {
+        "diningAreaId": 1,
+        "tableCategory": "default",
+        "slotTypes": ["Standard"],
+        "environment": "Indoor"
+      }
+    ]
+  },
+  "messages": {
+    "cancellationPolicyMessage": {
+      "cancellationMessage": {
+        "message": "This restaurant requires a credit card to secure this reservation. All credit card information will be processed securely. Changes to this reservation can be made online through OpenTable up until 24 hours before the reservation. No-shows or cancellations less than 24 hours in advance will be subject to a charge of $50 per person.",
+        "language": { "code": "en", "region": "US", "ietf": "en-US" }
+      },
+      "depositMessage": null
+    },
+    "creditCardDayMessage": [
+      {
+        "message": "This restaurant requires a credit card to secure this reservation. All credit card information will be processed securely. Changes to this reservation can be made online through OpenTable up until 24 hours before the reservation. No-shows or cancellations less than 24 hours in advance will be subject to a charge of $50 per person."
+      }
+    ]
+  },
+  "restaurant": {
+    "restaurantId": 2827,
+    "name": "Rowes Wharf Sea Grille",
+    "features": {
+      "creditCardCancellationDayLimit": 1,
+      "paymentProcessor": "stripe"
+    }
+  },
+  "wallet": {
+    "savedCards": [
+      {
+        "active": true,
+        "cardId": "card_REDACTED_DEFAULT",
+        "expiryMonth": 10,
+        "expiryYear": 2028,
+        "last4": "4242",
+        "type": "Mastercard",
+        "default": true,
+        "expired": false
+      }
+    ],
+    "selectedPaymentCardId": "card_REDACTED_DEFAULT"
+  },
+  "reservationDateTime": {
+    "reservationDate": "2026-05-01",
+    "reservationTime": "20:45"
+  },
+  "partySize": 5,
+  "diningAreaId": 1
+}
