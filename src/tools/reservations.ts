@@ -353,6 +353,10 @@ export function registerReservationTools(
                 },
                 cc_required: summary.cc_required,
                 policy_type: summary.policy_type,
+                // Restaurant-supplied custom terms (common at UK venues).
+                // When non-null, surface to the user before they tell
+                // opentable_book to commit.
+                terms: summary.terms,
               },
               null,
               2

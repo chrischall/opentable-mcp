@@ -44,6 +44,16 @@ export interface ReservationConflict {
   party_size: number;
 }
 
+/** Custom terms-and-conditions text some restaurants attach to the
+ *  booking flow (common at UK venues with their own cancellation
+ *  rules). When present, callers should surface this text to the user
+ *  before committing. Distinct from `cancellation_policy.description`,
+ *  which only fires when the slot itself requires a card hold. */
+export interface BookingTerms {
+  text: string;
+  language: string | null;
+}
+
 export interface BookingDetailsSummary {
   cc_required: boolean;
   policy_type: CardPolicyType;
@@ -53,6 +63,9 @@ export interface BookingDetailsSummary {
    *  when none. Callers should surface actionable errors when any entry
    *  falls on the same date the user is trying to book. */
   conflicts: ReservationConflict[];
+  /** Restaurant-supplied terms-and-conditions text, if any. `null` when
+   *  the venue ships no custom policy. */
+  terms: BookingTerms | null;
 }
 
 interface RawTimeSlot {
@@ -86,9 +99,15 @@ interface RawCancellationPolicyMessage {
   depositMessage?: RawMessage | null;
 }
 
+interface RawTermsAndConditions {
+  message?: string;
+  language?: { code?: string; ietf?: string; region?: string };
+}
+
 interface RawMessages {
   cancellationPolicyMessage?: RawCancellationPolicyMessage | null;
   creditCardDayMessage?: Array<RawMessage> | null;
+  termsAndConditions?: RawTermsAndConditions | null;
 }
 
 interface RawFeatures {
@@ -221,12 +240,22 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
     });
   }
 
+  const tc = messages.termsAndConditions;
+  let terms: BookingTerms | null = null;
+  if (tc && typeof tc.message === 'string' && tc.message.trim().length > 0) {
+    terms = {
+      text: tc.message,
+      language: tc.language?.ietf ?? tc.language?.code ?? null,
+    };
+  }
+
   return {
     cc_required: ccRequired,
     policy_type: policyType,
     policy,
     default_card: defaultCard,
     conflicts,
+    terms,
   };
 }
 

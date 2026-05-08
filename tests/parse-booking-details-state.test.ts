@@ -84,6 +84,54 @@ describe('parseBookingDetailsState', () => {
     expect(r.policy.per_person).toBe(false);
   });
 
+  it('extracts custom terms-and-conditions text + language code', () => {
+    const state = {
+      ...fixture('booking-details-state-no-cc.json'),
+      messages: {
+        termsAndConditions: {
+          message:
+            'Please note that we work with a 24 hour cancellation policy and a £10pp charge should you cancel within this time frame.',
+          language: { code: 'en', ietf: 'en-GB', region: 'GB' },
+        },
+      },
+    };
+    const r = parseBookingDetailsState(state);
+    expect(r.terms).not.toBeNull();
+    expect(r.terms!.text).toContain('£10pp');
+    expect(r.terms!.language).toBe('en-GB');
+  });
+
+  it('returns terms=null when no termsAndConditions field is present', () => {
+    const state = fixture('booking-details-state-cc.json');
+    const r = parseBookingDetailsState(state);
+    expect(r.terms).toBeNull();
+  });
+
+  it('returns terms=null when termsAndConditions has empty message', () => {
+    const state = {
+      ...fixture('booking-details-state-no-cc.json'),
+      messages: {
+        termsAndConditions: { message: '   ', language: { code: 'en' } },
+      },
+    };
+    const r = parseBookingDetailsState(state);
+    expect(r.terms).toBeNull();
+  });
+
+  it('falls back to language.code when ietf is missing', () => {
+    const state = {
+      ...fixture('booking-details-state-no-cc.json'),
+      messages: {
+        termsAndConditions: {
+          message: 'Some custom policy.',
+          language: { code: 'en' },
+        },
+      },
+    };
+    const r = parseBookingDetailsState(state);
+    expect(r.terms!.language).toBe('en');
+  });
+
   it('extracts upcomingReservationConflicts into a typed conflicts array', () => {
     const state = {
       ...fixture('booking-details-state-cc.json'),

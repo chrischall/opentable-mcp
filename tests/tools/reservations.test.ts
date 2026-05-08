@@ -266,6 +266,62 @@ describe('reservation tools', () => {
       });
     });
 
+    it('surfaces messages.termsAndConditions in preview output as a top-level `terms` field', async () => {
+      const state = {
+        ...fixture('booking-details-state-no-cc.json'),
+        messages: {
+          termsAndConditions: {
+            message:
+              'Please note that we work with a 24 hour cancellation policy and a £10pp charge should you cancel within this time frame.',
+            language: { code: 'en', ietf: 'en-GB', region: 'GB' },
+          },
+        },
+      };
+      mockFetchHtml.mockResolvedValue(htmlWith(state));
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 141537,
+        date: '2026-05-09',
+        time: '19:30',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const body = JSON.parse((result.content[0] as { text: string }).text);
+      expect(body.terms).toEqual({
+        text: expect.stringContaining('£10pp'),
+        language: 'en-GB',
+      });
+    });
+
+    it('returns terms=null when the venue has no custom policy', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-no-cc.json'))
+      );
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 48750,
+      });
+
+      const body = JSON.parse((result.content[0] as { text: string }).text);
+      expect(body.terms).toBeNull();
+    });
+
     it('on a no-CC slot returns policy.type=none, payment_method=null, still issues a token', async () => {
       mockFetchHtml.mockResolvedValue(
         htmlWith(fixture('booking-details-state-no-cc.json'))
