@@ -93,3 +93,27 @@ and a signed-in opentable tab.
 - Don't paste cookies or env-configure auth. Auth lives in the user's browser now.
 - Don't register tools that can't be tested against a mock `OpenTableClient`. All tool logic should be behind `fetchJson` / `fetchHtml` so tests can drive it without a real WS.
 - Don't bump the persisted-query hashes speculatively. Only re-capture when a live request fails with `PersistedQueryNotFound`.
+
+<!-- pr-workflow:v1 -->
+## Pull requests & release notes
+
+**Default workflow: branch + PR, even for solo work.** Direct pushes to `main` skip review *and* skip auto-generated release notes — GitHub's `generate_release_notes` (configured in `.github/release.yml`) only picks up merged PRs. Push directly to `main` only when the user explicitly asks for it (e.g. emergency hotfix).
+
+For every PR, apply exactly one label so it lands in the right release-notes section:
+
+| Label                | Section in release notes |
+|----------------------|--------------------------|
+| `enhancement`        | Features                 |
+| `bug`                | Bug Fixes                |
+| `security`           | Security                 |
+| `refactor`           | Refactor                 |
+| `documentation`      | Documentation            |
+| `test`               | Tests                    |
+| `dependencies`       | Dependencies             |
+| `ci` / `github_actions` | CI & Build            |
+| *(none / unmatched)* | Other Changes            |
+| `ignore-for-release` | Hidden from notes        |
+
+The **PR title** becomes the bullet — write it like a user-facing changelog entry, not internal shorthand. Conventional-commit prefixes are still fine in commit messages, but the PR title should read clean.
+
+Open with `gh pr create --label <label>` (or `--label ignore-for-release` for chores not worth a line), then **immediately** run `gh pr merge <num> --auto --merge` so the PR merges as soon as CI passes. The repo allows merge commits only (no squash, no rebase) — don't pass `--squash`/`--rebase` or the call will fail.
