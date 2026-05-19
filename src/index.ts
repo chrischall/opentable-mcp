@@ -41,7 +41,7 @@ const transport =
 const client = new OpenTableClient({ transport });
 await client.start();
 
-const server = new McpServer({ name: 'opentable-mcp', version: '0.9.0' });
+const server = new McpServer({ name: 'opentable-mcp', version: '0.9.1' });
 
 registerReservationTools(server, client);
 registerUserTools(server, client);
