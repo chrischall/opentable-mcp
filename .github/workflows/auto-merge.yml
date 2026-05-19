@@ -29,9 +29,18 @@ concurrency:
 jobs:
   enable-auto-merge:
     runs-on: ubuntu-latest
-    # Skip drafts. Authors mark a PR "ready for review" when they want it
-    # to land; until then this workflow stays out of the way.
-    if: github.event.pull_request.draft == false
+    # Two filters:
+    #   1. Drafts are skipped. Authors mark a PR "ready for review" when
+    #      they want it to land; until then this workflow stays out of the
+    #      way.
+    #   2. Only the repo owner and dependabot get auto-merge. External
+    #      contributors (rare on a personal repo but possible) still go
+    #      through manual review. Tighten further with additional logins,
+    #      or broaden to all authors, by editing the second clause.
+    if: |
+      github.event.pull_request.draft == false &&
+      (github.event.pull_request.user.login == github.repository_owner ||
+       github.event.pull_request.user.login == 'dependabot[bot]')
     steps:
       - name: Enable auto-merge via gh
         env:
