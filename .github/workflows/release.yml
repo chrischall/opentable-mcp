@@ -91,6 +91,14 @@ jobs:
       - name: Publish to npm
         continue-on-error: true
         run: |
+          # Idempotent: skip if this version is already on the registry, so
+          # re-runs of the same tag don't trip E409.
+          PKG=$(node -p "require('./package.json').name")
+          PUBLISHED=$(npm view "${PKG}@${VERSION}" version 2>/dev/null || true)
+          if [ "$PUBLISHED" = "$VERSION" ]; then
+            echo "npm already has ${PKG}@${VERSION} — skipping publish."
+            exit 0
+          fi
           if [[ "$VERSION" == *-* ]]; then
             PRETAG=$(echo "$VERSION" | sed -E 's/.*-([^.0-9]+).*/\1/')
             npm publish --access public --provenance --tag "$PRETAG"
