@@ -5,9 +5,26 @@ Guidance for Claude working in this repo.
 ## TL;DR
 
 v0.9.0: OpenTable MCP server with 11 tools (read + write), fronted by a
-localhost WebSocket bridge to a companion Chrome extension running in the
-user's signed-in tab. Akamai never sees us — every request is a real
-browser fetch.
+pluggable browser bridge. Default transport: localhost WebSocket to a
+companion Chrome extension under `./extension/`. Opt-in alternative:
+`OT_BRIDGE=mcp-chrome` routes through hangwin/mcp-chrome's HTTP MCP
+endpoint instead (no embedded extension; uses theirs). Either way,
+Akamai sees a real browser fetch — never us directly.
+
+## Bridge selection
+
+`OT_BRIDGE` env var picks the transport:
+
+- `OT_BRIDGE=websocket` (default) — embedded extension under `./extension/`,
+  WebSocket on 127.0.0.1:37149 (override with `OT_WS_PORT`). What every
+  release through v0.8.0 used; the only path with full live verification.
+- `OT_BRIDGE=mcp-chrome` — talks to hangwin/mcp-chrome at
+  `http://127.0.0.1:12306/mcp` (override with `OT_MCP_CHROME_URL`).
+  Requires mcp-chrome ≥ the release containing
+  [PR #348](https://github.com/hangwin/mcp-chrome/pull/348) — the
+  `tabUrl` parameter on `chrome_network_request`. Pre-PR mcp-chrome
+  versions are active-tab-only and break credentialed cross-origin
+  fetches. Live-verification of this path is pending the upstream merge.
 
 ## Commands
 
@@ -36,8 +53,10 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the extension loaded at `chrome://
 └────────────────┘          └──────────────────┘        └────────────┘   cookies)    └─────────────┘
 ```
 
-- **`src/ws-server.ts`** — `OpenTableWsServer`: 127.0.0.1:37149 listener. Accepts one extension, routes `fetch` RPCs, 20s ping, 15s connect timeout, 30s request timeout.
-- **`src/client.ts`** — `OpenTableClient`: thin wrapper around the WS server. `fetchHtml(path)` for GETs that return HTML, `fetchJson(path, init)` for JSON POSTs/DELETEs. Maps non-2xx, empty-body (204), and sign-in-page responses into typed errors.
+- **`src/transport.ts`** — the `OpenTableTransport` interface (`start/close/fetch`) and shared `FetchInit`/`FetchResult` types. Two implementations:
+  - **`src/ws-server.ts`** — `OpenTableWsServer`: 127.0.0.1:37149 listener. Default. Accepts one extension, routes `fetch` RPCs, 20s ping, 15s connect timeout, 30s request timeout.
+  - **`src/transport-mcp-chrome.ts`** — `McpChromeTransport`: opt-in via `OT_BRIDGE=mcp-chrome`. Talks to hangwin/mcp-chrome's HTTP MCP at `127.0.0.1:12306/mcp`. Each fetch maps to a `chrome_network_request` call pinned to `tabUrl: "https://www.opentable.com/"`. Requires the `tabUrl` param landing upstream — see https://github.com/hangwin/mcp-chrome/pull/348.
+- **`src/client.ts`** — `OpenTableClient`: thin facade over `OpenTableTransport`. `fetchHtml(path)` for GETs that return HTML, `fetchJson(path, init)` for JSON POSTs/DELETEs. Maps non-2xx, empty-body (204), and sign-in-page responses into typed errors. Transport-agnostic.
 - **`src/tools/*.ts`** — one file per concern (reservations, restaurants, favorites, search, user). Each exports `registerXxxTools(server, client)`. See "Tool surface" below.
 - **`src/parse-*.ts`** — pure HTML/JSON parsers. Fully unit-tested.
 - **`src/initial-state.ts`** — extracts `window.__INITIAL_STATE__` from SSR HTML pages.
