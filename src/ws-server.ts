@@ -12,19 +12,11 @@
 //     has been sent.
 //   PING_INTERVAL_MS (20s) — keep the MV3 service worker awake.
 import { WebSocketServer, WebSocket } from 'ws';
+import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
-export interface FetchInit {
-  path: string;
-  method: 'GET' | 'POST' | 'DELETE';
-  headers?: Record<string, string>;
-  body?: string;
-}
-
-export interface FetchResult {
-  status: number;
-  body: string;
-  url: string;
-}
+// Re-export so callers that imported these from ws-server in previous
+// versions don't break — the canonical home is now src/transport.ts.
+export type { FetchInit, FetchResult };
 
 interface PendingRequest {
   resolve: (v: FetchResult) => void;
@@ -38,7 +30,7 @@ interface ServerOptions {
 
 const PING_INTERVAL_MS = 20_000;
 
-export class OpenTableWsServer {
+export class OpenTableWsServer implements OpenTableTransport {
   private readonly port: number;
   private wss: WebSocketServer | null = null;
   private active: WebSocket | null = null;
