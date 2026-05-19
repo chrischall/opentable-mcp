@@ -62,7 +62,29 @@ After that, any MCP client that launches `node dist/bundle.js` will reach OpenTa
 }
 ```
 
-No env vars required — auth lives in the browser, not the MCP process.
+No env vars required by default — auth lives in the browser, not the MCP process.
+
+### Optional: bridge through hangwin/mcp-chrome instead
+
+If you've installed [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) for browser automation, opentable-mcp can route its OpenTable fetches through it instead of using the embedded extension:
+
+```json
+{
+  "mcpServers": {
+    "opentable": {
+      "command": "node",
+      "args": ["/absolute/path/to/opentable-mcp/dist/bundle.js"],
+      "env": { "OT_BRIDGE": "mcp-chrome" }
+    }
+  }
+}
+```
+
+In that mode you don't need to load this repo's `./extension/`. Every OpenTable request becomes a `chrome_network_request` call against your existing mcp-chrome install, pinned via `tabUrl` to an opentable.com tab.
+
+**Note:** this path requires mcp-chrome ≥ the release containing [PR #348](https://github.com/hangwin/mcp-chrome/pull/348) (`tabUrl` parameter on `chrome_network_request`). Pre-#348 mcp-chrome versions are active-tab-only and will misbehave for cross-origin fetches. Live-verification of this path is pending the upstream merge.
+
+Other env vars: `OT_WS_PORT` (default 37149) overrides the embedded WebSocket port; `OT_MCP_CHROME_URL` (default `http://127.0.0.1:12306/mcp`) overrides the mcp-chrome endpoint.
 
 ## Run (local stdio)
 
