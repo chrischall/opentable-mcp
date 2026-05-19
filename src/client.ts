@@ -1,13 +1,14 @@
-// OpenTableClient is the thin, tool-facing API over the extension bridge.
+// OpenTableClient is the thin, tool-facing API over an OpenTableTransport.
 // Every tool goes through fetchHtml() (SSR pages) or fetchJson() (API
-// endpoints) — which ultimately routes to the companion Chrome extension
-// via OpenTableWsServer. See extension/README.md for the transport and
-// CLAUDE.md for the architecture diagram.
+// endpoints). The transport — WebSocket-to-our-extension by default,
+// or HTTP-to-hangwin/mcp-chrome when enabled — handles the actual
+// round-trip to the user's Chrome.
 //
-// This file is deliberately small; error mapping (non-2xx, sign-in
-// interstitial, empty 204 body) lives here so tool authors never have
-// to think about it.
-import { OpenTableWsServer, type FetchInit, type FetchResult } from './ws-server.js';
+// Error mapping (non-2xx, sign-in interstitial, empty 204 body) lives
+// here so tool authors never have to think about it AND so it stays
+// consistent across transports.
+import { OpenTableWsServer } from './ws-server.js';
+import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 export class SessionNotAuthenticatedError extends Error {
   constructor() {
@@ -19,22 +20,27 @@ export class SessionNotAuthenticatedError extends Error {
 }
 
 export interface OpenTableClientOptions {
+  /** Custom transport. When omitted, defaults to the embedded
+   *  WebSocket bridge on the given port (or 37149). */
+  transport?: OpenTableTransport;
+  /** Convenience for the default transport — sets the listener port.
+   *  Ignored when `transport` is supplied. */
   port?: number;
 }
 
 export class OpenTableClient {
-  private readonly server: OpenTableWsServer;
+  private readonly transport: OpenTableTransport;
 
   constructor(opts: OpenTableClientOptions = {}) {
-    this.server = new OpenTableWsServer({ port: opts.port });
+    this.transport = opts.transport ?? new OpenTableWsServer({ port: opts.port });
   }
 
   async start(): Promise<void> {
-    await this.server.start();
+    await this.transport.start();
   }
 
   async close(): Promise<void> {
-    await this.server.close();
+    await this.transport.close();
   }
 
   /**
@@ -42,7 +48,7 @@ export class OpenTableClient {
    * is a non-2xx or appears to be the sign-in page.
    */
   async fetchHtml(path: string): Promise<string> {
-    const result = await this.server.fetch({ path, method: 'GET' });
+    const result = await this.transport.fetch({ path, method: 'GET' });
     this.throwIfNotOk(result, 'GET', path);
     this.throwIfSignInPage(result);
     return result.body;
@@ -70,7 +76,7 @@ export class OpenTableClient {
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     };
-    const result = await this.server.fetch(serialised);
+    const result = await this.transport.fetch(serialised);
     this.throwIfNotOk(result, serialised.method, path);
     this.throwIfSignInPage(result);
     // 204 No Content (common on void mutations like /dapi/wishlist/add): return null.
