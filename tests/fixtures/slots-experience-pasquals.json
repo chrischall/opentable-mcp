@@ -1,0 +1,54 @@
+{
+  "data": {
+    "availability": [
+      {
+        "restaurantId": 278896,
+        "restaurantAvailabilityToken": "eyJ2IjoyLCJtIjoxLCJwIjowLCJzIjowLCJuIjowfQ",
+        "availabilityDays": [
+          {
+            "dayOffset": 0,
+            "slots": [
+              { "isAvailable": false, "__typename": "UnavailableSlot" },
+              {
+                "isAvailable": true,
+                "timeOffsetMinutes": -15,
+                "slotHash": "431673493",
+                "slotAvailabilityToken": "eyJ2IjozLCJtIjowLCJwIjowLCJjIjo2LCJzIjowLCJuIjowfQ",
+                "pointsType": "Standard",
+                "pointsValue": 100,
+                "type": "Experience",
+                "attributes": ["default"],
+                "experienceIds": [514735, 627696],
+                "__typename": "AvailableSlot"
+              },
+              {
+                "isAvailable": true,
+                "timeOffsetMinutes": 0,
+                "slotHash": "431673495",
+                "slotAvailabilityToken": "eyJ2IjozLCJtIjowLCJwIjowLCJjIjo2LCJzIjowLCJuIjowfQ",
+                "pointsType": "Standard",
+                "pointsValue": 100,
+                "type": "Experience",
+                "attributes": ["default"],
+                "experienceIds": [514735, 627696],
+                "__typename": "AvailableSlot"
+              },
+              {
+                "isAvailable": true,
+                "timeOffsetMinutes": 75,
+                "slotHash": "431673497",
+                "slotAvailabilityToken": "eyJ2IjozLCJtIjowLCJwIjowLCJjIjo2LCJzIjowLCJuIjowfQ",
+                "pointsType": "Standard",
+                "pointsValue": 100,
+                "type": "Experience",
+                "attributes": ["default"],
+                "experienceIds": [514735, 627696],
+                "__typename": "AvailableSlot"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
