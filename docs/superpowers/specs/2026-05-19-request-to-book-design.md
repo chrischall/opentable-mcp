@@ -1,41 +1,49 @@
-# Request-to-Book (non-instant) booking support — design
+# Non-instant booking support — design
 
-**Status:** approved, ready for plan (pending investigation results)
-**Date:** 2026-05-19
+**Status:** approved (Experience-mandatory + Listing detection ready to plan;
+true Request-to-Book submission deferred pending live capture)
+**Date:** 2026-05-19 (revised 2026-05-20 after live investigation)
 **Author:** Claude (with Chris)
 
 ## Context
 
-Many OpenTable restaurants — particularly boutique / fine-dining /
-small independents — require a manual approval step before confirming
-a reservation. Diners submit a "request to book," the restaurant
-approves (or declines, or proposes an alternate time) within a window
-of hours-to-days, and only then is the booking confirmed.
+The motivating bug: Cafe Pasqual's appeared with `instant_bookable: false`
+in tool output, and `opentable_book` failed opaquely on its slots. Original
+hypothesis was Request-to-Book (manual restaurant approval). Live
+investigation via the Chrome bridge proved the picture is more nuanced:
 
-OpenTable's UI shows these slots with a **Request to Book** button
-instead of the **Complete Reservation** button used on
-instant-bookable slots. The underlying API endpoint is different from
-`/dapi/booking/make-reservation`.
+OpenTable has **three distinct non-instant booking shapes**, and they
+need different handling:
 
-Today our MCP doesn't know about this distinction. `opentable_book`
-calls `/dapi/booking/make-reservation` for any slot find_slots returns
-— which fails opaquely on RTB restaurants. Agents have invented
-workarounds ("if instant_bookable: false, direct user to opentable.com
-or phone"), but the workaround relies on a field we don't actually
-expose, and the failure mode is just "an error" with no help on what
-to do next.
+| Shape | UX | Submit endpoint | Confirmation | Today's behavior |
+|---|---|---|---|---|
+| **Experience-mandatory** | Multi-step picker (seating-options → specials → details) before the standard "Complete reservation" page. | Standard `/dapi/booking/make-reservation`, but slot-lock uses `BookDetailsExperienceSlotLock` op (not Standard). | Instant. | `opentable_book` fails — it hits Standard slot-lock + bypasses the seating/experience pickers. |
+| **Listing-only** | Restaurant has an OpenTable info page but no booking flow at all (other reservation platform or no online booking). | None. | N/A. | `opentable_book` fails opaquely — there is no slot to lock. |
+| **Request-to-Book (RTB)** | Same `/booking/details` page, but submit button reads "Request to Book" / "Send request." Restaurant manually approves within hours-to-days. | TBD per live capture. | Async (REQUESTED → CONFIRMED / DECLINED / EXPIRED). | `opentable_book` fails — endpoint differs from instant `/dapi/booking/make-reservation`. |
 
-## Non-goals (deferred, see §6)
+Live investigation (2026-05-20, Chrome bridge against opentable.com)
+confirmed Experience-mandatory and Listing-only details fully (see
+"Investigation results" §). True RTB was not surfaced live in available
+restaurants surveyed — Le Bernardin returned `restaurant.type: "Listing"`
+(not RTB), and Pasqual's `instant_bookable: false` was actually
+Experience-mandatory. **The spec ships Experience-mandatory +
+Listing-only now; true RTB submission ships in a follow-up spec once
+a live RTB restaurant is captured.**
 
-- **Polling for RTB outcomes.** The bridge architecture doesn't run
-  when the user isn't actively driving an agent. Agents check status
-  on demand via `opentable_list_reservations`.
-- **Alternate-time proposals.** Some RTB restaurants respond with
-  "we don't have 6 PM, but we have 6:30 PM — accept?" v1 surfaces the
-  state as REQUESTED / DECLINED / TIME_PROPOSED but does not accept
-  proposed times through the MCP. User goes to opentable.com.
-- **Notes-to-restaurant** text on the request. Deferred unless
-  investigation shows OpenTable requires it.
+## Non-goals (deferred, see §"Follow-up specs")
+
+- **True RTB submission flow** — endpoint, payload, response shape,
+  REQUESTED-state lifecycle, approval/decline notifications. Deferred to
+  its own spec.
+- **Polling for RTB outcomes.** Even when RTB ships, the bridge
+  architecture doesn't run when the user isn't actively driving an
+  agent. Agents check status on demand via `opentable_list_reservations`.
+- **Alternate-time proposals** and **notes-to-restaurant.** Both depend
+  on the RTB submission flow.
+- **Experience add-ons.** Pasqual's investigation showed
+  `ExperienceAddOns` and `CalculateExperienceAddOnsTotals` GraphQL ops
+  fire when add-ons exist. v1 books Experience slots without add-ons
+  (skip the optional picker). v2 surfaces them.
 
 ## Tool surface
 
@@ -45,319 +53,370 @@ Each slot in the response array gains a `booking_type` field:
 
 ```jsonc
 {
-  "restaurant_id": 1272781,
+  "restaurant_id": 278896,
   "reservation_token": "…",
-  "slot_hash": "…",
+  "slot_hash": "431673495",
   "date": "2026-06-25",
   "time": "18:00",
   "party_size": 5,
-  "type": "Standard",
+  "type": "Experience",
   "attributes": ["default"],
   "points": 100,
-  "booking_type": "instant"          // ← new: "instant" | "request" | "closed"
+  "booking_type": "experience_mandatory",   // ← new
+  "experience_ids": [514735, 627696]        // ← new; only present for type: "Experience"
 }
 ```
 
-Agents that want to filter to instant-only restaurants can do so in
-their planning step. The `type` (Standard | Experience | POP) field
-stays — it describes the seating/experience tier, not the booking
-mode, and the two dimensions are orthogonal (an Experience slot can
-be either instant or request).
+`booking_type` values:
+- `"instant"` — slot.type === "Standard", restaurant is GuestCenter,
+  one-click `/booking/details` flow. Today's path.
+- `"experience_mandatory"` — slot.type === "Experience". Booking requires
+  the user (or the agent, via book_preview) to commit to one of the
+  Experiences in `experience_ids` before we can slot-lock.
+- `"request"` — deferred to follow-up spec. Detection logic is wired
+  through but currently always returns false; will flip on once the RTB
+  signal field is known.
 
-Per-slot is the right granularity if OpenTable carries it there; if
-the signal is restaurant-level only, every slot in a given availability
-day gets the same value.
+`type` (Standard | Experience | POP) stays — it describes the
+seating/experience tier. `booking_type` describes how to *book* it.
+The two dimensions are correlated but not identical: a Standard slot is
+always `instant`; an Experience slot is `experience_mandatory` in v1
+(RTB-on-Experience is a future combination we'll discover only when
+true RTB ships).
 
 ### `opentable_get_restaurant` — extended output
 
-A new top-level `booking_type` field on the formatted restaurant
-object, plus phone + URL ready for fallback if `booking_type !==
-"instant"`:
+A new top-level `bookable` field, plus `phone` + `url` ready for fallback
+when bookable is false:
 
 ```jsonc
 {
   // … existing fields …
   "phone": "(505) 983-9340",
   "url": "https://www.opentable.com/r/cafe-pasquals-santa-fe",
-  "booking_type": "instant",
-  "rtb_response_time_hours": null   // ← new; non-null only when booking_type === "request"
+  "bookable": true,            // ← new; false when restaurant.type === "Listing"
+  "listing_type": "GuestCenter"  // ← new: "GuestCenter" | "Listing"
 }
 ```
 
-`rtb_response_time_hours` exposes the restaurant's stated SLA when
-OpenTable surfaces one (varies by restaurant; some show "responds
-within 2 hours," others nothing). When unknown, callers should set
-expectations conservatively ("up to 24 hours").
+When `bookable: false`, the search/listing tools surface enough info to
+let the agent direct the user to the restaurant's phone or external
+booking URL.
 
-### `opentable_book_preview` — extended output
+### `opentable_book_preview` — Experience flow + bookable check
 
-Mirrors find_slots' new field. Preview already runs the slot-lock +
-fetches `/booking/details` SSR state for CC + terms; the same SSR
-state probably exposes the RTB signal (investigation will confirm),
-so this is essentially free.
+Preview gains two behaviors:
+
+1. **Refuse non-bookable restaurants.** If the restaurant's `listing_type
+   === "Listing"`, throw a clear error pointing the agent at the
+   restaurant's phone + URL. No slot-lock attempted.
+
+2. **Handle Experience-mandatory slots.** Today, preview hits
+   `BookDetailsStandardSlotLock` regardless. For Experience slots it
+   must:
+   - Navigate `/booking/details` with `experienceIds={...}` query param
+     (mandatory).
+   - When the slot exposes multiple seating areas
+     (`timeSlot.diningAreasBySeating[].length > 1` — Pasqual's has
+     "Community Table" + "Individual Table"), require an explicit
+     `dining_area_id` in the preview args (mirrors today's CC-required
+     restaurant gating).
+   - When the dining area exposes multiple experiences
+     (`bookableExperienceIds.length > 1`), require an explicit
+     `experience_id` arg. With single-experience cases (Pasqual's
+     Community Table → just experience 514735), auto-select.
+   - Slot-lock via `BookDetailsExperienceSlotLock` (different
+     persisted-query hash from Standard).
+
+The returned token carries `bookingType: "experience"` and
+`experienceId` so `opentable_book` can pick the right submission path.
 
 ```jsonc
 {
-  "booking_token": "eyJ…",
-  "booking_type": "request",         // ← new
-  "rtb_response_time_hours": 24,     // ← new
+  "booking_token": "eyJ…",                       // now carries experienceId
+  "booking_type": "experience_mandatory",        // ← new
+  "experience": {                                // ← new; present only for experience_mandatory
+    "experience_id": 514735,
+    "name": "Community Table Dining",
+    "type_enum": "PRIX_FIXE",
+    "description": "We will do our best to accommodate your seating request. Community Table seating may be subject to change depending on the restaurant's capacity.",
+    "price_per_cover": null
+  },
   "reservation": { … },
-  "payment_method": null,            // RTB restaurants typically don't hold CC
-  "cancellation_policy": { … },      // may still apply when restaurant approves
+  "payment_method": { … },                       // CC still required at Pasqual's
+  "cancellation_policy": { … },
   "terms": { … },
-  "charges_at_booking": {
-    "amount_usd": 0,
-    "description": "No card held now. If the restaurant approves your request, your card may be held according to their policy."
-  }
+  "charges_at_booking": { … }
 }
 ```
 
-### `opentable_book` — auto-routes on booking_type
+### `opentable_book` — auto-routes on bookingType
 
-`booking_token` decoded; its `bookingType` field drives which endpoint
-is called.
+`booking_token` decoded; its `bookingType` field drives which slot-lock
++ which submission payload `/dapi/booking/make-reservation` receives.
 
-**Instant slot (unchanged):**
+- `bookingType: "standard"` (default, existing) → unchanged.
+- `bookingType: "experience"` → slot-lock via
+  `BookDetailsExperienceSlotLock`, then submit
+  `/dapi/booking/make-reservation` with the experience-flavored body
+  (selectedExperienceId + diningAreaId + tableCategory). Result still
+  comes back as a normal confirmation with `confirmation_number` +
+  `security_token`.
 
-```jsonc
-{
-  "confirmation_number": 8675309,
-  "reservation_id": 424242,
-  "security_token": "01…",
-  "restaurant_id": 1272781,
-  "date": "2026-05-01", "time": "19:00", "party_size": 2,
-  "status": "Pending",            // OpenTable's term for "confirmed pre-arrival"
-  "booking_type": "instant",
-  "cc_required": false
-}
-```
+The no-token path (`opentable_book` without first calling preview)
+gains the same experience auto-handling: detect Experience from the
+slot, pick the dining area / experience (require explicit args when
+ambiguous), then run the two-step lock+submit.
 
-**Request slot:**
+### `opentable_list_reservations` / `opentable_cancel`
 
-```jsonc
-{
-  "confirmation_number": 8675310,
-  "reservation_id": null,         // may be null until restaurant approves
-  "security_token": "01…",        // present so cancel works on the request
-  "restaurant_id": 4711,
-  "date": "2026-06-25", "time": "18:00", "party_size": 5,
-  "status": "REQUESTED",          // ← new state
-  "booking_type": "request",
-  "expires_at": "2026-06-26T18:00:00Z",   // ← new: restaurant's response deadline
-  "cc_required": false
-}
-```
-
-The shape difference between the two return values is intentional and
-loud — the `status: "REQUESTED"` + `booking_type: "request"` combo
-tells the calling LLM "do not promise the user a confirmed booking;
-this is async."
-
-### `opentable_list_reservations` — extended status set
-
-Today the formatted output uses status values like `Pending`,
-`Cancelled`, `Confirmed`. v1 adds `REQUESTED` (and any RTB-related
-states discovered during investigation — likely `DECLINED`,
-`TIMEOUT_EXPIRED`, `TIME_PROPOSED`). The `expires_at` field appears
-on entries with `status === "REQUESTED"`.
-
-### `opentable_cancel` — branches on state if needed
-
-Pending investigation: if OpenTable uses the same
-`CancelReservation` GraphQL mutation for both confirmed reservations
-and pending requests, no change. Otherwise the tool gains an internal
-branch on the reservation's current state, looked up via the security
-token, to route to the right endpoint.
+**Unchanged in v1.** Experience-confirmed reservations come back as
+normal Confirmed/Pending bookings — the dashboard doesn't distinguish
+them. RTB-specific states (REQUESTED, DECLINED) defer to the follow-up
+spec.
 
 ## Data flow
 
-### Preview
+### Preview — Experience-mandatory path (new)
 
 ```
 opentable_book_preview(slot args)
   │
-  ├─ fetchProfile()                     # existing — dining-dashboard SSR
-  ├─ fetch /booking/details              # existing
-  ├─ parseBookingDetailsState            # existing + RTB extraction
-  │   └─ extracts booking_type, rtb_response_time_hours
-  ├─ if booking_type === "closed":
-  │     throw "<restaurant> isn't accepting reservations right now"
-  ├─ lockSlot()                          # existing; per investigation, may
-  │                                      # or may not apply for RTB slots
-  ├─ sameDayConflicts() check            # existing
-  ├─ encode booking_token (now carries bookingType + paymentCard + rest)
-  └─ return preview { booking_token, booking_type, rtb_response_time_hours,
-                      cancellation_policy, payment_method, terms, … }
-```
-
-### Book — instant slot path (unchanged)
-
-Decode token → tamper-check → make-reservation POST → return Pending
-status with confirmation_number + security_token.
-
-### Book — request slot path (new)
-
-```
-opentable_book(args, booking_token where bookingType === "request")
+  ├─ refuse if restaurant.listing_type === "Listing"
   │
-  ├─ decode booking_token
-  ├─ tamper-check (restaurant_id, date, time, party_size, dining_area_id)
-  ├─ fetchProfile()                          # for diner name/email/phone
-  ├─ POST <RTB endpoint>                     # TBD per investigation
-  │     body: {
-  │       restaurantId, reservationDateTime, partySize,
-  │       slotHash, slotAvailabilityToken, slotLockId,
-  │       firstName, lastName, email, phoneNumber,
-  │       reservationType: "RequestToBook",  # TBD exact value
-  │       // possibly other fields per investigation
-  │     }
-  ├─ map response: { confirmationNumber, securityToken, expiresAt?, … }
-  └─ return formatted result with status: "REQUESTED"
+  ├─ fetchProfile()                          # existing
+  │
+  ├─ if slot.booking_type === "experience_mandatory":
+  │     ├─ require dining_area_id arg if multiple diningAreasBySeating
+  │     ├─ require experience_id arg if multiple bookableExperienceIds
+  │     ├─ build /booking/details URL with experienceIds + selectedExperience
+  │     │   + diningAreaId + tableCategory + st=Experience
+  │     ├─ fetch /booking/details                 # SSR; same parser, broader
+  │     ├─ parseBookingDetailsState              # existing + experience extraction
+  │     └─ lockSlot via BookDetailsExperienceSlotLock  # new persisted-query path
+  │
+  ├─ else (standard):                         # existing path unchanged
+  │     ├─ fetch /booking/details
+  │     ├─ parseBookingDetailsState
+  │     └─ lockSlot via BookDetailsStandardSlotLock
+  │
+  ├─ sameDayConflicts() check                # existing
+  ├─ encode booking_token (bookingType + experienceId)
+  └─ return preview
 ```
+
+### Book — Experience path
+
+Decode token → tamper-check (now includes experienceId) → if token has
+`bookingType: "experience"`, run the Experience slot-lock first (TTL ≈
+90s, same as Standard) → POST `/dapi/booking/make-reservation` with
+experience body → return confirmation.
+
+The no-token branch mirrors preview's branching for the cases when the
+agent calls `opentable_book` directly.
 
 ## Error handling
 
-All errors throw from the tool handler (surfaces as `isError: true`).
-
 | Condition | Error |
 |---|---|
-| `book_preview` on a `booking_type: "closed"` restaurant | `"<restaurant> isn't accepting reservations right now. Reason: <verbatim message>. Phone: <number>."` |
-| `book` on RTB slot without a `booking_token` | `"This slot is request-to-book. Call opentable_book_preview first to review the policy + expected response time, then pass the returned booking_token back here."` |
-| RTB endpoint rejects the request (e.g. restaurant pausing, party-size out of range) | Pass through OpenTable's verbatim message + restaurant phone + URL so the agent can suggest manual booking. |
-| RTB-equivalent of `PersistedQueryNotFound` | Surface verbatim; tracked as a known fail-mode that means OpenTable redeployed and we need to re-capture the persisted-query hash. |
-| `cancel` on a REQUESTED reservation when API requires a different endpoint | Internal branch on state; surfaces the same `{ cancelled, state, raw }` shape as today's cancel. |
+| `book_preview` on Listing-type restaurant | `"<restaurant> doesn't accept reservations through OpenTable. Phone: <number>. Restaurant page: <url>."` |
+| `book_preview` Experience slot without `dining_area_id` when multiple areas exist | `"<restaurant> at <time> requires choosing a seating area first. Options: <list of {dining_area_id, name}>. Re-call with dining_area_id."` |
+| `book_preview` Experience slot without `experience_id` when multiple bookable experiences exist | `"<restaurant> at <time> in <area> offers multiple experiences. Options: <list of {experience_id, name, type_enum, description}>. Re-call with experience_id."` |
+| `book_preview` Experience slot when the only bookable Experience is soldout | `"<restaurant>'s <experience name> is sold out for this slot."` |
+| `BookDetailsExperienceSlotLock` returns `PersistedQueryNotFound` | Surface verbatim; tracked as a known fail-mode that means OpenTable redeployed and the Experience hash needs re-capture. |
+| Token tamper-check fails on experienceId | Same as today's tamper-check error — "booking_token doesn't match the args; re-run preview." |
 
-## Investigation step (prerequisite for implementation)
+## Investigation results (live capture, 2026-05-20)
 
-Single capture session against Cafe Pasqual's (the restaurant from
-the conversation that motivated this spec). Driven via the
-companion extension's capture logger.
+### Experience-mandatory case — Cafe Pasqual's (rid 278896)
 
-1. **Restaurant id lookup** — call `opentable_search_restaurants`
-   with `term: "Cafe Pasqual's"`. Grab the restaurant id and slug.
-2. **Slots raw dump** — run `scripts/probe-find-slots-raw.ts`
-   against the rid for an upcoming dinner date. Inspect each slot for
-   any RTB-like marker (`bookable`, `requestOnly`, `reservationStyle`,
-   `bookingMode`, `isInstantBookable`, etc.).
-3. **`/r/<slug>` SSR** — capture `__INITIAL_STATE__`, grep for the
-   same markers under `restaurant.features` / `restaurant.bookable` /
-   `restaurant.reservationType`. Likely the canonical source.
-4. **`/booking/details` SSR** — navigate to a slot's booking-details
-   page, capture `__INITIAL_STATE__`. RTB-mode signal should be here
-   in some form because the UI swaps button copy ("Complete
-   Reservation" → "Request to Book"). Grep `messages.*`, `timeSlot.*`,
-   `restaurant.features.*`.
-5. **Submission POST capture** — click "Request to Book." Walk
-   through to the page that actually submits. Capture:
-   - URL of the POST.
-   - Persisted-query sha256Hash (if GraphQL).
-   - Full request body.
-   - Full response — including the new state code and any
-     `expires_at` / `responseDeadline` / `rtbExpiresAt` field.
-6. **Dashboard re-fetch** — after submission, capture
-   `/user/dining-dashboard` SSR. Find the new request in
-   `userTransactions`; note its `reservationState` /
-   `reservationStateId` and any RTB-specific fields.
-7. **Cancel capture** — cancel the request via opentable.com. Capture
-   the cancel POST URL + body + response. If it's the same
-   `CancelReservation` mutation as confirmed bookings, our existing
-   `opentable_cancel` works unchanged. If different, document the
-   branching.
+**Flow URL chain** (party 5, 2026-06-25 18:00):
+1. `/r/cafe-pasquals-santa-fe?covers=5&dateTime=2026-06-25T18:00`
+2. Click 6:00 PM slot → `/booking/seating-options?…experienceIds=514735,627696&st=Experience&creditCardRequired=true&…`
+3. Click "Select" on Community Table → `/booking/specials?…experienceIds=514735&diningAreaId=21881&tableCategory=default&isMandatory=true&…`
+4. Click "Select" on Community Table Dining → `/booking/details?…selectedExperience=514735&diningAreaId=21881&tableCategory=default&st=Experience&…` (this is the standard booking-details page we already parse; slot-lock fires here, submit button reads "Complete reservation")
 
-Findings codify in this spec's "Investigation results" section
-(appended below) before the implementation plan opens any code task.
+**Direct-fetch shortcut**: steps 2–3 are optional in the live UI but
+their URL params are derivable from data we already have at step 1 —
+specifically `timeSlot.diningAreasBySeating[].diningAreaId` and the
+matching `bookableExperienceIds`. We can build the step-4 URL directly
+and skip 2–3.
+
+**`__INITIAL_STATE__.timeSlot` (Experience flow)**:
+```
+{
+  creditCardRequired: true,
+  creditCardRequiredForStandard: false,    // CC required only for the Experience
+  slotHash: "431673495",
+  slotAvailabilityToken: "eyJ…",           // base64 JSON, opaque
+  experiencesBySeating: [
+    { tableCategory: "default", experienceIds: [514735, 627696], __typename: "ExperiencesBySeating" }
+  ],
+  diningAreasBySeating: [
+    { diningAreaId: 21881, tableCategory: "default", bookableExperienceIds: [514735], bookableExperiences: [{ experienceId: 514735, policies: {…}, __typename: "BookableExperience" }], … }
+  ],
+  pointsValue: 100,
+  pointsType: "Standard",
+  attributes: ["default"],
+  …
+}
+```
+
+**Discriminator**: `timeSlot.experiencesBySeating.length > 0` (or
+equivalently, `slot.type === "Experience"`). Standard slots have
+`experiencesBySeating: []`.
+
+**GraphQL operation names observed** in capture-logger during the
+flow:
+- `NetworkFlowCalculatePoints`
+- `ExperienceAddOns` (2x — fires for each candidate experience)
+- `ExperienceCancellationPolicy`
+- `CalculateExperienceAddOnsTotals`
+- **`BookDetailsExperienceSlotLock`** ← the slot-lock op that replaces
+  `BookDetailsStandardSlotLock`
+
+Persisted-query sha256Hash for `BookDetailsExperienceSlotLock`: **NOT
+YET CAPTURED** — needs `probe-find-slots-raw`-style instrumentation on
+the Experience flow. (The request fired but the capture logger records
+URL + method, not body. Implementation task: extend the capture logger
+to include `extensions.persistedQuery.sha256Hash` in the recorded
+frame, or add a new probe script that drives the Experience flow and
+dumps the network tab.)
+
+**Experience records** (3 returned for Pasqual's, only 1 bookable for
+this slot):
+```
+[
+  { experienceId: 514735, name: "Community Table Dining", type: "Special menu", typeEnum: "PRIX_FIXE", bookable: true, soldout: false, pricePerCover: null },
+  { experienceId: 627684, name: "Cafe Pasqual's Breakfast and Lunch", type: "Happy hour", typeEnum: "HAPPY_HOUR", bookable: false, soldout: false, pricePerCover: null },
+  { experienceId: 627696, name: "Cafe Pasqual's Dinner", type: "Happy hour", typeEnum: "HAPPY_HOUR", bookable: false, soldout: false, pricePerCover: null }
+]
+```
+
+Booking-policy message (under `experiences[0].bookingPolicies.bookingPolicies.customPolicies.message`):
+> "We will do our best to accommodate your seating request. Community Table seating may be subject to change depending on the restaurant's capacity."
+
+Submit button on `/booking/details`: **"Complete reservation"** —
+confirming Experience-mandatory is instant-confirm, not RTB.
+
+### Listing-only case — Le Bernardin
+
+`/r/le-bernardin` → `window.__INITIAL_STATE__.restaurantProfile.restaurant.type === "Listing"`.
+
+No `availability.restaurantsAvailability` data; UI shows "Find similar
+restaurants" CTA instead of a slot picker. No booking flow exists for
+the restaurant on OpenTable.
+
+**Discriminator**: `restaurant.type === "Listing"` (vs `"GuestCenter"`
+for bookable restaurants). Surface as `listing_type` on
+`opentable_get_restaurant`; refuse `book` / `book_preview` early when
+this is `"Listing"`.
+
+### True RTB — NOT CAPTURED
+
+Survey attempts:
+- `https://www.opentable.com/s?term=tasting%20menu&metroId=8&…` →
+  "No restaurants found in this area."
+- `/r/le-bernardin` → Listing-only, not RTB.
+
+A real RTB capture remains future work. The spec field
+`booking_type: "request"` is wired in now (always `false` in v1's
+detection logic) so adding the discriminator later is a one-line
+parser change; the submit flow + state lifecycle are deferred to a
+follow-up spec where the shape can be specified from captured data
+rather than guessed.
 
 ## Testing
 
 ### Unit (vitest, mocked `OpenTableClient`)
 
-- `parse-slots` — slot with RTB marker exposed as
-  `booking_type: "request"`. Instant slots still show `booking_type:
-  "instant"`. Closed slots `booking_type: "closed"`.
-- `parse-restaurant` — `booking_type` + `rtb_response_time_hours`
-  exposed.
-- `parse-booking-details-state` — `booking_type` extracted alongside
-  `cc_required`, `policy`, `terms`, `conflicts`.
-- `parse-dining-dashboard` — `REQUESTED` (and DECLINED, TIMEOUT,
-  TIME_PROPOSED if seen in investigation) state codes mapped;
-  `expires_at` extracted.
-- `booking-token` — `BookingTokenPayload` gains
-  `bookingType: "instant" | "request"`. Round-trip + tamper checks
-  updated; null-safety preserved.
+- `parse-slots` — slot with `experiencesBySeating: []` exposes
+  `booking_type: "instant"`. Slot with `experiencesBySeating.length > 0`
+  exposes `booking_type: "experience_mandatory"` + populated
+  `experience_ids`. Standard slots gain no breaking changes.
+- `parse-restaurant` — `restaurant.type === "Listing"` exposes
+  `bookable: false` and `listing_type: "Listing"`. GuestCenter exposes
+  `bookable: true`.
+- `parse-booking-details-state` — Experience-flow `__INITIAL_STATE__`
+  parses experience metadata into `BookingDetailsSummary.experience`.
+- `booking-token` — `BookingTokenPayload` gains `bookingType: "standard"
+  | "experience"` and `experienceId?: number`. Round-trip + tamper
+  checks updated; null-safety preserved.
 - `tools/reservations.ts`:
-  - `book_preview` on RTB slot returns `booking_type: "request"` and a
-    plausible `rtb_response_time_hours`.
-  - `book_preview` on closed slot throws the "not accepting"
+  - `book_preview` on Listing-type restaurant throws the unbookable
     error.
-  - `book` with RTB token calls the RTB endpoint (mock asserts on
-    path + body shape), returns `status: "REQUESTED"` and `expires_at`.
-  - `book` without token on RTB slot throws the preview-first gating
-    error.
-  - `list_reservations` surfaces REQUESTED items distinguishably.
-  - `cancel` works on REQUESTED reservation (mock the correct
-    endpoint, branched per investigation finding).
+  - `book_preview` on Experience slot without `dining_area_id` (when
+    multiple) throws the area-required error with options.
+  - `book_preview` on Experience slot without `experience_id` (when
+    multiple) throws the experience-required error with options.
+  - `book_preview` on Experience slot with auto-selectable area/experience
+    returns `booking_type: "experience_mandatory"` and a token whose
+    decoded payload has `bookingType: "experience"`.
+  - `book` with Experience token calls `BookDetailsExperienceSlotLock`
+    (mock asserts on path/persisted-query hash) → make-reservation with
+    experience body shape (mock asserts on path + body shape) → returns
+    a normal Confirmed result.
+  - `book` without token on Experience slot follows the same branching.
 
-All 111 existing tests must continue to pass unchanged.
+All existing tests must continue to pass unchanged. New fixtures:
+- `tests/fixtures/booking-details-state-experience.json` — captured
+  from Pasqual's investigation.
+- `tests/fixtures/slots-experience-pasquals.json` — captured.
 
-### Live probe
+### Live probes
 
-`scripts/probe-book-request-cancel.ts` — find_slots → preview → book
-(submits real request) → list_reservations (verify status REQUESTED)
-→ cancel. Risk envelope is gentler than the CC probe because RTB
-restaurants take wall-clock time to approve, so cancel almost
-certainly lands while the request is still pending.
-
-## Deferred / non-goals (tracked in `docs/superpowers/roadmap.md`)
-
-- **Polling / push notifications for RTB outcomes.** The bridge
-  doesn't run when the user isn't driving an agent. Agents call
-  `list_reservations` on demand.
-- **Alternate-time proposals.** Restaurants can propose alternate
-  times ("we don't have 6 PM, but we have 6:30 PM"). v1 surfaces the
-  state — `TIME_PROPOSED` if seen in investigation — but does not
-  let the agent accept / decline through the MCP. User does it via
-  opentable.com.
-- **Notes-to-restaurant text.** Some RTB restaurants accept a free-
-  text note ("celebrating an anniversary"). Add later if
-  investigation shows the field is commonly present.
+- `scripts/probe-book-cancel-experience.ts` — find_slots → preview
+  (with explicit experience_id) → book (submits real reservation) →
+  list_reservations (verify Confirmed) → cancel. Risk envelope: same
+  as today's `probe-book-cc-cancel.ts` — Pasqual's CC-required
+  Experience is the canonical test case. Slot-lock TTL ~90s, so cancel
+  hits well before any 24-hour cancellation deadline.
+- `scripts/probe-experience-slot-lock-hash.ts` — dump the network
+  capture body for `BookDetailsExperienceSlotLock` to grab the
+  persisted-query sha256Hash. One-shot script to pin the hash, similar
+  to how Standard slot-lock hashes were originally captured.
 
 ## Files touched (estimated)
 
-- `src/parse-slots.ts` — extend with `booking_type`.
-- `src/parse-restaurant.ts` — extend with `booking_type` and
-  `rtb_response_time_hours`.
+- `src/parse-slots.ts` — extend with `booking_type`, `experience_ids`.
+- `src/parse-restaurant.ts` — extend with `bookable`, `listing_type`,
+  `phone`, `url` (last two may already exist).
 - `src/parse-booking-details-state.ts` — extend `BookingDetailsSummary`
-  with `booking_type` + `rtb_response_time_hours`.
-- `src/parse-dining-dashboard.ts` — extend with REQUESTED and any
-  other RTB-related states.
-- `src/booking-token.ts` — add `bookingType` field.
-- `src/tools/reservations.ts` — RTB submission path in
-  `opentable_book`; preview gains `booking_type` and
-  `rtb_response_time_hours`; cancel branches if needed.
+  with `experience` block parsed from `__INITIAL_STATE__.experiences`.
+- `src/booking-token.ts` — add `bookingType` ("standard" | "experience")
+  + `experienceId?: number`. Tamper-check extended.
+- `src/tools/reservations.ts` — Experience branching in `book_preview`
+  + `book`; new persisted-query hash constant for
+  `BookDetailsExperienceSlotLock`.
+- `src/tools/restaurants.ts` — surface `bookable` + `listing_type`.
 - `tests/parse-*.test.ts` — new tests per parser.
 - `tests/booking-token.test.ts` — extend.
-- `tests/tools/reservations.test.ts` — extend with RTB scenarios.
-- `tests/fixtures/booking-details-state-rtb.json` — NEW from
-  investigation.
-- `tests/fixtures/dining-dashboard-rtb-requested.json` — NEW from
-  investigation.
-- `scripts/probe-book-request-cancel.ts` — NEW.
-- `SKILL.md` — document the RTB flow; agents need to know the
-  expectation-setting language ("submitted — not confirmed").
-- `CLAUDE.md` — hot-spot note on RTB state lifecycle.
-- `docs/superpowers/roadmap.md` — v2 items.
+- `tests/tools/reservations.test.ts` — extend with Experience + Listing
+  scenarios.
+- `tests/fixtures/booking-details-state-experience.json` — NEW.
+- `tests/fixtures/slots-experience-pasquals.json` — NEW.
+- `scripts/probe-book-cancel-experience.ts` — NEW.
+- `scripts/probe-experience-slot-lock-hash.ts` — NEW (one-shot to pin
+  the persisted-query hash before merging the impl).
+- `SKILL.md` — document Experience-mandatory flow + Listing detection.
+- `CLAUDE.md` — hot-spot note on Experience slot-lock op + the
+  multi-step seating-options/specials UI being skippable via direct
+  /booking/details URL construction.
+- `manifest.json` — no tool list changes (no new tools), but version
+  bump.
 
-## Investigation results
+## Follow-up specs
 
-_To be filled in after the capture session in §"Investigation step."_
-
-Field-path findings:
-- find_slots RTB marker: TBD
-- restaurant SSR RTB marker: TBD
-- booking-details SSR RTB marker: TBD
-- RTB submission endpoint URL: TBD
-- RTB submission persisted-query hash (if any): TBD
-- RTB submission request body shape: TBD
-- RTB submission response shape: TBD
-- Dashboard `reservationState` value for RTB: TBD
-- Cancel endpoint for RTB (same as confirmed or different): TBD
+- **True Request-to-Book.** Once a live RTB restaurant is identified,
+  capture the booking flow (button copy, submit URL/op, response shape,
+  REQUESTED state lifecycle on dashboard, cancel behavior) and write a
+  v2 spec layered on top of this one. The `booking_type: "request"`
+  enum value is already wired through so the wiring change is
+  small.
+- **Experience add-ons.** Pasqual's `ExperienceAddOns` op fires per
+  candidate experience and contributes to the cancellation/total
+  calculation. v1 skips add-ons; a v2 spec surfaces them via a new
+  field on book_preview and accepts them as an optional `add_ons` arg
+  on book.
+- **3DS / SCA on Experience CC-required slots.** Same handling as
+  today's CC-required (`partnerScaRedirectUrl` bail) — already covered.
