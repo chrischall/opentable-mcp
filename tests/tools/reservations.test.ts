@@ -413,6 +413,131 @@ describe('reservation tools', () => {
     });
   });
 
+  describe('opentable_book_preview — Experience-mandatory slot', () => {
+    it('builds the /booking/details URL with experience query params and calls Experience slot-lock', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-experience.json'))
+      );
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+        if (path.includes('opname=BookDetailsExperienceSlotLock')) {
+          return {
+            data: { lockSlot: { success: true, slotLock: { slotLockId: 9999 } } },
+            __observed: init?.body,
+          };
+        }
+        throw new Error(`unexpected POST: ${path}`);
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_id: 514735,
+      });
+
+      // URL contains experience params
+      expect(mockFetchHtml).toHaveBeenCalledTimes(1);
+      const htmlUrl = mockFetchHtml.mock.calls[0][0] as string;
+      expect(htmlUrl).toContain('selectedExperience=514735');
+      expect(htmlUrl).toContain('experienceIds=514735');
+      expect(htmlUrl).toContain('st=Experience');
+
+      // SlotLock invoked with Experience op + body
+      expect(mockFetchJson).toHaveBeenCalledTimes(1);
+      const [lockPath, lockInit] = mockFetchJson.mock.calls[0] as [
+        string,
+        { body?: { operationName?: string; variables?: { input?: Record<string, unknown> } } }
+      ];
+      expect(lockPath).toBe(
+        '/dapi/fe/gql?optype=mutation&opname=BookDetailsExperienceSlotLock'
+      );
+      expect(lockInit.body?.operationName).toBe('BookDetailsExperienceSlotLock');
+      expect(lockInit.body?.variables?.input?.experienceId).toBe(514735);
+      expect(lockInit.body?.variables?.input?.reservationType).toBe('EXPERIENCE');
+      expect(lockInit.body?.variables?.input?.tableCategory).toBe('default');
+
+      // Token + result fields
+      expect(result.isError).toBeFalsy();
+      const json = JSON.parse((result.content[0] as { text: string }).text);
+      expect(json.booking_type).toBe('experience_mandatory');
+      expect(json.experience.experience_id).toBe(514735);
+      const decoded = decodeBookingToken(json.booking_token);
+      expect(decoded.bookingType).toBe('experience');
+      expect(decoded.experienceId).toBe(514735);
+    });
+
+    it('refuses an Experience slot when experience_id is missing', async () => {
+      // The handler should reject before any fetch fires — we trigger
+      // Experience-mode by passing experience_ids (the agent passes them
+      // through from find_slots) without picking one via experience_id.
+      mockFetchHtml.mockRejectedValue(new Error('should not be called'));
+      mockFetchJson.mockRejectedValue(new Error('should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_ids: [514735, 627696],
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/experience_id/);
+      expect(text).toContain('514735');
+      expect(text).toContain('627696');
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('the Standard path still includes booking_type=instant and experience=null', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-no-cc.json'))
+      );
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 48750,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const body = JSON.parse((result.content[0] as { text: string }).text);
+      expect(body.booking_type).toBe('instant');
+      expect(body.experience).toBeNull();
+      // The /booking/details URL must NOT include Experience query params.
+      const htmlUrl = mockFetchHtml.mock.calls[0][0] as string;
+      expect(htmlUrl).not.toContain('selectedExperience');
+      expect(htmlUrl).not.toContain('experienceIds');
+      expect(htmlUrl).not.toContain('st=Experience');
+      // And the lock should still be the Standard one.
+      const [lockPath, lockInit] = mockFetchJson.mock.calls[0] as [
+        string,
+        { body?: { operationName?: string; variables?: { input?: Record<string, unknown> } } }
+      ];
+      expect(lockPath).toBe(
+        '/dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock'
+      );
+      expect(lockInit.body?.operationName).toBe('BookDetailsStandardSlotLock');
+      expect(lockInit.body?.variables?.input?.reservationType).toBe('STANDARD');
+      expect(lockInit.body?.variables?.input).not.toHaveProperty('experienceId');
+    });
+  });
+
   describe('opentable_book — CC-required gating + booking_token path', () => {
     it('refuses to commit a CC-required slot without a booking_token', async () => {
       mockFetchHtml.mockResolvedValue(
