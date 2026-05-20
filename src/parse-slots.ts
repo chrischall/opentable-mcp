@@ -43,6 +43,8 @@
  * HH:MM by adding the offset back to the base time.
  */
 
+export type SlotBookingType = 'instant' | 'experience_mandatory' | 'request';
+
 export interface FormattedSlot {
   restaurant_id: number;
   reservation_token: string;
@@ -53,6 +55,15 @@ export interface FormattedSlot {
   attributes: string[];   // default | bar | highTop | outdoor
   points: number;
   slot_hash: string;
+  /** How the slot is booked. "instant" today is everything we already
+   *  support. "experience_mandatory" routes through the Experience flow
+   *  in opentable_book_preview / opentable_book.
+   *  "request" is reserved for true Request-to-Book; v1 never emits it. */
+  booking_type: SlotBookingType;
+  /** Bookable experience ids for this slot. Empty for Standard slots;
+   *  populated with one or more ids for Experience slots. The agent
+   *  may need to pick one when calling opentable_book_preview. */
+  experience_ids: number[];
 }
 
 interface RawAvailableSlot {
@@ -64,6 +75,7 @@ interface RawAvailableSlot {
   type?: string;
   attributes?: string[];
   pointsValue?: number;
+  experienceIds?: number[];   // present on type === 'Experience' slots
 }
 
 interface RawUnavailableSlot {
@@ -145,16 +157,22 @@ export function parseAvailabilityResponse(
           available.timeOffsetMinutes ?? 0,
           baseDate
         );
+        const type = available.type ?? 'Standard';
+        const experienceIds = available.experienceIds ?? [];
+        const bookingType: SlotBookingType =
+          type === 'Experience' ? 'experience_mandatory' : 'instant';
         out.push({
           restaurant_id: restaurantId,
           reservation_token: available.slotAvailabilityToken ?? '',
           date,
           time,
           party_size: partySize,
-          type: available.type ?? 'Standard',
+          type,
           attributes: available.attributes ?? [],
           points: available.pointsValue ?? 0,
           slot_hash: available.slotHash ?? '',
+          booking_type: bookingType,
+          experience_ids: experienceIds,
         });
       }
     }
