@@ -328,6 +328,7 @@ export function registerReservationTools(
         paymentCard,
         ccRequired: summary.cc_required,
         issuedAt: new Date().toISOString(),
+        bookingType: 'standard',
       });
 
       const chargesDescription = summary.cc_required
