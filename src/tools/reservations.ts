@@ -64,11 +64,19 @@ const RESTAURANTS_AVAILABILITY_HASH =
   'cbcf4838a9b399f742e3741785df64560a826d8d3cc2828aa01ab09a8455e29e';
 const BOOK_SLOT_LOCK_HASH =
   '1100bf68905fd7cb1d4fd0f4504a4954aa28ec45fb22913fa977af8b06fd97fa';
+// TODO(pre-merge): re-pin via scripts/probe-experience-slot-lock-hash.ts
+// against Pasqual's. Placeholder hash below is invalid for production use;
+// CI tests are fully mocked so this doesn't gate unit-test green, but the
+// release-checklist live probe in Task 9 MUST capture and update this.
+const BOOK_EXPERIENCE_SLOT_LOCK_HASH =
+  '0000000000000000000000000000000000000000000000000000000000000000';
 const CANCEL_RESERVATION_HASH =
   '4ee53a006030f602bdeb1d751fa90ddc4240d9e17d015fb7976f8efcb80a026e';
 
 const AVAILABILITY_PATH = '/dapi/fe/gql?optype=query&opname=RestaurantsAvailability';
 const SLOT_LOCK_PATH = '/dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock';
+const EXPERIENCE_SLOT_LOCK_PATH =
+  '/dapi/fe/gql?optype=mutation&opname=BookDetailsExperienceSlotLock';
 const MAKE_RESERVATION_PATH = '/dapi/booking/make-reservation';
 const CANCEL_RESERVATION_PATH = '/dapi/fe/gql?optype=mutation&opname=CancelReservation';
 
@@ -213,7 +221,7 @@ export function registerReservationTools(
     'opentable_book_preview',
     {
       description:
-        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute.",
+        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. Refuses early on Listing-type restaurants — check opentable_get_restaurant.bookable first.",
       annotations: { readOnlyHint: true },
       inputSchema: {
         restaurant_id: z.number().int().positive(),
@@ -372,7 +380,7 @@ export function registerReservationTools(
     'opentable_book',
     {
       description:
-        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel.",
+        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. Refuses early on Listing-type restaurants — check opentable_get_restaurant.bookable first.",
       inputSchema: {
         restaurant_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
