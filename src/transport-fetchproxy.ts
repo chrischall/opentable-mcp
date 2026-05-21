@@ -10,7 +10,7 @@
 //
 // Aside from URL shape, the lifecycle and result types are identical to
 // the legacy OpenTableWsServer.
-import { FetchproxyServer, type FetchproxyServerOptions } from '@fetchproxy/server';
+import { FetchproxyServer, type FetchproxyServerOpts } from '@fetchproxy/server';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 const OPENTABLE_ORIGIN = 'https://www.opentable.com';
@@ -28,9 +28,9 @@ export class FetchproxyTransport implements OpenTableTransport {
   private readonly inner: FetchproxyServer;
 
   constructor(opts: FetchproxyTransportOptions) {
-    const options: FetchproxyServerOptions = {
+    const options: FetchproxyServerOpts = {
       port: opts.port ?? 37149,
-      server: opts.server ?? 'opentable-mcp',
+      serverName: opts.server ?? 'opentable-mcp',
       version: opts.version,
       domain: 'opentable.com',
     };
@@ -38,7 +38,7 @@ export class FetchproxyTransport implements OpenTableTransport {
   }
 
   start(): Promise<void> {
-    return this.inner.start();
+    return this.inner.listen();
   }
 
   close(): Promise<void> {
@@ -49,12 +49,20 @@ export class FetchproxyTransport implements OpenTableTransport {
     const url = init.path.startsWith('http')
       ? init.path
       : `${OPENTABLE_ORIGIN}${init.path}`;
-    return this.inner.fetch({
+    const result = await this.inner.fetch({
       url,
       method: init.method,
       tabUrl: OPENTABLE_TAB_URL,
       headers: init.headers,
       body: init.body,
     });
+    // fetchproxy 0.1.0 returns a discriminated union. opentable-mcp's
+    // OpenTableTransport contract is "return on HTTP-level outcomes
+    // (including 4xx/5xx), throw on protocol-level failures". So map
+    // ok:false to a thrown error here.
+    if (!result.ok) {
+      throw new Error(`fetchproxy transport error: ${result.error}`);
+    }
+    return { status: result.status, body: result.body, url: result.url };
   }
 }
