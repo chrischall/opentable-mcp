@@ -49,6 +49,19 @@ export interface BookingTokenPayload {
    *  /booking/details page. Required for Experience bookings (the REST
    *  /dapi/booking/make-reservation endpoint 400s without it). */
   experienceVersion?: number;
+  /** Existing reservation's database id, populated when this token is
+   *  a modify token (minted by opentable_modify_preview). Presence of
+   *  this field is the modify-vs-book discriminator. Absent on tokens
+   *  minted by opentable_book_preview. */
+  existingReservationId?: number;
+  /** Existing reservation's confirmation_number, echoed back when the
+   *  modify completes (OpenTable preserves confirmation_numbers across
+   *  modifies). Required when existingReservationId is set. */
+  existingConfirmationNumber?: number;
+  /** Existing reservation's security_token, used by opentable_modify
+   *  for an additional tamper check against the caller's args.
+   *  Required when existingReservationId is set. */
+  existingSecurityToken?: string;
 }
 
 const REQUIRED_KEYS: Array<keyof BookingTokenPayload> = [
@@ -100,5 +113,15 @@ export function decodeBookingToken(token: string): BookingTokenPayload {
     );
   }
   // experienceId stays optional — leave it untouched if absent.
+  if ('existingReservationId' in obj) {
+    if (
+      typeof (obj as { existingConfirmationNumber?: unknown }).existingConfirmationNumber !== 'number' ||
+      typeof (obj as { existingSecurityToken?: unknown }).existingSecurityToken !== 'string'
+    ) {
+      throw new Error(
+        'modify token must include existingConfirmationNumber and existingSecurityToken alongside existingReservationId — was the token tampered with?'
+      );
+    }
+  }
   return obj as unknown as BookingTokenPayload;
 }
