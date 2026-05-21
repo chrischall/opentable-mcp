@@ -157,6 +157,7 @@ Main is always one version ahead of the latest tag. To release, run the **Tag & 
   surfaces as `bookable: false` on `opentable_get_restaurant`. There's
   no slot picker; agents should surface the restaurant's phone + URL
   rather than call `opentable_book`.
+- **Modify uses the same SSR + slot-lock as book, with three URL markers.** `/booking/details?confirmationNumber=<n>&securityToken=<t>&isModify=true&…<new-slot-params>` returns the modify state. The `make-reservation` body for the modify path keys off `confnumber` (lowercase, no underscore — OpenTable's quirky shorthand) + `securityToken`; `reservationId` is NOT allowed in the modify body even though the SSR state's `modifyReservation.gpid` looks like it should be the identifier. The same-day-conflict helper takes an `excludeConfirmation` arg — `opentable_modify_preview` uses it to avoid false-positives against the reservation being moved.
 
 ## Live probing workflow
 

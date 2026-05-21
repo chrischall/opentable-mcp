@@ -120,6 +120,19 @@ Experience the user committed to (community-table dining, chef's
 counter, etc.). Mention the Experience name in the user-facing
 confirmation.
 
+## Modifying a reservation
+
+To change date/time/party_size/dining_area/experience on an existing reservation, use `opentable_modify_preview` + `opentable_modify`. Mirrors book's preview→commit pattern.
+
+1. Call `opentable_find_slots` for the NEW time you want.
+2. Call `opentable_modify_preview` with:
+   - The existing reservation's `restaurant_id`, `confirmation_number`, `security_token` (from `opentable_list_reservations` or the original `opentable_book` result).
+   - The NEW slot's `date`, `time`, `party_size`, `reservation_token`, `slot_hash`, `dining_area_id`, and (for Experience-mandatory restaurants) `experience_id`.
+3. Surface the returned `cancellation_policy` and any CC re-hold details to the user.
+4. Call `opentable_modify` with the `modify_token` from preview + the same identifying args. Returns `was_modified: true` and the preserved `confirmation_number`.
+
+Don't use cancel + book to "modify" — same-day cancel-then-rebook trips OpenTable's double-booking check and risks losing the slot to another diner.
+
 ## Workflows
 
 **Book a specific restaurant for a specific evening (no-CC slot):**
