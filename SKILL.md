@@ -1,11 +1,11 @@
 ---
 name: opentable-mcp
-description: Manage OpenTable reservations via MCP — search restaurants, check slot availability, book tables, list/cancel reservations, and manage favorites. Triggers on phrases like "book a table on OpenTable", "find me a reservation at", "what OpenTable reservations do I have", "cancel my OpenTable", "add to my OpenTable favorites", "what's available for dinner tonight at", or any request involving OpenTable restaurant reservations. Requires opentable-mcp installed and the companion Chrome extension running in a signed-in opentable.com tab.
+description: Manage OpenTable reservations via MCP — search restaurants, check slot availability, book tables, list/cancel reservations, and manage favorites. Triggers on phrases like "book a table on OpenTable", "find me a reservation at", "what OpenTable reservations do I have", "cancel my OpenTable", "add to my OpenTable favorites", "what's available for dinner tonight at", or any request involving OpenTable restaurant reservations. Requires opentable-mcp installed and the fetchproxy browser extension running in a signed-in opentable.com tab.
 ---
 
 # opentable-mcp
 
-MCP server for OpenTable — natural-language restaurant reservation management. Every request is relayed through the user's signed-in Chrome tab via a companion extension, so there's no cookie paste, no bot-wall dance, and no password handling.
+MCP server for OpenTable — natural-language restaurant reservation management. Every request is relayed through the user's signed-in browser tab via the [fetchproxy](https://github.com/chrischall/fetchproxy) extension, so there's no cookie paste, no bot-wall dance, and no password handling.
 
 - **npm:** [npmjs.com/package/opentable-mcp](https://www.npmjs.com/package/opentable-mcp)
 - **Source:** [github.com/chrischall/opentable-mcp](https://github.com/chrischall/opentable-mcp)
@@ -14,7 +14,7 @@ MCP server for OpenTable — natural-language restaurant reservation management.
 
 ## Setup
 
-The MCP server is half of the picture — the other half is a Chrome companion extension that actually talks to OpenTable from your signed-in tab. Both are required.
+The MCP server is half of the picture — the other half is the [fetchproxy](https://github.com/chrischall/fetchproxy) browser extension that actually talks to OpenTable from your signed-in tab. Both are required.
 
 ### 1. Install the MCP server
 
@@ -54,16 +54,16 @@ Then add to `.mcp.json`:
 }
 ```
 
-### 2. Install the Chrome extension
+### 2. Install the fetchproxy extension
 
-1. Clone the repo (Option B above does this).
-2. Open `chrome://extensions`, enable Developer Mode.
-3. Click **Load unpacked**, select the `extension/` folder.
-4. Sign in to `https://www.opentable.com/` in the same Chrome profile.
+opentable-mcp shares a single browser extension with every other fetchproxy-based MCP. Install it once from [github.com/chrischall/fetchproxy](https://github.com/chrischall/fetchproxy):
+
+1. Install the fetchproxy extension (Chrome Web Store / Safari `.dmg`).
+2. Sign in to `https://www.opentable.com/` in the same browser profile.
 
 The extension's toolbar badge turns green when the WebSocket + tab + auth are all good.
 
-Full extension walkthrough: [`extension/README.md`](https://github.com/chrischall/opentable-mcp/tree/main/extension).
+Full extension walkthrough: see [fetchproxy](https://github.com/chrischall/fetchproxy).
 
 ## Authentication
 
@@ -191,6 +191,6 @@ opentable_add_favorite(restaurant_id)
 - **Slot tokens are short-lived.** `reservation_token` + `slot_hash` from `find_slots` typically expire within a minute or two. Call `find_slots` just before `book`, and if the user is deliberating, re-fetch.
 - **`dining_area_id` is mandatory for book.** OpenTable's `/r/<numeric-id>` routes 404 — there's no way to auto-resolve the default dining room. Always call `opentable_get_restaurant(slug)` first and pick a room from `diningAreas[]`.
 - **`/user/favorites` has a read-after-write lag.** A fresh `add_favorite` may not show up in `list_favorites` for ~10 s. The 204 response from add/remove is authoritative.
-- **Extension must be running.** If the MCP server throws "opentable-mcp extension offline", the user needs to: load the extension at `chrome://extensions`, open an opentable.com tab, and sign in. The popup has a green/yellow/red status indicator.
+- **Extension must be running.** If the MCP server throws "fetchproxy extension offline — install it and open an opentable.com tab", the user needs to: install the fetchproxy extension (https://github.com/chrischall/fetchproxy), open an opentable.com tab, and sign in. The popup has a green/yellow/red status indicator.
 - **Service worker sleep.** Chrome MV3 SWs sleep after ~30 s idle. Cold wake adds ~2-5 s to the first request. Subsequent calls are fast.
-- **Persisted-query hashes.** `find_slots`, `book`, `cancel`, and `search` use Apollo persisted queries pinned by sha256Hash. If OpenTable redeploys and returns `PersistedQueryNotFound`, re-capture via the extension's XHR logger (see `extension/README.md`).
+- **Persisted-query hashes.** `find_slots`, `book`, `cancel`, and `search` use Apollo persisted queries pinned by sha256Hash. If OpenTable redeploys and returns `PersistedQueryNotFound`, re-capture by reading `window.__APOLLO_CLIENT__.queryManager.mutationStore['1'].mutation.documentId` from DevTools on the relevant opentable.com page (see `CLAUDE.md` → "Conventions").

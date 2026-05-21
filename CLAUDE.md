@@ -4,20 +4,24 @@ Guidance for Claude working in this repo.
 
 ## TL;DR
 
-v0.9.0: OpenTable MCP server with 13 tools (read + write), fronted by a
-pluggable browser bridge. Default transport: localhost WebSocket to a
-companion Chrome extension under `./extension/`. Opt-in alternative:
+v0.9.1: OpenTable MCP server with 13 tools (read + write), fronted by a
+pluggable browser bridge. Default transport: localhost WebSocket via
+[`@fetchproxy/server`](https://github.com/chrischall/fetchproxy) — the
+companion browser extension is installed separately (Chrome Web Store /
+Safari .dmg) rather than embedded in this repo. Opt-in alternative:
 `OT_BRIDGE=mcp-chrome` routes through hangwin/mcp-chrome's HTTP MCP
-endpoint instead (no embedded extension; uses theirs). Either way,
-Akamai sees a real browser fetch — never us directly.
+endpoint instead. Either way, Akamai sees a real browser fetch — never
+us directly.
 
 ## Bridge selection
 
 `OT_BRIDGE` env var picks the transport:
 
-- `OT_BRIDGE=websocket` (default) — embedded extension under `./extension/`,
-  WebSocket on 127.0.0.1:37149 (override with `OT_WS_PORT`). What every
-  release through v0.8.0 used; the only path with full live verification.
+- `OT_BRIDGE=websocket` (default) — wraps `@fetchproxy/server`'s
+  `FetchproxyServer` (WebSocket on 127.0.0.1:37149; override with
+  `OT_WS_PORT`). The user installs the fetchproxy extension once
+  (Chrome / Safari) instead of loading a per-MCP embedded extension.
+  See https://github.com/chrischall/fetchproxy.
 - `OT_BRIDGE=mcp-chrome` — talks to hangwin/mcp-chrome at
   `http://127.0.0.1:12306/mcp` (override with `OT_MCP_CHROME_URL`).
   Requires mcp-chrome ≥ the release containing
@@ -42,32 +46,31 @@ Akamai sees a real browser fetch — never us directly.
 - `npx tsx scripts/serve-only.ts` — raw WS listener that logs every extension frame. Debugging only.
 - `npx tsx scripts/e2e-phase-a.ts` — read-only smoke (list reservations / profile / favorites).
 
-All `probe-*.ts` / `e2e-*.ts` scripts require the extension loaded at `chrome://extensions` and a signed-in opentable tab.
+All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed and a signed-in opentable tab.
 
 ## Architecture
 
 ```
-┌────────────────┐  stdio   ┌──────────────────┐   WS   ┌────────────┐    fetch()    ┌─────────────┐
-│ MCP client     │◀────────▶│  dist/bundle.js  │◀──────▶│ extension  │◀────────────▶│ opentable   │
-│ (Claude, etc.) │          │  (OpenTable MCP) │ :37149 │ (SW + CS)  │   (real TLS, │ .com (tab)  │
-└────────────────┘          └──────────────────┘        └────────────┘   cookies)    └─────────────┘
+┌────────────────┐  stdio   ┌──────────────────┐   WS   ┌──────────────────┐    fetch()    ┌─────────────┐
+│ MCP client     │◀────────▶│  dist/bundle.js  │◀──────▶│  fetchproxy      │◀────────────▶│ opentable   │
+│ (Claude, etc.) │          │  (OpenTable MCP) │ :37149 │  extension       │   (real TLS, │ .com (tab)  │
+└────────────────┘          └──────────────────┘        │  (separate)      │   cookies)    └─────────────┘
+                                    │                   └──────────────────┘
+                                    │ depends on
+                                    ▼
+                            @fetchproxy/server (npm)
 ```
 
+- **Dependency on `@fetchproxy/server`** — the WebSocket server, frame validation, and browser extension all live in the separate https://github.com/chrischall/fetchproxy repo. Releases there ship `@fetchproxy/server` to npm and `fetchproxy-extension` to the Chrome Web Store / Safari. opentable-mcp pins both as runtime deps (`@fetchproxy/server`, `@fetchproxy/protocol`). The cross-repo split lets resy-mcp, future *.com-mcp servers, etc. share one extension instead of bundling their own.
 - **`src/transport.ts`** — the `OpenTableTransport` interface (`start/close/fetch`) and shared `FetchInit`/`FetchResult` types. Two implementations:
-  - **`src/ws-server.ts`** — `OpenTableWsServer`: 127.0.0.1:37149 listener. Default. Accepts one extension, routes `fetch` RPCs, 20s ping, 15s connect timeout, 30s request timeout.
+  - **`src/transport-fetchproxy.ts`** — `FetchproxyTransport`: thin adapter that wraps `@fetchproxy/server`'s `FetchproxyServer`. opentable-mcp passes opentable-relative paths (`/dapi/...`); the adapter prepends `https://www.opentable.com` and pins `tabUrl` to opentable.com so the extension routes fetches through the right tab.
   - **`src/transport-mcp-chrome.ts`** — `McpChromeTransport`: opt-in via `OT_BRIDGE=mcp-chrome`. Talks to hangwin/mcp-chrome's HTTP MCP at `127.0.0.1:12306/mcp`. Each fetch maps to a `chrome_network_request` call pinned to `tabUrl: "https://www.opentable.com/"`. Requires the `tabUrl` param landing upstream — see https://github.com/hangwin/mcp-chrome/pull/348.
 - **`src/client.ts`** — `OpenTableClient`: thin facade over `OpenTableTransport`. `fetchHtml(path)` for GETs that return HTML, `fetchJson(path, init)` for JSON POSTs/DELETEs. Maps non-2xx, empty-body (204), and sign-in-page responses into typed errors. Transport-agnostic.
 - **`src/tools/*.ts`** — one file per concern (reservations, restaurants, favorites, search, user). Each exports `registerXxxTools(server, client)`. See "Tool surface" below.
 - **`src/parse-*.ts`** — pure HTML/JSON parsers. Fully unit-tested.
 - **`src/initial-state.ts`** — extracts `window.__INITIAL_STATE__` from SSR HTML pages.
 - **`src/booking-token.ts`** — encodes/decodes the opaque, stateless base64-JSON `booking_token` that bridges `opentable_book_preview` → `opentable_book` with a tamper check.
-- **`extension/`** — MV3 companion extension:
-  - `manifest.json` — MV3, two `content_scripts` entries (isolated + MAIN world), `scripting` permission for self-heal.
-  - `background.js` — service worker, owns the WS, routes fetches to the tab via `chrome.tabs.sendMessage`, self-heals dead content scripts via `chrome.scripting.executeScript`.
-  - `content.js` — isolated-world fetch relay. Adds CSRF from `document.documentElement.dataset.otMcpCsrf`, calls `fetch(url, { credentials: 'include' })`, returns `{ok, status, body, url}`.
-  - `capture-logger.js` — MAIN-world XHR/fetch logger. Populates `window.__otMcpCaptures` for endpoint discovery, syncs `window.__CSRF_TOKEN__` to the DOM dataset so the isolated content script can read it.
-  - `popup.html` / `popup.js` — three-dot status (WS / tab / auth) + Reconnect + Open OpenTable buttons.
-- **`tests/`** — 1:1 mirror of `src/`. `tests/helpers.ts` provides an in-memory MCP harness (stdio transports on a PassThrough pair) for tool tests.
+- **`tests/`** — 1:1 mirror of `src/`. `tests/helpers.ts` provides an in-memory MCP harness (stdio transports on a PassThrough pair) for tool tests. WS-protocol-level tests now live upstream in the fetchproxy repo.
 
 ## Tool surface
 
@@ -134,9 +137,7 @@ Main is always one version ahead of the latest tag. To release, run the **Tag & 
 ## Hot spots / gotchas
 
 - **`/r/<numeric-id>` 404s.** OpenTable's restaurant URLs use slugs (`/r/state-of-confusion-charlotte`), not numeric IDs. `opentable_book` therefore requires `dining_area_id` as an explicit arg — call `opentable_get_restaurant` with a slug first to read `diningAreas[]`.
-- **Content scripts don't survive extension reload.** Existing opentable tabs lose `content.js` + `capture-logger.js` when the extension reloads. The background SW re-injects them automatically (onInstalled/onStartup + fallback on `sendMessage` failure). If a user hits "Could not establish connection" errors, reloading the extension once should fix it permanently.
-- **MV3 service worker sleeps.** Idle SWs get killed after ~30s. We hold a 20s ping to the server and a 25s `chrome.alarms` tick. Cold wake can delay the first request by up to ~5s.
-- **CSRF tokens live on `window.__CSRF_TOKEN__`** (MAIN world) but `content.js` runs in an isolated world. `capture-logger.js` syncs the token to `document.documentElement.dataset.otMcpCsrf` every 2s so `content.js` can include it in headers for write endpoints.
+- **Extension lifecycle is owned by `@fetchproxy/server`.** Self-healing content scripts, MV3 service-worker keepalive, and CSRF token handling all live upstream in the fetchproxy extension. If a user hits "extension offline" or "Could not establish connection", point them at the fetchproxy installation docs — there's nothing for opentable-mcp to fix.
 - **Persisted-query cache lag on `/user/favorites`.** After `add_favorite` returns 204, the SSR dashboard may not reflect the new entry for ~10s. Document this in the tool description, don't fight the cache.
 - **Sign-in detection.** `OpenTableClient.throwIfSignInPage` checks for `/authenticate/` in the response URL or sign-in markers in a short response body. When it throws, the user must sign into opentable.com in the bridged Chrome tab.
 - **CC-required slots route through preview.** The slot-lock response doesn't carry the CC-required flag or cancellation policy — those live in the `/booking/details` SSR page's `__INITIAL_STATE__` (`timeSlot.creditCardRequired`, `messages.cancellationPolicyMessage`, `wallet.savedCards`). `opentable_book_preview` fetches that page + slot-locks, and mints a `booking_token` that `opentable_book` consumes. `booking_token` is opaque, stateless base64-JSON — no server-side cache — with a tamper check (restaurant/date/time/party/dining-area must match the caller's own args). OpenTable's ~90s slot-lock TTL is the only expiry; a stale token surfaces as `SLOT_LOCK_EXPIRED` which `opentable_book` maps to an actionable error.
@@ -163,15 +164,16 @@ Main is always one version ahead of the latest tag. To release, run the **Tag & 
 
 1. `npm run build` — keep `dist/bundle.js` fresh.
 2. `lsof -ti :37149 | xargs -r kill` — clear any orphan MCP server from a prior crashed probe.
-3. `npx tsx scripts/probe-<x>.ts` — the probe spawns its own `dist/bundle.js` over stdio. The extension reconnects within ~2s (tight 200-5000ms backoff) and announces `ready` once it finds an opentable tab.
-4. If the first call fails with "extension offline", the extension is probably sleeping — reopen the popup or reload the extension once.
+3. `npx tsx scripts/probe-<x>.ts` — the probe spawns its own `dist/bundle.js` over stdio. The fetchproxy extension reconnects within ~2s and announces `ready` once it finds an opentable.com tab.
+4. If the first call fails with "extension offline", the extension is probably sleeping — reopen the popup or reload it once.
 
 ## What to *not* do
 
-- Don't add new transport-layer hacks (cycletls, impersonate-curl, Playwright). v0.2 tried those; Akamai wins. The extension bridge is the whole design.
+- Don't add new transport-layer hacks (cycletls, impersonate-curl, Playwright). v0.2 tried those; Akamai wins. The fetchproxy bridge is the whole design.
 - Don't paste cookies or env-configure auth. Auth lives in the user's browser now.
 - Don't register tools that can't be tested against a mock `OpenTableClient`. All tool logic should be behind `fetchJson` / `fetchHtml` so tests can drive it without a real WS.
 - Don't bump the persisted-query hashes speculatively. Only re-capture when a live request fails with `PersistedQueryNotFound`.
+- Don't add WS-server or protocol-frame logic here. That lives upstream in `@fetchproxy/server`. Bugs in extension handshaking, frame validation, or service-worker keepalive should be filed against the fetchproxy repo.
 
 <!-- pr-workflow:v1 -->
 ## Pull requests & release notes

@@ -2,8 +2,9 @@
 // fetches through the user's real Chrome session.
 //
 // Implementations:
-//   - src/transport-websocket.ts — our embedded extension + 127.0.0.1:37149
-//     WebSocket. The default; what every release through v0.8.0 used.
+//   - src/transport-fetchproxy.ts — thin adapter over @fetchproxy/server's
+//     FetchproxyServer (127.0.0.1:37149 WebSocket). The default; what
+//     every release from v0.9.1 onward uses.
 //   - src/transport-mcp-chrome.ts — hangwin/mcp-chrome's HTTP MCP at
 //     127.0.0.1:12306. Experimental; depends on mcp-chrome PR #348
 //     (tabUrl support) landing in a published release.

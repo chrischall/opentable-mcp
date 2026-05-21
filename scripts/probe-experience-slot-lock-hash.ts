@@ -5,9 +5,10 @@
 // the slot-lock step and dumps the SlotLock GraphQL POST body so we can
 // pin `BookDetailsExperienceSlotLock`'s persisted-query sha256Hash.
 //
-// Prereqs: companion Chrome extension loaded; opentable.com signed-in
-// tab open. Does NOT submit a booking — stops after slot-lock.
-import { OpenTableWsServer } from '../src/ws-server.js';
+// Prereqs: fetchproxy extension installed (github.com/chrischall/fetchproxy);
+// opentable.com signed-in tab open. Does NOT submit a booking — stops
+// after slot-lock.
+import { FetchproxyTransport } from '../src/transport-fetchproxy.js';
 import { OpenTableClient } from '../src/client.js';
 
 const PASQUAL_RID = 278896;
@@ -19,9 +20,9 @@ const TIME = '18:00';
 const PARTY = 2;
 
 async function main(): Promise<void> {
-  const server = new OpenTableWsServer({ port: 37149 });
-  await server.start();
-  const client = new OpenTableClient(server);
+  const transport = new FetchproxyTransport({ port: 37149, version: '0.9.1' });
+  await transport.start();
+  const client = new OpenTableClient({ transport });
   try {
     const availability = await client.fetchJson<unknown>(
       '/dapi/fe/gql?optype=query&opname=RestaurantsAvailability',
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
       'then paste into the fixture file and re-run `npx prettier --write` on it.'
     );
   } finally {
-    await server.close();
+    await transport.close();
   }
 }
 
