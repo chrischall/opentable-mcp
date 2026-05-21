@@ -235,7 +235,7 @@ export function registerReservationTools(
     'opentable_book_preview',
     {
       description:
-        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. Refuses early on Listing-type restaurants — check opentable_get_restaurant.bookable first. For Experience-mandatory slots (find_slots returned booking_type=Experience), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock.",
+        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock.",
       annotations: { readOnlyHint: true },
       inputSchema: {
         restaurant_id: z.number().int().positive(),
@@ -454,7 +454,7 @@ export function registerReservationTools(
     'opentable_book',
     {
       description:
-        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. Refuses early on Listing-type restaurants — check opentable_get_restaurant.bookable first.",
+        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead.",
       inputSchema: {
         restaurant_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
@@ -478,6 +478,14 @@ export function registerReservationTools(
           .describe(
             'Pass-through from find_slots.experience_ids. When non-empty, book refuses without a booking_token from opentable_book_preview.'
           ),
+        experience_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            'Tamper-check signal for Experience tokens. When set, must match the experienceId baked into the booking_token by preview — agents that re-state the experience choice here get refused if it drifted from preview.'
+          ),
       },
     },
     async ({
@@ -490,6 +498,7 @@ export function registerReservationTools(
       dining_area_id,
       booking_token,
       experience_ids,
+      experience_id: callerExperienceId,
     }) => {
       const reservationDateTime = `${date}T${time}`;
       const diningAreaId = dining_area_id;
@@ -506,17 +515,25 @@ export function registerReservationTools(
 
       if (booking_token) {
         // Token path — preview did the heavy lifting; we trust the payload
-        // subject to a tamper check against the caller's own args.
+        // subject to a tamper check against the caller's own args. The
+        // experienceId tamper check is conditional: a caller that passed an
+        // explicit experience_id arg should get refused if it doesn't match
+        // the token's experienceId. (The Experience-slot find_slots path
+        // currently doesn't echo experience_id as a tool arg, so callers
+        // who didn't pass it skip the experience tamper check — the token's
+        // own bookingType=experience + experienceId still drive routing.)
         const payload = decodeBookingToken(booking_token);
         if (
           payload.restaurantId !== restaurant_id ||
           payload.date !== date ||
           payload.time !== time ||
           payload.partySize !== party_size ||
-          payload.diningAreaId !== dining_area_id
+          payload.diningAreaId !== dining_area_id ||
+          (typeof callerExperienceId === 'number' &&
+            payload.experienceId !== callerExperienceId)
         ) {
           throw new Error(
-            'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, or dining area). Call opentable_book_preview again with the current args.'
+            'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, dining area, or experience_id). Call opentable_book_preview again with the current args.'
           );
         }
         slotLockId = payload.slotLockId;

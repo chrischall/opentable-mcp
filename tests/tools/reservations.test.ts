@@ -857,5 +857,45 @@ describe('reservation tools', () => {
       expect(mockFetchHtml).not.toHaveBeenCalled();
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
+
+    it('refuses an Experience token when caller-provided experience_id mismatches the token', async () => {
+      mockFetchHtml.mockRejectedValue(new Error('should not be called'));
+      mockFetchJson.mockRejectedValue(new Error('should not be called'));
+
+      const token = encodeBookingToken({
+        slotLockId: 9999,
+        restaurantId: 278896,
+        diningAreaId: 21881,
+        partySize: 5,
+        date: '2026-06-25',
+        time: '18:00',
+        reservationToken: 'tok',
+        slotHash: '431673495',
+        paymentCard: null,
+        ccRequired: false,
+        issuedAt: new Date().toISOString(),
+        bookingType: 'experience',
+        experienceId: 514735,
+      });
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        booking_token: token,
+        experience_id: 627696, // ← drifted from the token's 514735
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/booking_token was issued for a different reservation/);
+      expect(text).toMatch(/experience_id/);
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
   });
 });
