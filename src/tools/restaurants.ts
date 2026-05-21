@@ -33,7 +33,12 @@ export function registerRestaurantTools(
     },
     async ({ restaurant_id }) => {
       const html = await client.fetchHtml(restaurantPath(restaurant_id));
-      const restaurant = parseRestaurant(html);
+      // Thread the slug through so the parser can build /r/{slug} for
+      // the output url. Numeric ids stay undefined — parser falls back
+      // to /r/{numeric-id} (which 404s on opentable.com, but at least
+      // identifies the right restaurant in the rid sense).
+      const slug = typeof restaurant_id === 'string' ? restaurant_id : undefined;
+      const restaurant = parseRestaurant(html, slug);
       return {
         content: [
           { type: 'text' as const, text: JSON.stringify(restaurant, null, 2) },

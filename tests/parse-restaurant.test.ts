@@ -169,3 +169,63 @@ describe('parseRestaurant — bookable / listing_type', () => {
     expect(r.listing_type).toBe('Listing');
   });
 });
+
+describe('parseRestaurant — Listing-type fallbacks', () => {
+  it('falls back to privateDining.formattedPhone when contactInformation is empty', () => {
+    // Listings (like Le Bernardin) leave contactInformation.phoneNumber
+    // blank because OpenTable doesn't take bookings for them. The
+    // private-dining concierge number is the closest thing OpenTable
+    // surfaces — better than an empty phone in the tool output.
+    const html = htmlWith({
+      restaurantProfile: {
+        restaurant: {
+          restaurantId: 2508,
+          name: 'Listing With Empty Contact',
+          type: 'Listing',
+          contactInformation: { phoneNumber: '', formattedPhoneNumber: '' },
+          privateDining: { formattedPhone: '(888) 532-1016' },
+        },
+      },
+    });
+    const r = parseRestaurant(html);
+    expect(r.phone).toBe('(888) 532-1016');
+  });
+
+  it('keeps contactInformation.phoneNumber when present (GuestCenter restaurants do not fall back)', () => {
+    const html = htmlWith({
+      restaurantProfile: {
+        restaurant: {
+          restaurantId: 1,
+          name: 'GuestCenter',
+          type: 'GuestCenter',
+          contactInformation: { formattedPhoneNumber: '(505) 983-9340' },
+          privateDining: { formattedPhone: '(888) 532-1016' },
+        },
+      },
+    });
+    const r = parseRestaurant(html);
+    expect(r.phone).toBe('(505) 983-9340');
+  });
+});
+
+describe('parseRestaurant — url construction', () => {
+  it('uses the slug arg to build /r/{slug} (the only form opentable.com accepts)', () => {
+    const html = htmlWith({
+      restaurantProfile: {
+        restaurant: { restaurantId: 2508, name: 'Le Bernardin', type: 'Listing' },
+      },
+    });
+    const r = parseRestaurant(html, 'le-bernardin');
+    expect(r.url).toBe('https://www.opentable.com/r/le-bernardin');
+  });
+
+  it('falls back to /r/{numeric-id} when no slug is provided (404s on opentable.com, but better than empty)', () => {
+    const html = htmlWith({
+      restaurantProfile: {
+        restaurant: { restaurantId: 2508, name: 'X' },
+      },
+    });
+    const r = parseRestaurant(html);
+    expect(r.url).toBe('https://www.opentable.com/r/2508');
+  });
+});
