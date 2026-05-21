@@ -1,13 +1,13 @@
 // OpenTableClient is the thin, tool-facing API over an OpenTableTransport.
 // Every tool goes through fetchHtml() (SSR pages) or fetchJson() (API
-// endpoints). The transport — WebSocket-to-our-extension by default,
-// or HTTP-to-hangwin/mcp-chrome when enabled — handles the actual
+// endpoints). The transport — FetchproxyTransport (wraps
+// @fetchproxy/server's FetchproxyServer) by default, or
+// HTTP-to-hangwin/mcp-chrome when enabled — handles the actual
 // round-trip to the user's Chrome.
 //
 // Error mapping (non-2xx, sign-in interstitial, empty 204 body) lives
 // here so tool authors never have to think about it AND so it stays
 // consistent across transports.
-import { OpenTableWsServer } from './ws-server.js';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 export class SessionNotAuthenticatedError extends Error {
@@ -20,19 +20,16 @@ export class SessionNotAuthenticatedError extends Error {
 }
 
 export interface OpenTableClientOptions {
-  /** Custom transport. When omitted, defaults to the embedded
-   *  WebSocket bridge on the given port (or 37149). */
-  transport?: OpenTableTransport;
-  /** Convenience for the default transport — sets the listener port.
-   *  Ignored when `transport` is supplied. */
-  port?: number;
+  /** Transport used to relay fetches to the user's browser. Required —
+   *  no implicit default since the migration to @fetchproxy/server. */
+  transport: OpenTableTransport;
 }
 
 export class OpenTableClient {
   private readonly transport: OpenTableTransport;
 
-  constructor(opts: OpenTableClientOptions = {}) {
-    this.transport = opts.transport ?? new OpenTableWsServer({ port: opts.port });
+  constructor(opts: OpenTableClientOptions) {
+    this.transport = opts.transport;
   }
 
   async start(): Promise<void> {

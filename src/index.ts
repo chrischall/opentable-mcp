@@ -3,8 +3,10 @@
 //
 // Boot sequence:
 //   1. Pick a transport based on $OT_BRIDGE (default: 'websocket').
-//      - websocket: open the embedded WebSocket listener on 127.0.0.1:37149.
-//        The companion Chrome extension under ./extension/ connects here.
+//      - websocket: wrap @fetchproxy/server's FetchproxyServer (listening
+//        on 127.0.0.1:37149). The shared fetchproxy Chrome/Safari
+//        extension — installed separately, not in this repo — connects
+//        here. See https://github.com/chrischall/fetchproxy.
 //      - mcp-chrome: open an MCP-over-HTTP connection to hangwin/mcp-chrome
 //        at http://127.0.0.1:12306/mcp. Requires mcp-chrome's
 //        `chrome_network_request` tool to support tabUrl pinning (PR
@@ -20,12 +22,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { OpenTableClient } from './client.js';
 import { McpChromeTransport } from './transport-mcp-chrome.js';
-import { OpenTableWsServer } from './ws-server.js';
+import { FetchproxyTransport } from './transport-fetchproxy.js';
 import { registerReservationTools } from './tools/reservations.js';
 import { registerUserTools } from './tools/user.js';
 import { registerFavoriteTools } from './tools/favorites.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerRestaurantTools } from './tools/restaurants.js';
+
+const VERSION = '0.9.1';
 
 type BridgeKind = 'websocket' | 'mcp-chrome';
 
@@ -36,12 +40,15 @@ const bridgeKind: BridgeKind =
 const transport =
   bridgeKind === 'mcp-chrome'
     ? new McpChromeTransport({ url: process.env.OT_MCP_CHROME_URL })
-    : new OpenTableWsServer({ port: process.env.OT_WS_PORT ? Number(process.env.OT_WS_PORT) : undefined });
+    : new FetchproxyTransport({
+        port: process.env.OT_WS_PORT ? Number(process.env.OT_WS_PORT) : undefined,
+        version: VERSION,
+      });
 
 const client = new OpenTableClient({ transport });
 await client.start();
 
-const server = new McpServer({ name: 'opentable-mcp', version: '0.9.1' });
+const server = new McpServer({ name: 'opentable-mcp', version: VERSION });
 
 registerReservationTools(server, client);
 registerUserTools(server, client);
@@ -51,14 +58,15 @@ registerRestaurantTools(server, client);
 
 if (bridgeKind === 'mcp-chrome') {
   console.error(
-    '[opentable-mcp] v0.9.0 — bridging via hangwin/mcp-chrome at ' +
+    `[opentable-mcp] v${VERSION} — bridging via hangwin/mcp-chrome at ` +
       (process.env.OT_MCP_CHROME_URL ?? 'http://127.0.0.1:12306/mcp') +
       '. Requires mcp-chrome ≥ the release containing PR #348 (tabUrl support).'
   );
 } else {
   console.error(
-    '[opentable-mcp] v0.9.0 — WebSocket bridge to Chrome extension on 127.0.0.1:37149. ' +
-      'Load the extension from ./extension/ and sign in at opentable.com. ' +
+    `[opentable-mcp] v${VERSION} — WebSocket bridge via @fetchproxy/server on 127.0.0.1:37149. ` +
+      'Install the fetchproxy extension (see https://github.com/chrischall/fetchproxy) ' +
+      'and sign in at opentable.com. ' +
       '(To use hangwin/mcp-chrome as the bridge instead, set OT_BRIDGE=mcp-chrome.)'
   );
 }
