@@ -67,18 +67,41 @@ async function main(): Promise<void> {
       `  https://www.opentable.com/r/${PASQUAL_SLUG}?covers=${PARTY}&dateTime=${DATE}T${TIME}`
     );
     console.error(
-      'Then click the first available time slot, "Select" on a seating area, "Select" on the Experience.'
+      'Click an available time slot, "Select" on a seating area, "Select" on the Experience.'
     );
     console.error(
-      'In DevTools → Network, find the POST to /dapi/fe/gql?opname=BookDetailsExperienceSlotLock.'
+      'You should land on /booking/details. After the page settles, open DevTools → Console and run:'
+    );
+    console.error('');
+    console.error(
+      '  window.__APOLLO_CLIENT__.queryManager.mutationStore[\'1\'].mutation.documentId'
+    );
+    console.error('');
+    console.error(
+      'The returned 64-char hex string IS the BookDetailsExperienceSlotLock'
     );
     console.error(
-      'Copy its `extensions.persistedQuery.sha256Hash` into src/tools/reservations.ts (Task 5).'
+      "persisted-query sha256Hash — paste it into BOOK_EXPERIENCE_SLOT_LOCK_HASH in src/tools/reservations.ts."
     );
     console.error(
-      'Also copy `window.__INITIAL_STATE__` from the /booking/details page into'
+      '(Apollo\'s `documentId` field == the persisted-query hash. The same trick'
     );
-    console.error('  tests/fixtures/booking-details-state-experience.json');
+    console.error(
+      'works for any other persisted-query op that fires on the page — iterate'
+    );
+    console.error(
+      'queryManager.queries via .forEach to read each query\'s documentId.)'
+    );
+    console.error('');
+    console.error(
+      'If you also want to refresh tests/fixtures/booking-details-state-experience.json:'
+    );
+    console.error(
+      '  copy(JSON.stringify(window.__INITIAL_STATE__, null, 2))'
+    );
+    console.error(
+      'then paste into the fixture file and re-run `npx prettier --write` on it.'
+    );
   } finally {
     await server.close();
   }

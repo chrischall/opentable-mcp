@@ -98,7 +98,7 @@ No environment variables required. Auth lives in the user's browser via the comp
 - Readonly tools set `annotations: { readOnlyHint: true }`.
 - Prefer JSON bodies. The write tools hit OpenTable's internal JSON/GraphQL endpoints; don't use `URLSearchParams` unless an endpoint explicitly requires form-encoding.
 - Write a failing test before implementation (TDD). Tool tests live in `tests/tools/<name>.test.ts` and mock `OpenTableClient.fetchJson` / `fetchHtml`.
-- Prefer Apollo persisted queries (just the `sha256Hash`, no GraphQL body). Hashes are pinned at the top of the tool file — if OpenTable re-deploys, the server returns `PersistedQueryNotFound` and the hashes need re-capture via the extension's XHR logger.
+- Prefer Apollo persisted queries (just the `sha256Hash`, no GraphQL body). Hashes are pinned at the top of the tool file — if OpenTable re-deploys, the server returns `PersistedQueryNotFound` and the hashes need re-capture. Fastest re-capture path: on the page where the op fires (e.g. `/booking/details` for slot-lock ops), once the mutation has run, read `window.__APOLLO_CLIENT__.queryManager.mutationStore['1'].mutation.documentId` from DevTools — Apollo's `documentId` IS the persisted-query sha256Hash. For queries, iterate `queryManager.queries.forEach((q) => q.document.documentId)`. Beats the XHR-logger approach because the cookie/CSRF stays in the page and there's nothing to copy out of a request body.
 
 ## Testing
 

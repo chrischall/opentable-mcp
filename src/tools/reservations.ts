@@ -70,20 +70,23 @@ function bookingDetailsPath(input: {
   return `/booking/details?${params.toString()}`;
 }
 
-// Apollo persisted-query hashes captured from opentable.com on 2026-04-20.
+// Apollo persisted-query hashes captured from opentable.com.
 // If OpenTable re-deploys and invalidates these, the server returns
-// `PersistedQueryNotFound` and we'll need to re-capture via the
-// extension's XHR logger.
+// `PersistedQueryNotFound` and we'll need to re-capture them. The
+// fastest re-capture path: on a /booking/details page in the bridged
+// Chrome tab, run
+//   window.__APOLLO_CLIENT__.queryManager.mutationStore['1'].mutation.documentId
+// after the page's slot-lock has fired. Apollo's `documentId` IS the
+// persisted-query sha256Hash. Same trick works for query documents via
+// `queryManager.queries` (a Map iterated with .forEach).
 const RESTAURANTS_AVAILABILITY_HASH =
   'cbcf4838a9b399f742e3741785df64560a826d8d3cc2828aa01ab09a8455e29e';
 const BOOK_SLOT_LOCK_HASH =
   '1100bf68905fd7cb1d4fd0f4504a4954aa28ec45fb22913fa977af8b06fd97fa';
-// TODO(pre-merge): re-pin via scripts/probe-experience-slot-lock-hash.ts
-// against Pasqual's. Placeholder hash below is invalid for production use;
-// CI tests are fully mocked so this doesn't gate unit-test green, but the
-// release-checklist live probe in Task 9 MUST capture and update this.
+// Captured 2026-05-21 from a live Pasqual's Experience slot-lock via the
+// __APOLLO_CLIENT__.queryManager.mutationStore inspection technique above.
 const BOOK_EXPERIENCE_SLOT_LOCK_HASH =
-  '0000000000000000000000000000000000000000000000000000000000000000';
+  '363af9e3bd17efa82ad71c5808c5272603b5f1abe13b535d3beed1e6258ce504';
 const CANCEL_RESERVATION_HASH =
   '4ee53a006030f602bdeb1d751fa90ddc4240d9e17d015fb7976f8efcb80a026e';
 
