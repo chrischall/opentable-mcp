@@ -916,4 +916,178 @@ describe('reservation tools', () => {
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
   });
+
+  describe('opentable_modify_preview', () => {
+    // Splice the modifyReservation block onto the existing Experience
+    // fixture rather than maintaining a third near-duplicate fixture file.
+    const modifyState = {
+      ...(fixture('booking-details-state-experience.json') as object),
+      modifyReservation: fixture('modify-reservation-block.json'),
+    };
+
+    describe("Experience-mandatory slot (Pasqual's style)", () => {
+      it('builds the /booking/details URL with confirmationNumber + securityToken + isModify=true + Experience params, slot-locks, returns modify_token', async () => {
+        mockFetchHtml.mockResolvedValue(htmlWith(modifyState));
+        mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+          if (path.includes('opname=BookDetailsExperienceSlotLock')) {
+            return {
+              data: { lockExperienceSlot: { success: true, slotLock: { slotLockId: 8888 } } },
+              __observed: init?.body,
+            };
+          }
+          throw new Error(`unexpected POST: ${path}`);
+        });
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 278896,
+          confirmation_number: 29541,
+          security_token: '01abc',
+          date: '2026-06-25',
+          time: '19:15',
+          party_size: 5,
+          reservation_token: 'tok',
+          slot_hash: '4444',
+          dining_area_id: 21881,
+          experience_id: 514735,
+        });
+
+        // URL contains all three modify markers + Experience params
+        const htmlUrl = mockFetchHtml.mock.calls[0][0] as string;
+        expect(htmlUrl).toContain('confirmationNumber=29541');
+        expect(htmlUrl).toContain('securityToken=01abc');
+        expect(htmlUrl).toContain('isModify=true');
+        expect(htmlUrl).toContain('selectedExperience=514735');
+        expect(htmlUrl).toContain('st=Experience');
+
+        // Result shape
+        expect(result.isError).toBeFalsy();
+        const json = JSON.parse((result.content[0] as { text: string }).text);
+        expect(json.booking_type).toBe('experience_mandatory');
+        expect(json.existing_reservation).toEqual({
+          confirmation_number: 29541,
+          restaurant_id: 278896,
+        });
+        expect(json.reservation).toMatchObject({
+          date: '2026-06-25',
+          time: '19:15',
+          party_size: 5,
+        });
+
+        // Token carries existing-reservation identity + new slot routing info
+        const decoded = decodeBookingToken(json.modify_token);
+        expect(decoded.existingReservationId).toBeGreaterThan(0);
+        expect(decoded.existingConfirmationNumber).toBe(29541);
+        expect(decoded.existingSecurityToken).toBe('01abc');
+        expect(decoded.bookingType).toBe('experience');
+        expect(decoded.experienceId).toBe(514735);
+      });
+    });
+
+    describe('Standard slot', () => {
+      it('builds the /booking/details URL with modify markers, slot-locks via Standard op, returns modify_token', async () => {
+        mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-no-cc.json')));
+        mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+          if (path.includes('opname=BookDetailsStandardSlotLock')) {
+            return {
+              data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+              __observed: init?.body,
+            };
+          }
+          throw new Error(`unexpected POST: ${path}`);
+        });
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 1272781,
+          confirmation_number: 11111,
+          security_token: '02xyz',
+          date: '2026-05-05',
+          time: '20:00',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          dining_area_id: 1,
+        });
+
+        const htmlUrl = mockFetchHtml.mock.calls[0][0] as string;
+        expect(htmlUrl).toContain('confirmationNumber=11111');
+        expect(htmlUrl).toContain('securityToken=02xyz');
+        expect(htmlUrl).toContain('isModify=true');
+        expect(htmlUrl).not.toContain('st=Experience');
+
+        const json = JSON.parse((result.content[0] as { text: string }).text);
+        expect(json.booking_type).toBe('instant');
+        expect(json.existing_reservation.confirmation_number).toBe(11111);
+        const decoded = decodeBookingToken(json.modify_token);
+        expect(decoded.bookingType).toBe('standard');
+        expect(decoded.existingConfirmationNumber).toBe(11111);
+      });
+    });
+
+    describe('same-day move (existing reservation excluded from conflict check)', () => {
+      it('does not throw when the only conflict on new_date is the existing reservation being moved', async () => {
+        const stateWithSelfConflict = {
+          ...(fixture('booking-details-state-no-cc.json') as object),
+          upcomingReservationConflicts: [
+            {
+              dateTime: '2026-05-05T18:00',
+              confirmationNumber: 11111, // ← same as the existing one
+              partySize: 2,
+              restaurant: { restaurantId: 1272781, name: 'X' },
+            },
+          ],
+        };
+        mockFetchHtml.mockResolvedValue(htmlWith(stateWithSelfConflict));
+        mockFetchJson.mockImplementation(async (path: string) => {
+          if (path.includes('opname=BookDetailsStandardSlotLock')) {
+            return { data: { lockSlot: { success: true, slotLock: { slotLockId: 1 } } } };
+          }
+          throw new Error(`unexpected POST: ${path}`);
+        });
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 1272781,
+          confirmation_number: 11111,
+          security_token: '02xyz',
+          date: '2026-05-05',
+          time: '20:00',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          dining_area_id: 1,
+        });
+
+        expect(result.isError).toBeFalsy();
+      });
+
+      it('still throws if a DIFFERENT same-day reservation exists', async () => {
+        const stateWithOtherConflict = {
+          ...(fixture('booking-details-state-no-cc.json') as object),
+          upcomingReservationConflicts: [
+            {
+              dateTime: '2026-05-05T13:00',
+              confirmationNumber: 99999, // ← different reservation
+              partySize: 4,
+              restaurant: { restaurantId: 5, name: 'Brunch Spot' },
+            },
+          ],
+        };
+        mockFetchHtml.mockResolvedValue(htmlWith(stateWithOtherConflict));
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 1272781,
+          confirmation_number: 11111,
+          security_token: '02xyz',
+          date: '2026-05-05',
+          time: '20:00',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          dining_area_id: 1,
+        });
+
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/two reservations on the same day/i);
+      });
+    });
+  });
 });

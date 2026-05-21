@@ -503,6 +503,227 @@ export function registerReservationTools(
   );
 
   server.registerTool(
+    'opentable_modify_preview',
+    {
+      description:
+        "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        restaurant_id: z.number().int().positive(),
+        confirmation_number: z.number().int().positive(),
+        security_token: z.string(),
+        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
+        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        party_size: z.number().int().positive(),
+        reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
+        slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
+        dining_area_id: z.number().int(),
+        experience_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('For Experience-mandatory slots; required when the new slot has experience_ids.'),
+        experience_ids: z
+          .array(z.number().int().positive())
+          .optional()
+          .describe('Pass-through from find_slots.experience_ids. When non-empty, experience_id must also be set.'),
+      },
+    },
+    async ({
+      restaurant_id,
+      confirmation_number,
+      security_token,
+      date,
+      time,
+      party_size,
+      reservation_token,
+      slot_hash,
+      dining_area_id,
+      experience_id,
+      experience_ids,
+    }) => {
+      const reservationDateTime = `${date}T${time}`;
+
+      const isExperience =
+        (Array.isArray(experience_ids) && experience_ids.length > 0) ||
+        typeof experience_id === 'number';
+      if (isExperience && typeof experience_id !== 'number') {
+        throw new Error(
+          'This slot requires picking an Experience. Options: ' +
+            JSON.stringify(experience_ids) +
+            '. Re-call opentable_modify_preview with experience_id set to one of them.'
+        );
+      }
+
+      // 1) /booking/details SSR with modify markers (confirmationNumber + securityToken + isModify=true).
+      const detailsHtml = await client.fetchHtml(
+        bookingDetailsPath({
+          restaurant_id,
+          date,
+          time,
+          party_size,
+          slot_hash,
+          reservation_token,
+          dining_area_id,
+          experience_id,
+          confirmation_number,
+          security_token,
+        })
+      );
+      const state = extractInitialState(detailsHtml);
+      const summary = parseBookingDetailsState(state);
+
+      // 2) Same-day conflicts — exclude the reservation being moved.
+      const conflicts = sameDayConflicts(summary.conflicts, date, confirmation_number);
+      if (conflicts.length > 0) {
+        throw sameDayConflictError(conflicts, date);
+      }
+
+      if (summary.cc_required && !summary.default_card) {
+        throw new Error(
+          'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
+        );
+      }
+
+      // 3) Slot-lock — same hashes/ops as book_preview.
+      const lockPath = isExperience ? EXPERIENCE_SLOT_LOCK_PATH : SLOT_LOCK_PATH;
+      const lockOp = isExperience ? 'BookDetailsExperienceSlotLock' : 'BookDetailsStandardSlotLock';
+      const lockHash = isExperience ? BOOK_EXPERIENCE_SLOT_LOCK_HASH : BOOK_SLOT_LOCK_HASH;
+      const lockVariables: Record<string, unknown> = isExperience
+        ? {
+            input: {
+              restaurantId: restaurant_id,
+              seatingOption: 'DEFAULT',
+              reservationDateTime,
+              partySize: party_size,
+              databaseRegion: 'NA',
+              slotHash: slot_hash,
+              experienceId: experience_id,
+              experienceVersion: summary.experience?.version ?? 1,
+              diningAreaId: dining_area_id,
+              bookingType: 'Table',
+              slotAvailabilityToken: reservation_token,
+            },
+          }
+        : {
+            input: {
+              restaurantId: restaurant_id,
+              seatingOption: 'DEFAULT',
+              reservationDateTime,
+              partySize: party_size,
+              databaseRegion: 'NA',
+              slotHash: slot_hash,
+              reservationType: 'STANDARD',
+              diningAreaId: dining_area_id,
+            },
+          };
+      const lockResponse = await client.fetchJson<{
+        data?: {
+          lockSlot?: { success?: boolean; slotLock?: { slotLockId?: number } };
+          lockExperienceSlot?: { success?: boolean; slotLock?: { slotLockId?: number } };
+        };
+      }>(lockPath, {
+        method: 'POST',
+        headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
+        body: {
+          operationName: lockOp,
+          variables: lockVariables,
+          extensions: { persistedQuery: { version: 1, sha256Hash: lockHash } },
+        },
+      });
+      const lockResult = isExperience
+        ? lockResponse?.data?.lockExperienceSlot
+        : lockResponse?.data?.lockSlot;
+      const slotLockId = lockResult?.slotLock?.slotLockId;
+      if (!slotLockId || lockResult?.success !== true) {
+        throw new Error(
+          `OpenTable failed to lock slot for modify preview: ${JSON.stringify(lockResult ?? lockResponse)}`
+        );
+      }
+
+      // 4) Existing reservation primary key — from modifyReservation.gpid in
+      //    the SSR state. Defensive fallback to confirmation_number for
+      //    fixtures that lack a modifyReservation block.
+      const existingReservationId =
+        (state as { modifyReservation?: { gpid?: number } }).modifyReservation?.gpid ??
+        confirmation_number;
+
+      const paymentCard =
+        summary.cc_required && summary.default_card
+          ? {
+              id: summary.default_card.id,
+              last4: summary.default_card.last4,
+              expiryMmYy: expiryMmYy(
+                summary.default_card.expiry_month,
+                summary.default_card.expiry_year
+              ),
+              provider: CC_PROVIDER,
+            }
+          : null;
+
+      const modify_token = encodeBookingToken({
+        slotLockId,
+        restaurantId: restaurant_id,
+        diningAreaId: dining_area_id,
+        partySize: party_size,
+        date,
+        time,
+        reservationToken: reservation_token,
+        slotHash: slot_hash,
+        paymentCard,
+        ccRequired: summary.cc_required,
+        issuedAt: new Date().toISOString(),
+        bookingType: isExperience ? 'experience' : 'standard',
+        ...(isExperience
+          ? {
+              experienceId: experience_id,
+              experienceVersion: summary.experience?.version ?? 1,
+            }
+          : {}),
+        existingReservationId,
+        existingConfirmationNumber: confirmation_number,
+        existingSecurityToken: security_token,
+      });
+
+      const chargesDescription = summary.cc_required
+        ? `Nothing charged now — ${summary.default_card!.brand} •••• ${summary.default_card!.last4} re-held only. ${summary.policy.description}`
+        : 'Nothing charged now — no card required.';
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                modify_token,
+                booking_type: isExperience ? 'experience_mandatory' : 'instant',
+                experience: summary.experience,
+                existing_reservation: {
+                  confirmation_number,
+                  restaurant_id,
+                },
+                reservation: { date, time, party_size, restaurant_id, dining_area_id },
+                cancellation_policy: summary.policy,
+                payment_method:
+                  summary.cc_required && summary.default_card
+                    ? { brand: summary.default_card.brand, last4: summary.default_card.last4 }
+                    : null,
+                charges_at_booking: { amount_usd: 0, description: chargesDescription },
+                cc_required: summary.cc_required,
+                policy_type: summary.policy_type,
+                terms: summary.terms,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
     'opentable_book',
     {
       description:
