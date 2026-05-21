@@ -43,6 +43,12 @@ export interface BookingTokenPayload {
   bookingType: BookingTokenType;
   /** Required when bookingType === "experience"; absent otherwise. */
   experienceId?: number;
+  /** Optimistic-concurrency version of the Experience config that the
+   *  slot-lock + make-reservation calls have to echo back. Sourced from
+   *  __INITIAL_STATE__.experiences.experiences[].version on the
+   *  /booking/details page. Required for Experience bookings (the REST
+   *  /dapi/booking/make-reservation endpoint 400s without it). */
+  experienceVersion?: number;
 }
 
 const REQUIRED_KEYS: Array<keyof BookingTokenPayload> = [

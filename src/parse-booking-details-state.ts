@@ -70,6 +70,11 @@ export interface BookingExperience {
   /** Price per cover (USD-ish — OpenTable's field; null when the
    *  experience is à la carte or pricing is per-guest with no flat fee). */
   price_per_cover: number | null;
+  /** Optimistic-concurrency version stamp the slot-lock POST has to
+   *  echo back (passed as `experienceVersion`). Increments when the
+   *  restaurant edits the Experience config — sending a stale version
+   *  makes `BookDetailsExperienceSlotLock` 400. */
+  version: number | null;
 }
 
 export interface BookingDetailsSummary {
@@ -117,6 +122,7 @@ interface RawExperienceRecord {
   type?: string;
   typeEnum?: string;
   pricePerCover?: number | null;
+  version?: number;
   bookingPolicies?: {
     bookingPolicies?: {
       customPolicies?: { message?: string };
@@ -325,6 +331,7 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
           description:
             rec.bookingPolicies?.bookingPolicies?.customPolicies?.message ?? '',
           price_per_cover: rec.pricePerCover ?? null,
+          version: typeof rec.version === 'number' ? rec.version : null,
         };
       }
     }

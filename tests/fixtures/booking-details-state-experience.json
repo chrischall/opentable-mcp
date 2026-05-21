@@ -53,7 +53,7 @@
         "ticketedPurchaseLimit": null,
         "isVisaEvent": false,
         "location": null,
-        "version": 1,
+        "version": 7,
         "schedule": {
           "startDate": "2026-01-01",
           "endDate": "2026-12-31",

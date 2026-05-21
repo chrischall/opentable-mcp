@@ -330,27 +330,55 @@ export function registerReservationTools(
       }
 
       // Step 3 — slot-lock (reserves the slot for ~90s; returns slotLockId).
-      // Standard vs Experience routes use different persisted-query ops and
-      // pass different variables.input shapes.
+      // Standard vs Experience routes use different persisted-query ops AND
+      // different `variables.input` GraphQL types (`SlotLockInput` vs
+      // `ExperienceSlotLockInput`), so the fields don't line up 1:1:
+      //   Standard:   reservationType: 'STANDARD'
+      //   Experience: bookingType: 'Table', experienceId, experienceVersion,
+      //               slotAvailabilityToken (NO reservationType, NO tableCategory)
+      // The Experience body's `experienceVersion` is an optimistic-concurrency
+      // stamp from the experience record; a stale value 400s the slot-lock.
       const lockPath = isExperience ? EXPERIENCE_SLOT_LOCK_PATH : SLOT_LOCK_PATH;
       const lockOp = isExperience ? 'BookDetailsExperienceSlotLock' : 'BookDetailsStandardSlotLock';
       const lockHash = isExperience ? BOOK_EXPERIENCE_SLOT_LOCK_HASH : BOOK_SLOT_LOCK_HASH;
-      const lockVariables: Record<string, unknown> = {
-        input: {
-          restaurantId: restaurant_id,
-          seatingOption: 'DEFAULT',
-          reservationDateTime,
-          partySize: party_size,
-          databaseRegion: 'NA',
-          slotHash: slot_hash,
-          reservationType: isExperience ? 'EXPERIENCE' : 'STANDARD',
-          diningAreaId: dining_area_id,
-          ...(isExperience ? { experienceId: experience_id, tableCategory: 'default' } : {}),
-        },
-      };
+      const lockVariables: Record<string, unknown> = isExperience
+        ? {
+            input: {
+              restaurantId: restaurant_id,
+              seatingOption: 'DEFAULT',
+              reservationDateTime,
+              partySize: party_size,
+              databaseRegion: 'NA',
+              slotHash: slot_hash,
+              experienceId: experience_id,
+              experienceVersion: summary.experience?.version ?? 1,
+              diningAreaId: dining_area_id,
+              bookingType: 'Table',
+              slotAvailabilityToken: reservation_token,
+            },
+          }
+        : {
+            input: {
+              restaurantId: restaurant_id,
+              seatingOption: 'DEFAULT',
+              reservationDateTime,
+              partySize: party_size,
+              databaseRegion: 'NA',
+              slotHash: slot_hash,
+              reservationType: 'STANDARD',
+              diningAreaId: dining_area_id,
+            },
+          };
+      // Response wrapping differs between Standard (`data.lockSlot`) and
+      // Experience (`data.lockExperienceSlot`) — both wrap the same shape.
       const lockResponse = await client.fetchJson<{
         data?: {
           lockSlot?: {
+            success?: boolean;
+            slotLock?: { slotLockId?: number };
+            slotLockErrors?: unknown;
+          };
+          lockExperienceSlot?: {
             success?: boolean;
             slotLock?: { slotLockId?: number };
             slotLockErrors?: unknown;
@@ -367,11 +395,14 @@ export function registerReservationTools(
           },
         },
       });
-      const slotLockId = lockResponse?.data?.lockSlot?.slotLock?.slotLockId;
-      if (!slotLockId || lockResponse?.data?.lockSlot?.success !== true) {
+      const lockResult = isExperience
+        ? lockResponse?.data?.lockExperienceSlot
+        : lockResponse?.data?.lockSlot;
+      const slotLockId = lockResult?.slotLock?.slotLockId;
+      if (!slotLockId || lockResult?.success !== true) {
         throw new Error(
           `OpenTable failed to lock slot for preview: ${JSON.stringify(
-            lockResponse?.data?.lockSlot ?? lockResponse
+            lockResult ?? lockResponse
           )}`
         );
       }
@@ -404,7 +435,12 @@ export function registerReservationTools(
         ccRequired: summary.cc_required,
         issuedAt: new Date().toISOString(),
         bookingType: isExperience ? 'experience' : 'standard',
-        ...(isExperience ? { experienceId: experience_id } : {}),
+        ...(isExperience
+          ? {
+              experienceId: experience_id,
+              experienceVersion: summary.experience?.version ?? 1,
+            }
+          : {}),
       });
 
       const chargesDescription = summary.cc_required
@@ -511,6 +547,7 @@ export function registerReservationTools(
       let ccRequired = false;
       let bookingType: 'standard' | 'experience' = 'standard';
       let experienceId: number | undefined;
+      let experienceVersion: number | undefined;
 
       // Caller-declared Experience: signal via experience_ids when there's no token yet.
       const callerDeclaredExperience =
@@ -544,6 +581,7 @@ export function registerReservationTools(
         ccRequired = payload.ccRequired;
         bookingType = payload.bookingType;
         experienceId = payload.experienceId;
+        experienceVersion = payload.experienceVersion;
       } else {
         if (callerDeclaredExperience) {
           throw new Error(
@@ -648,8 +686,13 @@ export function registerReservationTools(
         bookingType === 'experience' && typeof experienceId === 'number'
           ? {
               experienceId,
+              // make-reservation requires experienceVersion (REST endpoint
+              // validates with Joi — missing field = 400). Fallback to 1
+              // protects against malformed tokens. tableCategory belongs
+              // on the slot-lock body only; make-reservation 400s
+              // "\"tableCategory\" is not allowed" if we include it here.
+              experienceVersion: experienceVersion ?? 1,
               reservationType: 'Experience',
-              tableCategory: 'default',
             }
           : { reservationType: 'Standard' };
 

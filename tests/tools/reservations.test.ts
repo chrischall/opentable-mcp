@@ -420,8 +420,13 @@ describe('reservation tools', () => {
       );
       mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
         if (path.includes('opname=BookDetailsExperienceSlotLock')) {
+          // Experience slot-lock wraps the result in `lockExperienceSlot`
+          // rather than `lockSlot` (Standard's field). Verified live
+          // 2026-05-21 — see commits on capture branch.
           return {
-            data: { lockSlot: { success: true, slotLock: { slotLockId: 9999 } } },
+            data: {
+              lockExperienceSlot: { success: true, slotLock: { slotLockId: 9999 } },
+            },
             __observed: init?.body,
           };
         }
@@ -457,8 +462,15 @@ describe('reservation tools', () => {
       );
       expect(lockInit.body?.operationName).toBe('BookDetailsExperienceSlotLock');
       expect(lockInit.body?.variables?.input?.experienceId).toBe(514735);
-      expect(lockInit.body?.variables?.input?.reservationType).toBe('EXPERIENCE');
-      expect(lockInit.body?.variables?.input?.tableCategory).toBe('default');
+      // ExperienceSlotLockInput differs from Standard SlotLockInput:
+      // bookingType: "Table" (not reservationType: "EXPERIENCE"),
+      // experienceVersion from the parsed experience record,
+      // slotAvailabilityToken on the input itself, no tableCategory.
+      expect(lockInit.body?.variables?.input?.bookingType).toBe('Table');
+      expect(lockInit.body?.variables?.input?.experienceVersion).toBe(7);
+      expect(lockInit.body?.variables?.input?.slotAvailabilityToken).toBe('tok');
+      expect(lockInit.body?.variables?.input?.reservationType).toBeUndefined();
+      expect(lockInit.body?.variables?.input?.tableCategory).toBeUndefined();
 
       // Token + result fields
       expect(result.isError).toBeFalsy();
@@ -827,7 +839,13 @@ describe('reservation tools', () => {
       expect(makeBody).toBeDefined();
       expect(makeBody!.experienceId).toBe(514735);
       expect(makeBody!.reservationType).toBe('Experience');
-      expect(makeBody!.tableCategory).toBe('default');
+      // tableCategory belongs on the slot-lock body, not on make-reservation
+      // — the REST endpoint 400s with "tableCategory is not allowed" if
+      // included. Verified live 2026-05-21.
+      expect(makeBody!.tableCategory).toBeUndefined();
+      // experienceVersion threads through from the token (book_preview reads
+      // it from the parsed booking-details-state).
+      expect(makeBody!.experienceVersion).toBeDefined();
       // Slot-lock must NOT have fired — token path skips re-lock.
       expect(mockFetchJson).toHaveBeenCalledTimes(1);
       const json = JSON.parse((result.content[0] as { text: string }).text);

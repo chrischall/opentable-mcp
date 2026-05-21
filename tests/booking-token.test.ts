@@ -61,7 +61,7 @@ describe('booking-token — bookingType + experienceId', () => {
     expect(after.experienceId).toBeUndefined();
   });
 
-  it('round-trips an experience token including experienceId', () => {
+  it('round-trips an experience token including experienceId + experienceVersion', () => {
     const before = {
       slotLockId: 111, restaurantId: 222, diningAreaId: 333,
       partySize: 2, date: '2026-06-25', time: '18:00',
@@ -70,10 +70,13 @@ describe('booking-token — bookingType + experienceId', () => {
       issuedAt: '2026-05-20T00:00:00.000Z',
       bookingType: 'experience' as const,
       experienceId: 514735,
+      experienceVersion: 7,
     };
     const after = decodeBookingToken(encodeBookingToken(before));
     expect(after.bookingType).toBe('experience');
     expect(after.experienceId).toBe(514735);
+    // Required for the make-reservation REST body — missing version → 400.
+    expect(after.experienceVersion).toBe(7);
   });
 
   it('decodes a legacy token (no bookingType field) as standard', () => {
