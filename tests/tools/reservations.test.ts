@@ -1094,6 +1094,72 @@ describe('reservation tools', () => {
         expect((result.content[0] as { text: string }).text).toMatch(/two reservations on the same day/i);
       });
     });
+
+    describe('CC re-hold surface', () => {
+      it('throws "No default payment method" when the new slot is CC-required and no card is on file', async () => {
+        // CC-required fixture with the wallet.savedCards array forced empty.
+        const ccState = fixture('booking-details-state-cc.json') as {
+          wallet?: { savedCards?: unknown[]; selectedPaymentCardId?: string | null };
+        };
+        const stateWithNoCard = {
+          ...ccState,
+          wallet: { savedCards: [], selectedPaymentCardId: null },
+        };
+        mockFetchHtml.mockResolvedValue(htmlWith(stateWithNoCard));
+        mockFetchJson.mockImplementation(async () => {
+          throw new Error('slot-lock should not be reached');
+        });
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 2827,
+          confirmation_number: 11111,
+          security_token: '02xyz',
+          date: '2026-05-01',
+          time: '20:45',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          dining_area_id: 1,
+        });
+
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/No default payment method/);
+        expect(mockFetchJson).not.toHaveBeenCalled();
+      });
+
+      it('populates payment_method + a "re-held only" charges_at_booking description when the new slot is CC-required', async () => {
+        mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-cc.json')));
+        mockFetchJson.mockImplementation(async (path: string) => {
+          if (path.includes('opname=BookDetailsStandardSlotLock')) {
+            return { data: { lockSlot: { success: true, slotLock: { slotLockId: 6666 } } } };
+          }
+          throw new Error(`unexpected POST: ${path}`);
+        });
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 2827,
+          confirmation_number: 11111,
+          security_token: '02xyz',
+          date: '2026-05-01',
+          time: '20:45',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          dining_area_id: 1,
+        });
+
+        expect(result.isError).toBeFalsy();
+        const json = JSON.parse((result.content[0] as { text: string }).text);
+        expect(json.cc_required).toBe(true);
+        expect(json.payment_method).toMatchObject({
+          brand: expect.any(String),
+          last4: expect.any(String),
+        });
+        // The "re-held only" copy distinguishes modify from a fresh book
+        // (where the same string would say "held only" without the "re-").
+        expect(json.charges_at_booking.description).toMatch(/re-held/);
+      });
+    });
   });
 
   describe('opentable_modify', () => {
