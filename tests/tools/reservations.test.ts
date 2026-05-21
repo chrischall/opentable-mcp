@@ -966,6 +966,12 @@ describe('reservation tools', () => {
         expect(json.existing_reservation).toEqual({
           confirmation_number: 29541,
           restaurant_id: 278896,
+          // Enriched from modifyReservation block in the SSR state — lets
+          // the agent phrase "moving your booking from June 25 18:00 → 19:15".
+          date: '2026-06-25',
+          time: '18:00',
+          party_size: 5,
+          dining_area_id: 21881,
         });
         expect(json.reservation).toMatchObject({
           date: '2026-06-25',

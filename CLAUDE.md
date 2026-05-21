@@ -4,7 +4,7 @@ Guidance for Claude working in this repo.
 
 ## TL;DR
 
-v0.9.0: OpenTable MCP server with 11 tools (read + write), fronted by a
+v0.9.0: OpenTable MCP server with 13 tools (read + write), fronted by a
 pluggable browser bridge. Default transport: localhost WebSocket to a
 companion Chrome extension under `./extension/`. Opt-in alternative:
 `OT_BRIDGE=mcp-chrome` routes through hangwin/mcp-chrome's HTTP MCP
@@ -85,7 +85,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the extension loaded at `chrome://
 | `opentable_add_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/add` | write |
 | `opentable_remove_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/remove` | write |
 
-Note: `manifest.json` historically lists only 10 tools (missing `opentable_book_preview`); the runtime registers 11. The release workflow rewrites versions but not the tool list — if you change the tool surface, update `manifest.json` by hand.
+Note: `manifest.json` now lists all 13 tools (was historically out of sync — `opentable_book_preview` was missing). The release workflow rewrites versions but not the tool list — if you change the tool surface, update `manifest.json` by hand.
 
 ## Environment
 

@@ -642,12 +642,29 @@ export function registerReservationTools(
         );
       }
 
-      // 4) Existing reservation primary key — from modifyReservation.gpid in
-      //    the SSR state. Defensive fallback to confirmation_number for
-      //    fixtures that lack a modifyReservation block.
-      const existingReservationId =
-        (state as { modifyReservation?: { gpid?: number } }).modifyReservation?.gpid ??
-        confirmation_number;
+      // 4) Existing reservation details — from modifyReservation in the SSR
+      //    state. gpid is the modify-flow primary key (kept in the token as
+      //    a discriminator; not sent on the make-reservation wire since
+      //    the body uses confnumber+securityToken for identity instead).
+      //    localDateTime / partySize / diningArea power the existing_reservation
+      //    echo in the response so the agent can phrase "moving X from A to B".
+      const modifyRecord = (state as {
+        modifyReservation?: {
+          gpid?: number;
+          localDateTime?: string;
+          partySize?: number;
+          diningArea?: { diningAreaId?: number };
+        };
+      }).modifyReservation;
+      const existingReservationId = modifyRecord?.gpid ?? confirmation_number;
+      const existingDate =
+        modifyRecord?.localDateTime?.slice(0, 10) ?? null;
+      const existingTime =
+        modifyRecord?.localDateTime && modifyRecord.localDateTime.length >= 16
+          ? modifyRecord.localDateTime.slice(11, 16)
+          : null;
+      const existingPartySize = modifyRecord?.partySize ?? null;
+      const existingDiningAreaId = modifyRecord?.diningArea?.diningAreaId ?? null;
 
       const paymentCard =
         summary.cc_required && summary.default_card
@@ -702,6 +719,10 @@ export function registerReservationTools(
                 existing_reservation: {
                   confirmation_number,
                   restaurant_id,
+                  date: existingDate,
+                  time: existingTime,
+                  party_size: existingPartySize,
+                  dining_area_id: existingDiningAreaId,
                 },
                 reservation: { date, time, party_size, restaurant_id, dining_area_id },
                 cancellation_policy: summary.policy,
@@ -1038,7 +1059,7 @@ export function registerReservationTools(
     'opentable_modify',
     {
       description:
-        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing reservationId; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first.",
+        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first.",
       inputSchema: {
         restaurant_id: z.number().int().positive(),
         confirmation_number: z.number().int().positive(),
