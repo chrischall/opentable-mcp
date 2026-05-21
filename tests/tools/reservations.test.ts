@@ -760,4 +760,102 @@ describe('reservation tools', () => {
       expect(text).toMatch(/opentable_find_slots/);
     });
   });
+
+  describe('opentable_book — Experience-mandatory slot', () => {
+    it('with a token: skips slot-lock, submits make-reservation with experience fields', async () => {
+      const token = encodeBookingToken({
+        slotLockId: 9999,
+        restaurantId: 278896,
+        diningAreaId: 21881,
+        partySize: 5,
+        date: '2026-06-25',
+        time: '18:00',
+        reservationToken: 'tok',
+        slotHash: '431673495',
+        paymentCard: null,
+        ccRequired: false,
+        issuedAt: new Date().toISOString(),
+        bookingType: 'experience',
+        experienceId: 514735,
+      });
+
+      // fetchProfile reads dining-dashboard via fetchHtml — wire that up.
+      mockFetchHtml.mockResolvedValue(
+        htmlWith({
+          header: {
+            userProfile: {
+              firstName: 'A',
+              lastName: 'B',
+              email: 'a@b.c',
+              mobilePhoneNumber: { number: '5550000', countryId: 'US' },
+              countryId: 'US',
+            },
+          },
+          diningDashboard: {
+            upcomingReservations: [],
+            pastReservations: [],
+          },
+        })
+      );
+
+      let makeBody: Record<string, unknown> | undefined;
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+        if (path === '/dapi/booking/make-reservation') {
+          makeBody = init?.body as Record<string, unknown>;
+          return {
+            confirmationNumber: 8675309,
+            reservationId: 1,
+            securityToken: 'sec',
+            success: true,
+          };
+        }
+        throw new Error(`unexpected POST: ${path}`);
+      });
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        booking_token: token,
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(makeBody).toBeDefined();
+      expect(makeBody!.experienceId).toBe(514735);
+      expect(makeBody!.reservationType).toBe('Experience');
+      expect(makeBody!.tableCategory).toBe('default');
+      // Slot-lock must NOT have fired — token path skips re-lock.
+      expect(mockFetchJson).toHaveBeenCalledTimes(1);
+      const json = JSON.parse((result.content[0] as { text: string }).text);
+      expect(json.confirmation_number).toBe(8675309);
+      expect(json.booking_type).toBe('experience_mandatory');
+    });
+
+    it('without a token: refuses Experience slots (preview-first gating)', async () => {
+      // The handler should reject before any fetch fires.
+      mockFetchHtml.mockRejectedValue(new Error('should not be called'));
+      mockFetchJson.mockRejectedValue(new Error('should not be called'));
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_ids: [514735], // signals Experience without a token
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/book_preview/);
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+  });
 });

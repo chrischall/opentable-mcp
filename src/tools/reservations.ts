@@ -472,6 +472,12 @@ export function registerReservationTools(
           .describe(
             'Opaque token from opentable_book_preview. REQUIRED for CC-required slots (book will refuse otherwise). Optional for standard slots — when present, skips a redundant re-lock.'
           ),
+        experience_ids: z
+          .array(z.number().int().positive())
+          .optional()
+          .describe(
+            'Pass-through from find_slots.experience_ids. When non-empty, book refuses without a booking_token from opentable_book_preview.'
+          ),
       },
     },
     async ({
@@ -483,6 +489,7 @@ export function registerReservationTools(
       slot_hash,
       dining_area_id,
       booking_token,
+      experience_ids,
     }) => {
       const reservationDateTime = `${date}T${time}`;
       const diningAreaId = dining_area_id;
@@ -490,6 +497,12 @@ export function registerReservationTools(
       let slotLockId: number;
       let paymentCard: { id: string; last4: string; expiryMmYy: string; provider: string } | null = null;
       let ccRequired = false;
+      let bookingType: 'standard' | 'experience' = 'standard';
+      let experienceId: number | undefined;
+
+      // Caller-declared Experience: signal via experience_ids when there's no token yet.
+      const callerDeclaredExperience =
+        Array.isArray(experience_ids) && experience_ids.length > 0;
 
       if (booking_token) {
         // Token path — preview did the heavy lifting; we trust the payload
@@ -509,7 +522,15 @@ export function registerReservationTools(
         slotLockId = payload.slotLockId;
         paymentCard = payload.paymentCard;
         ccRequired = payload.ccRequired;
+        bookingType = payload.bookingType;
+        experienceId = payload.experienceId;
       } else {
+        if (callerDeclaredExperience) {
+          throw new Error(
+            'This is an Experience-mandatory slot. Call opentable_book_preview first to review the policy + choose an experience_id, then pass the returned booking_token back to opentable_book.'
+          );
+        }
+
         // No token — run the SSR-page CC-required check first, so we
         // can refuse before locking the slot for nothing.
         const detailsHtml = await client.fetchHtml(
@@ -597,6 +618,21 @@ export function registerReservationTools(
           }
         : {};
 
+      // Experience-mandatory bookings need the experience id + a
+      // reservationType of "Experience" (Pascal-case here vs. the
+      // SHOUTING used in the slot-lock GraphQL — make-reservation is a
+      // REST-style endpoint and uses different casing). For the
+      // Standard path we still emit reservationType: 'Standard' to
+      // match today's wire format byte-for-byte.
+      const experienceFields =
+        bookingType === 'experience' && typeof experienceId === 'number'
+          ? {
+              experienceId,
+              reservationType: 'Experience',
+              tableCategory: 'default',
+            }
+          : { reservationType: 'Standard' };
+
       const reservation = await client.fetchJson<{
         success?: boolean;
         reservationId?: number;
@@ -626,7 +662,6 @@ export function registerReservationTools(
           phoneNumber: profile.mobile_phone_number,
           phoneNumberCountryId: profile.country_id || 'US',
           country: profile.country_id || 'US',
-          reservationType: 'Standard',
           reservationAttribute: 'default',
           pointsType: 'Standard',
           points: 100,
@@ -640,6 +675,7 @@ export function registerReservationTools(
           katakanaFirstName: '',
           katakanaLastName: '',
           correlationId: randomUUID(),
+          ...experienceFields,
           ...ccFields,
         },
       });
@@ -690,6 +726,7 @@ export function registerReservationTools(
                 points: reservation.points ?? 0,
                 status: 'Pending',
                 cc_required: ccRequired,
+                booking_type: bookingType === 'experience' ? 'experience_mandatory' : 'instant',
               },
               null,
               2
