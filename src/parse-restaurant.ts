@@ -68,6 +68,13 @@ interface RawRestaurant {
   };
   mostRecentReview?: { reviews?: RawReview[] };
   photos?: { profile?: { url?: string; __typename?: string } };
+  /** Private-dining concierge contact block. For Listing-type
+   *  restaurants (where contactInformation.phoneNumber is empty),
+   *  `privateDining.formattedPhone` is the only phone OpenTable's SSR
+   *  surfaces — it's the OT concierge line rather than the restaurant's
+   *  direct number, but better than nothing for agents trying to point
+   *  the user somewhere. */
+  privateDining?: { formattedPhone?: string };
 }
 
 export type RestaurantListingType = 'GuestCenter' | 'Listing' | 'Unknown';
@@ -131,7 +138,18 @@ function joinAddress(a: RawRestaurant['address']): string {
   return parts.join(', ');
 }
 
-export function parseRestaurant(html: string): FormattedRestaurant {
+/**
+ * Parse the restaurant SSR state into the tool-facing shape.
+ *
+ * @param html  Raw HTML from `/r/{slug}`.
+ * @param slug  The slug used in the URL the HTML was fetched from. Threaded
+ *              through so the `url` field can be built as `/r/{slug}` —
+ *              OpenTable 404s on `/r/{numeric-id}`. Optional for callers
+ *              that don't have it (e.g., unit tests or numeric-id inputs
+ *              to `opentable_get_restaurant`); url falls back to the
+ *              numeric id form in that case.
+ */
+export function parseRestaurant(html: string, slug?: string): FormattedRestaurant {
   const state = extractInitialState(html);
   const rp = state.restaurantProfile as
     | { restaurant?: RawRestaurant; availabilityToken?: string }
@@ -177,7 +195,14 @@ export function parseRestaurant(html: string): FormattedRestaurant {
     state: r.address?.state ?? '',
     postal_code: r.address?.postCode ?? '',
     country: r.address?.country ?? '',
-    phone: r.contactInformation?.formattedPhoneNumber ?? r.contactInformation?.phoneNumber ?? '',
+    // Phone: prefer the restaurant's direct line, fall back to OpenTable's
+    // private-dining concierge line for Listing-type restaurants (which
+    // leave contactInformation empty). Empty string only if both are missing.
+    phone:
+      r.contactInformation?.formattedPhoneNumber ||
+      r.contactInformation?.phoneNumber ||
+      r.privateDining?.formattedPhone ||
+      '',
     latitude: r.coordinates?.latitude ?? null,
     longitude: r.coordinates?.longitude ?? null,
     map_url: r.coordinates?.mapUrl ?? '',
@@ -193,7 +218,14 @@ export function parseRestaurant(html: string): FormattedRestaurant {
     latest_review: latest?.content ?? '',
     photo_url: r.photos?.profile?.url ?? '',
     availability_token: rp.availabilityToken ?? '',
-    url: r.restaurantId !== undefined ? `${BASE_URL}/r/${r.restaurantId}` : '',
+    // URL: /r/{slug} when we have it (the only form opentable.com serves);
+    // fall back to /r/{numeric-id} so the field at least leads to the right
+    // restaurant in the API/CDN sense even if the public-facing URL 404s.
+    url: slug
+      ? `${BASE_URL}/r/${slug}`
+      : r.restaurantId !== undefined
+        ? `${BASE_URL}/r/${r.restaurantId}`
+        : '',
     bookable,
     listing_type: listingType,
   };
