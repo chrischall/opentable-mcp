@@ -54,6 +54,24 @@ export interface BookingTerms {
   language: string | null;
 }
 
+/** Subset of the Experience metadata we surface to the agent: just
+ *  enough to make a "yes, book this" decision. Fuller details (price
+ *  breakdown, schedules, add-ons) stay inside __INITIAL_STATE__ and
+ *  are out of scope for v1. */
+export interface BookingExperience {
+  experience_id: number;
+  name: string;
+  /** OpenTable's enum — examples: "PRIX_FIXE", "TASTING_MENU",
+   *  "HAPPY_HOUR". v1 surfaces verbatim. */
+  type_enum: string;
+  /** Human-facing description text. Often the seating-policy message
+   *  the restaurant attaches to the experience. */
+  description: string;
+  /** Price per cover (USD-ish — OpenTable's field; null when the
+   *  experience is à la carte or pricing is per-guest with no flat fee). */
+  price_per_cover: number | null;
+}
+
 export interface BookingDetailsSummary {
   cc_required: boolean;
   policy_type: CardPolicyType;
@@ -66,12 +84,47 @@ export interface BookingDetailsSummary {
   /** Restaurant-supplied terms-and-conditions text, if any. `null` when
    *  the venue ships no custom policy. */
   terms: BookingTerms | null;
+  /** Populated only when the booking-details page is the Experience
+   *  flow (timeSlot.experiencesBySeating non-empty). Null for Standard
+   *  bookings. */
+  experience: BookingExperience | null;
 }
 
+interface RawBookableExperienceMini {
+  experienceId?: number;
+}
+interface RawDiningAreaBySeating {
+  diningAreaId?: number;
+  tableCategory?: string;
+  bookableExperienceIds?: number[];
+  bookableExperiences?: RawBookableExperienceMini[];
+}
+interface RawExperiencesBySeating {
+  tableCategory?: string;
+  experienceIds?: number[];
+}
 interface RawTimeSlot {
   creditCardRequired?: boolean;
   creditCardPolicyType?: string | null;
   creditCardPolicyId?: string | null;
+  experiencesBySeating?: RawExperiencesBySeating[];
+  diningAreasBySeating?: RawDiningAreaBySeating[];
+}
+
+interface RawExperienceRecord {
+  experienceId?: number;
+  name?: string;
+  type?: string;
+  typeEnum?: string;
+  pricePerCover?: number | null;
+  bookingPolicies?: {
+    bookingPolicies?: {
+      customPolicies?: { message?: string };
+    };
+  };
+}
+interface RawExperiences {
+  experiences?: RawExperienceRecord[];
 }
 
 interface RawCard {
@@ -138,6 +191,7 @@ interface RawBookingDetailsState {
   restaurant?: RawRestaurant;
   wallet?: RawWallet;
   upcomingReservationConflicts?: RawConflict[];
+  experiences?: RawExperiences;
 }
 
 function normalisePolicyType(t: string | null | undefined): CardPolicyType {
@@ -249,6 +303,33 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
     };
   }
 
+  // Experience-flow detection: timeSlot.experiencesBySeating non-empty
+  // AND we can find a bookable experience whose id appears in
+  // diningAreasBySeating[0].bookableExperienceIds. If multiple bookable
+  // experiences exist, we still surface only the first — the tool layer
+  // is responsible for refusing ambiguous cases earlier.
+  const expsBySeating = ts.experiencesBySeating ?? [];
+  const dasBySeating = ts.diningAreasBySeating ?? [];
+  const expRecords = (root.experiences?.experiences) ?? [];
+  let experience: BookingExperience | null = null;
+  if (expsBySeating.length > 0 && dasBySeating.length > 0 && expRecords.length > 0) {
+    const bookableIds = dasBySeating[0]?.bookableExperienceIds ?? [];
+    const chosenId = bookableIds[0];
+    if (typeof chosenId === 'number') {
+      const rec = expRecords.find((e) => e.experienceId === chosenId);
+      if (rec && typeof rec.experienceId === 'number' && typeof rec.name === 'string') {
+        experience = {
+          experience_id: rec.experienceId,
+          name: rec.name,
+          type_enum: rec.typeEnum ?? '',
+          description:
+            rec.bookingPolicies?.bookingPolicies?.customPolicies?.message ?? '',
+          price_per_cover: rec.pricePerCover ?? null,
+        };
+      }
+    }
+  }
+
   return {
     cc_required: ccRequired,
     policy_type: policyType,
@@ -256,6 +337,7 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
     default_card: defaultCard,
     conflicts,
     terms,
+    experience,
   };
 }
 

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { parseAvailabilityResponse } from '../src/parse-slots.js';
 
 /** Synthetic fixture distilled from a real capture (2026-04-20 discovery). */
@@ -66,6 +67,8 @@ describe('parseAvailabilityResponse', () => {
       attributes: ['default'],
       points: 100,
       slot_hash: 'h-19',
+      booking_type: 'instant',
+      experience_ids: [],
     });
     expect(slots[1].time).toBe('19:15');
     expect(slots[2].time).toBe('19:30');
@@ -74,7 +77,7 @@ describe('parseAvailabilityResponse', () => {
   it('skips UnavailableSlot entries', () => {
     const slots = parseAvailabilityResponse(sample, '2026-05-01', '19:00', 2);
     // sample has 2 unavailable + 3 available → 3 returned
-    expect(slots.map((s) => s.isAvailable)).not.toContain(false);
+    expect(slots.length).toBe(3);
   });
 
   it('returns an empty array when availability[] has no slots', () => {
@@ -140,5 +143,37 @@ describe('parseAvailabilityResponse', () => {
     };
     const slots = parseAvailabilityResponse(multi, '2026-05-01', '19:00', 2);
     expect(slots.map((s) => s.reservation_token)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('parseAvailabilityResponse — Experience-mandatory slots', () => {
+  it('annotates Experience-typed slots with booking_type: "experience_mandatory" and experience_ids', () => {
+    const experienceFixture = JSON.parse(
+      readFileSync('./tests/fixtures/slots-experience-pasquals.json', 'utf8')
+    );
+    const slots = parseAvailabilityResponse(
+      experienceFixture,
+      '2026-06-25',
+      '18:00',
+      2
+    );
+    expect(slots.length).toBeGreaterThan(0);
+    for (const s of slots) {
+      expect(s.type).toBe('Experience');
+      expect(s.booking_type).toBe('experience_mandatory');
+      expect(Array.isArray(s.experience_ids)).toBe(true);
+      expect(s.experience_ids.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('annotates Standard slots with booking_type: "instant" and an empty experience_ids', () => {
+    // Reuse the existing synthetic `sample` fixture (has 2 Standard + 1 Experience slot).
+    const slots = parseAvailabilityResponse(sample, '2026-06-25', '19:00', 2);
+    const standardSlots = slots.filter((s) => s.type === 'Standard');
+    expect(standardSlots.length).toBeGreaterThan(0);
+    for (const s of standardSlots) {
+      expect(s.booking_type).toBe('instant');
+      expect(s.experience_ids).toEqual([]);
+    }
   });
 });

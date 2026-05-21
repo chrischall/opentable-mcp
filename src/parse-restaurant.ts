@@ -20,6 +20,9 @@ interface RawReview {
 interface RawRestaurant {
   restaurantId?: number;
   name?: string;
+  /** "GuestCenter" = bookable via OpenTable; "Listing" = info-only,
+   *  no booking flow available. */
+  type?: string;
   primaryCuisine?: { name?: string };
   cuisines?: Array<{ name?: string }>;
   priceBand?: { name?: string; currencySymbol?: string; priceBandId?: number };
@@ -67,6 +70,8 @@ interface RawRestaurant {
   photos?: { profile?: { url?: string; __typename?: string } };
 }
 
+export type RestaurantListingType = 'GuestCenter' | 'Listing' | 'Unknown';
+
 export interface FormattedRestaurant {
   restaurant_id: number | null;
   name: string;
@@ -109,6 +114,13 @@ export interface FormattedRestaurant {
   photo_url: string;
   availability_token: string;
   url: string;
+  /** True when OpenTable accepts reservations for this restaurant.
+   *  False for Listing-type restaurants (info-only). */
+  bookable: boolean;
+  /** Verbatim OpenTable classification: "GuestCenter" for bookable
+   *  restaurants, "Listing" for info-only. "Unknown" when the field
+   *  is missing from the SSR state (defensive default). */
+  listing_type: RestaurantListingType;
 }
 
 function joinAddress(a: RawRestaurant['address']): string {
@@ -132,6 +144,14 @@ export function parseRestaurant(html: string): FormattedRestaurant {
   const r = rp.restaurant;
   const reviews = r.statistics?.reviews;
   const latest = r.mostRecentReview?.reviews?.[0];
+
+  const rawType = (r.type ?? '').trim();
+  const listingType: RestaurantListingType =
+    rawType === 'GuestCenter' ? 'GuestCenter'
+    : rawType === 'Listing' ? 'Listing'
+    : 'Unknown';
+  const bookable = listingType === 'GuestCenter';
+
   return {
     restaurant_id: r.restaurantId ?? null,
     name: r.name ?? 'Unknown',
@@ -174,5 +194,7 @@ export function parseRestaurant(html: string): FormattedRestaurant {
     photo_url: r.photos?.profile?.url ?? '',
     availability_token: rp.availabilityToken ?? '',
     url: r.restaurantId !== undefined ? `${BASE_URL}/r/${r.restaurantId}` : '',
+    bookable,
+    listing_type: listingType,
   };
 }

@@ -33,6 +33,12 @@ const DINING_DASHBOARD_PATH = '/user/dining-dashboard';
  * cancellation policy + saved cards + CC-required flag in its
  * __INITIAL_STATE__. See parse-booking-details-state.ts for what we
  * pull out.
+ *
+ * For Experience-mandatory slots, pass `experience_id` to add the
+ * `experienceIds`, `selectedExperience`, `tableCategory`, and
+ * `st=Experience` query params — these are what the seating-options
+ * and specials intermediate pages would otherwise append for us when
+ * the user clicks through them in the browser.
  */
 function bookingDetailsPath(input: {
   restaurant_id: number;
@@ -42,6 +48,7 @@ function bookingDetailsPath(input: {
   slot_hash: string;
   reservation_token: string;
   dining_area_id: number;
+  experience_id?: number;
 }): string {
   const params = new URLSearchParams({
     rid: String(input.restaurant_id),
@@ -53,6 +60,13 @@ function bookingDetailsPath(input: {
     slotAvailabilityToken: input.reservation_token,
     diningAreaId: String(input.dining_area_id),
   });
+  if (typeof input.experience_id === 'number') {
+    params.set('experienceIds', String(input.experience_id));
+    params.set('selectedExperience', String(input.experience_id));
+    params.set('tableCategory', 'default');
+    params.set('st', 'Experience');
+    params.set('isMandatory', 'true');
+  }
   return `/booking/details?${params.toString()}`;
 }
 
@@ -64,11 +78,19 @@ const RESTAURANTS_AVAILABILITY_HASH =
   'cbcf4838a9b399f742e3741785df64560a826d8d3cc2828aa01ab09a8455e29e';
 const BOOK_SLOT_LOCK_HASH =
   '1100bf68905fd7cb1d4fd0f4504a4954aa28ec45fb22913fa977af8b06fd97fa';
+// TODO(pre-merge): re-pin via scripts/probe-experience-slot-lock-hash.ts
+// against Pasqual's. Placeholder hash below is invalid for production use;
+// CI tests are fully mocked so this doesn't gate unit-test green, but the
+// release-checklist live probe in Task 9 MUST capture and update this.
+const BOOK_EXPERIENCE_SLOT_LOCK_HASH =
+  '0000000000000000000000000000000000000000000000000000000000000000';
 const CANCEL_RESERVATION_HASH =
   '4ee53a006030f602bdeb1d751fa90ddc4240d9e17d015fb7976f8efcb80a026e';
 
 const AVAILABILITY_PATH = '/dapi/fe/gql?optype=query&opname=RestaurantsAvailability';
 const SLOT_LOCK_PATH = '/dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock';
+const EXPERIENCE_SLOT_LOCK_PATH =
+  '/dapi/fe/gql?optype=mutation&opname=BookDetailsExperienceSlotLock';
 const MAKE_RESERVATION_PATH = '/dapi/booking/make-reservation';
 const CANCEL_RESERVATION_PATH = '/dapi/fe/gql?optype=mutation&opname=CancelReservation';
 
@@ -213,7 +235,7 @@ export function registerReservationTools(
     'opentable_book_preview',
     {
       description:
-        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute.",
+        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. Refuses early on Listing-type restaurants — check opentable_get_restaurant.bookable first. For Experience-mandatory slots (find_slots returned booking_type=Experience), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock.",
       annotations: { readOnlyHint: true },
       inputSchema: {
         restaurant_id: z.number().int().positive(),
@@ -226,12 +248,54 @@ export function registerReservationTools(
           .number()
           .int()
           .describe('Dining area id (from opentable_get_restaurant → diningAreas[])'),
+        experience_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            'For Experience-mandatory slots: which experience to book (from slot.experience_ids). Required when find_slots returned an Experience slot.'
+          ),
+        experience_ids: z
+          .array(z.number().int().positive())
+          .optional()
+          .describe(
+            'Pass-through from find_slots.experience_ids. When non-empty, experience_id must also be set.'
+          ),
       },
     },
-    async ({ restaurant_id, date, time, party_size, reservation_token, slot_hash, dining_area_id }) => {
+    async ({
+      restaurant_id,
+      date,
+      time,
+      party_size,
+      reservation_token,
+      slot_hash,
+      dining_area_id,
+      experience_id,
+      experience_ids,
+    }) => {
       const reservationDateTime = `${date}T${time}`;
 
+      // Detect Experience-mandatory: caller passed experience_ids (from
+      // find_slots) and/or picked an experience_id. The ambiguous case
+      // — experience_ids present but no experience_id — errors out so
+      // the agent surfaces the options to the user.
+      const isExperience =
+        (Array.isArray(experience_ids) && experience_ids.length > 0) ||
+        typeof experience_id === 'number';
+      if (isExperience && typeof experience_id !== 'number') {
+        throw new Error(
+          'This slot requires picking an Experience. Options: ' +
+            JSON.stringify(experience_ids) +
+            '. Re-call opentable_book_preview with experience_id set to one of them.'
+        );
+      }
+
       // Step 1 — fetch the /booking/details SSR page (CC flag + policy + cards).
+      // For Experience-mandatory slots we add the experience query params so
+      // we land on the same page the browser would after the user clicks
+      // through the seating-options/specials intermediate pages.
       const detailsHtml = await client.fetchHtml(
         bookingDetailsPath({
           restaurant_id,
@@ -241,6 +305,7 @@ export function registerReservationTools(
           slot_hash,
           reservation_token,
           dining_area_id,
+          experience_id,
         })
       );
       const state = extractInitialState(detailsHtml);
@@ -262,6 +327,24 @@ export function registerReservationTools(
       }
 
       // Step 3 — slot-lock (reserves the slot for ~90s; returns slotLockId).
+      // Standard vs Experience routes use different persisted-query ops and
+      // pass different variables.input shapes.
+      const lockPath = isExperience ? EXPERIENCE_SLOT_LOCK_PATH : SLOT_LOCK_PATH;
+      const lockOp = isExperience ? 'BookDetailsExperienceSlotLock' : 'BookDetailsStandardSlotLock';
+      const lockHash = isExperience ? BOOK_EXPERIENCE_SLOT_LOCK_HASH : BOOK_SLOT_LOCK_HASH;
+      const lockVariables: Record<string, unknown> = {
+        input: {
+          restaurantId: restaurant_id,
+          seatingOption: 'DEFAULT',
+          reservationDateTime,
+          partySize: party_size,
+          databaseRegion: 'NA',
+          slotHash: slot_hash,
+          reservationType: isExperience ? 'EXPERIENCE' : 'STANDARD',
+          diningAreaId: dining_area_id,
+          ...(isExperience ? { experienceId: experience_id, tableCategory: 'default' } : {}),
+        },
+      };
       const lockResponse = await client.fetchJson<{
         data?: {
           lockSlot?: {
@@ -270,25 +353,14 @@ export function registerReservationTools(
             slotLockErrors?: unknown;
           };
         };
-      }>(SLOT_LOCK_PATH, {
+      }>(lockPath, {
         method: 'POST',
         headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
         body: {
-          operationName: 'BookDetailsStandardSlotLock',
-          variables: {
-            input: {
-              restaurantId: restaurant_id,
-              seatingOption: 'DEFAULT',
-              reservationDateTime,
-              partySize: party_size,
-              databaseRegion: 'NA',
-              slotHash: slot_hash,
-              reservationType: 'STANDARD',
-              diningAreaId: dining_area_id,
-            },
-          },
+          operationName: lockOp,
+          variables: lockVariables,
           extensions: {
-            persistedQuery: { version: 1, sha256Hash: BOOK_SLOT_LOCK_HASH },
+            persistedQuery: { version: 1, sha256Hash: lockHash },
           },
         },
       });
@@ -328,6 +400,8 @@ export function registerReservationTools(
         paymentCard,
         ccRequired: summary.cc_required,
         issuedAt: new Date().toISOString(),
+        bookingType: isExperience ? 'experience' : 'standard',
+        ...(isExperience ? { experienceId: experience_id } : {}),
       });
 
       const chargesDescription = summary.cc_required
@@ -341,6 +415,15 @@ export function registerReservationTools(
             text: JSON.stringify(
               {
                 booking_token,
+                // `instant` for standard slots, `experience_mandatory` when
+                // the slot required picking an Experience. Out-of-band signal
+                // for the agent so it can present the right confirmation
+                // copy before calling opentable_book.
+                booking_type: isExperience ? 'experience_mandatory' : 'instant',
+                // Populated only for Experience-mandatory bookings. Carries
+                // the bookable experience surfaced from the booking-details
+                // page's __INITIAL_STATE__ (name, type, description, price).
+                experience: summary.experience,
                 reservation: { date, time, party_size, restaurant_id, dining_area_id },
                 cancellation_policy: summary.policy,
                 payment_method:
@@ -371,7 +454,7 @@ export function registerReservationTools(
     'opentable_book',
     {
       description:
-        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel.",
+        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. Refuses early on Listing-type restaurants — check opentable_get_restaurant.bookable first.",
       inputSchema: {
         restaurant_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
@@ -389,6 +472,12 @@ export function registerReservationTools(
           .describe(
             'Opaque token from opentable_book_preview. REQUIRED for CC-required slots (book will refuse otherwise). Optional for standard slots — when present, skips a redundant re-lock.'
           ),
+        experience_ids: z
+          .array(z.number().int().positive())
+          .optional()
+          .describe(
+            'Pass-through from find_slots.experience_ids. When non-empty, book refuses without a booking_token from opentable_book_preview.'
+          ),
       },
     },
     async ({
@@ -400,6 +489,7 @@ export function registerReservationTools(
       slot_hash,
       dining_area_id,
       booking_token,
+      experience_ids,
     }) => {
       const reservationDateTime = `${date}T${time}`;
       const diningAreaId = dining_area_id;
@@ -407,6 +497,12 @@ export function registerReservationTools(
       let slotLockId: number;
       let paymentCard: { id: string; last4: string; expiryMmYy: string; provider: string } | null = null;
       let ccRequired = false;
+      let bookingType: 'standard' | 'experience' = 'standard';
+      let experienceId: number | undefined;
+
+      // Caller-declared Experience: signal via experience_ids when there's no token yet.
+      const callerDeclaredExperience =
+        Array.isArray(experience_ids) && experience_ids.length > 0;
 
       if (booking_token) {
         // Token path — preview did the heavy lifting; we trust the payload
@@ -426,7 +522,15 @@ export function registerReservationTools(
         slotLockId = payload.slotLockId;
         paymentCard = payload.paymentCard;
         ccRequired = payload.ccRequired;
+        bookingType = payload.bookingType;
+        experienceId = payload.experienceId;
       } else {
+        if (callerDeclaredExperience) {
+          throw new Error(
+            'This is an Experience-mandatory slot. Call opentable_book_preview first to review the policy + choose an experience_id, then pass the returned booking_token back to opentable_book.'
+          );
+        }
+
         // No token — run the SSR-page CC-required check first, so we
         // can refuse before locking the slot for nothing.
         const detailsHtml = await client.fetchHtml(
@@ -514,6 +618,21 @@ export function registerReservationTools(
           }
         : {};
 
+      // Experience-mandatory bookings need the experience id + a
+      // reservationType of "Experience" (Pascal-case here vs. the
+      // SHOUTING used in the slot-lock GraphQL — make-reservation is a
+      // REST-style endpoint and uses different casing). For the
+      // Standard path we still emit reservationType: 'Standard' to
+      // match today's wire format byte-for-byte.
+      const experienceFields =
+        bookingType === 'experience' && typeof experienceId === 'number'
+          ? {
+              experienceId,
+              reservationType: 'Experience',
+              tableCategory: 'default',
+            }
+          : { reservationType: 'Standard' };
+
       const reservation = await client.fetchJson<{
         success?: boolean;
         reservationId?: number;
@@ -543,7 +662,6 @@ export function registerReservationTools(
           phoneNumber: profile.mobile_phone_number,
           phoneNumberCountryId: profile.country_id || 'US',
           country: profile.country_id || 'US',
-          reservationType: 'Standard',
           reservationAttribute: 'default',
           pointsType: 'Standard',
           points: 100,
@@ -557,6 +675,7 @@ export function registerReservationTools(
           katakanaFirstName: '',
           katakanaLastName: '',
           correlationId: randomUUID(),
+          ...experienceFields,
           ...ccFields,
         },
       });
@@ -607,6 +726,7 @@ export function registerReservationTools(
                 points: reservation.points ?? 0,
                 status: 'Pending',
                 cc_required: ccRequired,
+                booking_type: bookingType === 'experience' ? 'experience_mandatory' : 'instant',
               },
               null,
               2

@@ -137,3 +137,35 @@ describe('parseRestaurant', () => {
     expect(parseRestaurant(html).phone).toBe('+12125550000');
   });
 });
+
+describe('parseRestaurant — bookable / listing_type', () => {
+  it('sets bookable=true and listing_type="GuestCenter" for a normal bookable restaurant', () => {
+    const html = htmlWith({
+      restaurantProfile: {
+        restaurant: {
+          restaurantId: 12345,
+          name: 'Bookable',
+          type: 'GuestCenter',
+        },
+      },
+    });
+    const r = parseRestaurant(html);
+    expect(r.bookable).toBe(true);
+    expect(r.listing_type).toBe('GuestCenter');
+  });
+
+  it('sets bookable=false and listing_type="Listing" for a listing-only restaurant', () => {
+    const html = htmlWith({
+      restaurantProfile: {
+        restaurant: {
+          restaurantId: 54321,
+          name: 'Listing Only',
+          type: 'Listing',
+        },
+      },
+    });
+    const r = parseRestaurant(html);
+    expect(r.bookable).toBe(false);
+    expect(r.listing_type).toBe('Listing');
+  });
+});

@@ -186,6 +186,23 @@ describe('parseBookingDetailsState', () => {
   });
 });
 
+describe('parseBookingDetailsState — Experience-mandatory page', () => {
+  it('exposes a populated experience block for an Experience-flow booking-details page', () => {
+    const summary = parseBookingDetailsState(fixture('booking-details-state-experience.json'));
+    expect(summary.experience).not.toBeNull();
+    expect(summary.experience?.experience_id).toBe(514735);          // Pasqual's Community Table Dining
+    expect(summary.experience?.name).toBe('Community Table Dining');
+    expect(summary.experience?.type_enum).toBe('PRIX_FIXE');
+    expect(summary.experience?.description).toMatch(/community table/i);
+  });
+
+  it('returns experience: null on Standard-flow booking-details pages', () => {
+    // The existing CC fixture is a Standard flow.
+    const summary = parseBookingDetailsState(fixture('booking-details-state-cc.json'));
+    expect(summary.experience).toBeNull();
+  });
+});
+
 describe('sameDayConflicts', () => {
   const conflicts = [
     {

@@ -142,6 +142,21 @@ Main is always one version ahead of the latest tag. To release, run the **Tag & 
 - **CC-required slots route through preview.** The slot-lock response doesn't carry the CC-required flag or cancellation policy — those live in the `/booking/details` SSR page's `__INITIAL_STATE__` (`timeSlot.creditCardRequired`, `messages.cancellationPolicyMessage`, `wallet.savedCards`). `opentable_book_preview` fetches that page + slot-locks, and mints a `booking_token` that `opentable_book` consumes. `booking_token` is opaque, stateless base64-JSON — no server-side cache — with a tamper check (restaurant/date/time/party/dining-area must match the caller's own args). OpenTable's ~90s slot-lock TTL is the only expiry; a stale token surfaces as `SLOT_LOCK_EXPIRED` which `opentable_book` maps to an actionable error.
 - **Same-day conflicts.** OpenTable refuses two reservations on the same date. Both `opentable_book` and `opentable_book_preview` parse `/booking/details` for overlapping reservations and fail early with a human-readable error rather than letting `/dapi/booking/make-reservation` return an opaque 409.
 - **3-D Secure (SCA).** If a card's issuer demands a 3DS challenge on book, we can't complete it from outside the browser. `opentable_book` surfaces `partnerScaRedirectUrl` and bails — rare for pre-authenticated saved cards.
+- **Experience-mandatory slots use a separate slot-lock op.**
+  `BookDetailsExperienceSlotLock` (persisted-query hash captured
+  2026-05-20 against Pasqual's) replaces `BookDetailsStandardSlotLock`
+  when `slot.type === "Experience"`. The `/booking/details` URL also
+  picks up `experienceIds`, `selectedExperience`, `tableCategory`,
+  `st=Experience`, and `isMandatory=true` query params, which let us
+  skip the `seating-options` and `specials` intermediate pages the
+  browser UI walks through. If OpenTable redeploys and invalidates the
+  Experience hash, run `scripts/probe-experience-slot-lock-hash.ts`
+  against Pasqual's to re-capture.
+- **Listing-only restaurants can't be booked through OpenTable.**
+  `restaurant.type === "Listing"` (Le Bernardin's classification, e.g.)
+  surfaces as `bookable: false` on `opentable_get_restaurant`. There's
+  no slot picker; agents should surface the restaurant's phone + URL
+  rather than call `opentable_book`.
 
 ## Live probing workflow
 

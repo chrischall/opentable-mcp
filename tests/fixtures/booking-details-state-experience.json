@@ -1,0 +1,152 @@
+{
+  "timeSlot": {
+    "accessRule": null,
+    "specialAccessRule": null,
+    "hasSpecialAccessRule": false,
+    "isAvailable": true,
+    "slotAvailabilityToken": "eyJ2IjozLCJtIjowLCJwIjowLCJjIjo2LCJzIjowLCJuIjowfQ",
+    "timeOffsetMinutes": 0,
+    "creditCardRequired": true,
+    "creditCardRequiredForStandard": false,
+    "isMandatory": false,
+    "slotHash": "431673495",
+    "pointsType": "Standard",
+    "creditCardPolicyId": "686c01b32d83bd0bc65bcd7c:v4",
+    "creditCardPolicyType": "Hold",
+    "attributes": ["default"],
+    "pointsValue": 100,
+    "experiencesBySeating": [
+      {
+        "tableCategory": "default",
+        "experienceIds": [514735, 627696],
+        "__typename": "ExperiencesBySeating"
+      }
+    ],
+    "diningAreasBySeating": [
+      {
+        "diningAreaId": 21881,
+        "tableCategory": "default",
+        "bookableExperienceIds": [514735],
+        "bookableExperiences": [
+          {
+            "experienceId": 514735,
+            "policies": null,
+            "__typename": "BookableExperience"
+          }
+        ],
+        "__typename": "DiningAreaBySeating"
+      }
+    ]
+  },
+  "experiences": {
+    "experiences": [
+      {
+        "__typename": "Experience",
+        "experienceId": 514735,
+        "name": "Community Table Dining",
+        "type": "Special menu",
+        "typeEnum": "PRIX_FIXE",
+        "bookable": true,
+        "soldout": false,
+        "pricePerCover": null,
+        "spaceDetails": null,
+        "ticketedPurchaseLimit": null,
+        "isVisaEvent": false,
+        "location": null,
+        "version": 1,
+        "schedule": {
+          "startDate": "2026-01-01",
+          "endDate": "2026-12-31",
+          "minPartySize": 1,
+          "maxPartySize": 12,
+          "weekSchedule": [],
+          "blocked": [],
+          "additional": [],
+          "ticketedSchedules": null,
+          "__typename": "ExperienceSchedule"
+        },
+        "description": "Community Table Dining for the full Cafe Pasqual's experience.",
+        "photos": [],
+        "featuredPhoto": null,
+        "nonFeaturedPhotos": [],
+        "priceInfo": null,
+        "bookingPolicies": {
+          "policyStatus": "POLICY_CONFIGURED",
+          "bookingPolicies": {
+            "customPolicies": {
+              "message": "We will do our best to accommodate your seating request. Community Table seating may be subject to change depending on the restaurant's capacity.",
+              "__typename": "BookingPoliciesMessage"
+            },
+            "policies": null,
+            "__typename": "BookingPolicies"
+          },
+          "__typename": "ExperienceBookingPolicies"
+        },
+        "termsAndConditionsPolicyMessages": {
+          "policyStatus": "USE_STANDARD_POLICY",
+          "termsAndConditionsPolicyMessages": null,
+          "__typename": "ExperienceTermsAndConditionsPolicyMessages"
+        }
+      },
+      {
+        "__typename": "Experience",
+        "experienceId": 627696,
+        "name": "Cafe Pasqual's Dinner",
+        "type": "Happy hour",
+        "typeEnum": "HAPPY_HOUR",
+        "bookable": false,
+        "soldout": false,
+        "pricePerCover": null
+      }
+    ],
+    "experiencesById": {},
+    "standardExperience": false,
+    "loaded": true
+  },
+  "messages": {
+    "policies": {
+      "message": "We have a 15 minute grace period.",
+      "__typename": "BookingPoliciesMessage"
+    },
+    "customPolicies": {
+      "message": "20% gratuity added to parties of 7 or more.",
+      "__typename": "BookingPoliciesMessage"
+    },
+    "creditCardDayMessage": [
+      {
+        "message": "This restaurant requires a credit card to secure this reservation. All credit card information will be processed securely. Changes to this reservation can be made online through OpenTable up until 24 hours before the reservation. No-shows or cancellations less than 24 hours in advance will incur a $25.00 per person fee.",
+        "__typename": "BookingPoliciesMessage"
+      }
+    ],
+    "cancellationPolicyMessage": {
+      "cancellationMessage": {
+        "message": "No-shows or cancellations less than 24 hours in advance will incur a $25.00 per person fee.",
+        "__typename": "BookingPoliciesMessage"
+      },
+      "depositMessage": null,
+      "__typename": "CancellationPolicyMessage"
+    },
+    "termsAndConditions": null
+  },
+  "restaurant": {
+    "features": {
+      "creditCardCancellationDayLimit": 1
+    }
+  },
+  "wallet": {
+    "savedCards": [
+      {
+        "cardId": "spreedly-card-id-abc",
+        "last4": "4242",
+        "type": "Visa",
+        "default": true,
+        "expiryMonth": 10,
+        "expiryYear": 2028,
+        "active": true,
+        "expired": false
+      }
+    ],
+    "selectedPaymentCardId": "spreedly-card-id-abc"
+  },
+  "upcomingReservationConflicts": []
+}

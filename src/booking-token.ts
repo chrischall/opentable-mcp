@@ -22,6 +22,8 @@ export interface BookingTokenPaymentCard {
   provider: string;
 }
 
+export type BookingTokenType = 'standard' | 'experience';
+
 export interface BookingTokenPayload {
   slotLockId: number;
   restaurantId: number;
@@ -35,6 +37,12 @@ export interface BookingTokenPayload {
   paymentCard: BookingTokenPaymentCard | null;
   ccRequired: boolean;
   issuedAt: string; // ISO-8601
+  /** Routes opentable_book to the right slot-lock + make-reservation
+   *  payload. Tokens minted before this field was added decode as
+   *  "standard" for backward compatibility. */
+  bookingType: BookingTokenType;
+  /** Required when bookingType === "experience"; absent otherwise. */
+  experienceId?: number;
 }
 
 const REQUIRED_KEYS: Array<keyof BookingTokenPayload> = [
@@ -48,7 +56,10 @@ const REQUIRED_KEYS: Array<keyof BookingTokenPayload> = [
   'slotHash',
   'ccRequired',
   'issuedAt',
+  // bookingType intentionally omitted — added below with a default
+  //   so old tokens still decode.
   // paymentCard intentionally omitted — can legitimately be null.
+  // experienceId intentionally omitted — only set on experience tokens.
 ];
 
 export function encodeBookingToken(payload: BookingTokenPayload): string {
@@ -75,5 +86,13 @@ export function decodeBookingToken(token: string): BookingTokenPayload {
   if (!('paymentCard' in obj)) {
     (obj as { paymentCard: BookingTokenPaymentCard | null }).paymentCard = null;
   }
+  if (!('bookingType' in obj)) {
+    (obj as { bookingType: BookingTokenType }).bookingType = 'standard';
+  } else if (obj.bookingType !== 'standard' && obj.bookingType !== 'experience') {
+    throw new Error(
+      `booking_token has unknown bookingType: ${JSON.stringify(obj.bookingType)}`
+    );
+  }
+  // experienceId stays optional — leave it untouched if absent.
   return obj as unknown as BookingTokenPayload;
 }
