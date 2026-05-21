@@ -100,6 +100,26 @@ The server throws `SessionNotAuthenticatedError` (with a clear message) if it de
 | `opentable_add_favorite(restaurant_id)` | Add a restaurant (numeric id) to Saved Restaurants. |
 | `opentable_remove_favorite(restaurant_id)` | Remove from Saved Restaurants. |
 
+## Non-instant bookings
+
+OpenTable restaurants fall into three categories. Check
+`opentable_get_restaurant.bookable` and the per-slot `booking_type`
+before invoking `opentable_book`.
+
+| `bookable` | `booking_type` | What it means | Action |
+|---|---|---|---|
+| true | `instant` | Standard restaurant, one-click book. | Today's path: optional preview, then `opentable_book`. |
+| true | `experience_mandatory` | Restaurant requires picking an Experience (prix-fixe, tasting menu, etc.) before booking. Slot carries one or more `experience_ids`. | Call `opentable_get_restaurant` to see the per-area `bookableExperiences`. Call `opentable_book_preview` with both `dining_area_id` AND `experience_id`. Then `opentable_book` with the returned `booking_token`. |
+| false | n/a | Listing-only: OpenTable shows the page but reservations go through the restaurant directly. | Surface the restaurant's `phone` and `url` to the user; do NOT call `opentable_book`. |
+| true | `request` | (Reserved) Request-to-book. Not surfaced in v1. | n/a |
+
+When `booking_type === "experience_mandatory"`, do **not** treat the
+return as a confirmed reservation — it's still instant-confirm, but
+the booking_token's `experience` block tells the agent which
+Experience the user committed to (community-table dining, chef's
+counter, etc.). Mention the Experience name in the user-facing
+confirmation.
+
 ## Workflows
 
 **Book a specific restaurant for a specific evening (no-CC slot):**
