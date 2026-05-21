@@ -1035,6 +1035,207 @@ export function registerReservationTools(
   );
 
   server.registerTool(
+    'opentable_modify',
+    {
+      description:
+        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing reservationId; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first.",
+      inputSchema: {
+        restaurant_id: z.number().int().positive(),
+        confirmation_number: z.number().int().positive(),
+        security_token: z.string(),
+        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
+        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        party_size: z.number().int().positive(),
+        reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
+        slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
+        dining_area_id: z.number().int(),
+        modify_token: z
+          .string()
+          .optional()
+          .describe('REQUIRED. From opentable_modify_preview. No no-token path — the new slot\'s policy + CC re-hold can differ from the original.'),
+        experience_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('Optional tamper-check signal. When set, must match the experienceId baked into modify_token.'),
+        experience_ids: z
+          .array(z.number().int().positive())
+          .optional()
+          .describe('Pass-through from find_slots. Not directly used; modify always goes through preview-first.'),
+      },
+    },
+    async ({
+      restaurant_id,
+      confirmation_number,
+      security_token,
+      date,
+      time,
+      party_size,
+      reservation_token,
+      slot_hash,
+      dining_area_id,
+      modify_token,
+      experience_id: callerExperienceId,
+    }) => {
+      const reservationDateTime = `${date}T${time}`;
+      const diningAreaId = dining_area_id;
+
+      if (!modify_token) {
+        throw new Error(
+          'opentable_modify requires a modify_token from opentable_modify_preview. The new slot\'s policy and CC re-hold details can differ from the original — preview is mandatory.'
+        );
+      }
+
+      const payload = decodeBookingToken(modify_token);
+
+      if (typeof payload.existingReservationId !== 'number') {
+        throw new Error(
+          'This token was issued by opentable_book_preview (a new-booking token), not opentable_modify_preview. Use opentable_book to commit, or call opentable_modify_preview if you meant to edit an existing reservation.'
+        );
+      }
+
+      if (
+        payload.restaurantId !== restaurant_id ||
+        payload.date !== date ||
+        payload.time !== time ||
+        payload.partySize !== party_size ||
+        payload.diningAreaId !== dining_area_id ||
+        payload.existingConfirmationNumber !== confirmation_number ||
+        payload.existingSecurityToken !== security_token ||
+        (typeof callerExperienceId === 'number' && payload.experienceId !== callerExperienceId)
+      ) {
+        throw new Error(
+          'modify_token was issued for a different reservation (party_size, date/time, dining area, experience_id, or the existing reservation identifier has changed since opentable_modify_preview). Call opentable_modify_preview again with the current args.'
+        );
+      }
+
+      const slotLockId = payload.slotLockId;
+      const paymentCard = payload.paymentCard;
+      const ccRequired = payload.ccRequired;
+      const bookingType = payload.bookingType;
+      const experienceId = payload.experienceId;
+      const experienceVersion = payload.experienceVersion;
+
+      const profile = await fetchProfile(client);
+
+      const ccFields = paymentCard
+        ? {
+            creditCardToken: paymentCard.id,
+            creditCardLast4: paymentCard.last4,
+            creditCardMMYY: paymentCard.expiryMmYy,
+            creditCardProvider: paymentCard.provider,
+            scaRedirectUrl: SCA_REDIRECT_URL,
+          }
+        : {};
+
+      const experienceFields =
+        bookingType === 'experience' && typeof experienceId === 'number'
+          ? {
+              experienceId,
+              experienceVersion: experienceVersion ?? 1,
+              reservationType: 'Experience',
+            }
+          : { reservationType: 'Standard' };
+
+      const reservation = await client.fetchJson<{
+        success?: boolean;
+        reservationId?: number;
+        confirmationNumber?: number;
+        securityToken?: string;
+        points?: number;
+        errorCode?: string;
+        errorMessage?: string;
+        partnerScaRequired?: boolean;
+        partnerScaRedirectUrl?: string | null;
+      }>(MAKE_RESERVATION_PATH, {
+        method: 'POST',
+        body: {
+          restaurantId: restaurant_id,
+          reservationDateTime,
+          partySize: party_size,
+          slotHash: slot_hash,
+          slotAvailabilityToken: reservation_token,
+          slotLockId,
+          diningAreaId,
+          firstName: profile.first_name,
+          lastName: profile.last_name,
+          email: profile.email,
+          phoneNumber: profile.mobile_phone_number,
+          phoneNumberCountryId: profile.country_id || 'US',
+          country: profile.country_id || 'US',
+          reservationAttribute: 'default',
+          pointsType: 'Standard',
+          points: 100,
+          tipAmount: 0,
+          tipPercent: 0,
+          confirmPoints: true,
+          optInEmailRestaurant: false,
+          isModify: true,
+          reservationId: payload.existingReservationId,
+          additionalServiceFees: [],
+          nonBookableExperiences: [],
+          katakanaFirstName: '',
+          katakanaLastName: '',
+          correlationId: randomUUID(),
+          ...experienceFields,
+          ...ccFields,
+        },
+      });
+
+      if (reservation?.partnerScaRequired === true) {
+        throw new Error(
+          `This card requires 3-D Secure authentication (SCA), which can't be completed from the MCP. Complete the modify in your browser: ${
+            reservation.partnerScaRedirectUrl ?? 'https://www.opentable.com/booking'
+          }`
+        );
+      }
+      if (reservation?.errorCode || reservation?.success === false) {
+        const raw = `${reservation.errorCode ?? 'unknown'}${
+          reservation.errorMessage ? ` — ${reservation.errorMessage}` : ''
+        }`;
+        if (/slot.?lock.?expired/i.test(raw) || /SLOT_LOCK_EXPIRED/i.test(raw)) {
+          throw new Error(
+            'Slot lock expired. Call opentable_find_slots for a fresh slot, then re-preview with opentable_modify_preview.'
+          );
+        }
+        throw new Error(`OpenTable modify failed: ${raw}`);
+      }
+      if (!reservation?.confirmationNumber) {
+        throw new Error(
+          `OpenTable modify response missing confirmationNumber: ${JSON.stringify(reservation)}`
+        );
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                confirmation_number: reservation.confirmationNumber,
+                reservation_id: reservation.reservationId ?? null,
+                security_token: reservation.securityToken ?? '',
+                restaurant_id,
+                date,
+                time,
+                party_size,
+                points: reservation.points ?? 0,
+                status: 'Pending',
+                cc_required: ccRequired,
+                booking_type: bookingType === 'experience' ? 'experience_mandatory' : 'instant',
+                was_modified: true,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
     'opentable_cancel',
     {
       description:

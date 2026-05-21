@@ -1090,4 +1090,143 @@ describe('reservation tools', () => {
       });
     });
   });
+
+  describe('opentable_modify', () => {
+    it('with a modify token: submits make-reservation with isModify: true and the existing reservationId', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith({
+          header: {
+            userProfile: {
+              firstName: 'A',
+              lastName: 'B',
+              email: 'a@b.c',
+              mobilePhoneNumber: { number: '5550000', countryId: 'US' },
+              countryId: 'US',
+            },
+          },
+          diningDashboard: {
+            upcomingReservations: [],
+            pastReservations: [],
+          },
+        })
+      );
+      let makeBody: Record<string, unknown> | null = null;
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
+        if (path === '/dapi/booking/make-reservation') {
+          makeBody = init?.body ?? null;
+          return { confirmationNumber: 29541, reservationId: 2082218742, securityToken: 'sec2', success: true };
+        }
+        throw new Error(`unexpected POST: ${path}`);
+      });
+
+      const token = encodeBookingToken({
+        slotLockId: 8888, restaurantId: 278896, diningAreaId: 21881,
+        partySize: 5, date: '2026-06-25', time: '19:15',
+        reservationToken: 'tok', slotHash: '4444',
+        paymentCard: { id: 'card-1', last4: '2630', expiryMmYy: '1028', provider: 'spreedly' },
+        ccRequired: true,
+        issuedAt: new Date().toISOString(),
+        bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
+        existingReservationId: 170008082287,
+        existingConfirmationNumber: 29541,
+        existingSecurityToken: '01abc',
+      });
+
+      const result = await harness.callTool('opentable_modify', {
+        restaurant_id: 278896,
+        confirmation_number: 29541,
+        security_token: '01abc',
+        date: '2026-06-25',
+        time: '19:15',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '4444',
+        dining_area_id: 21881,
+        modify_token: token,
+        experience_id: 514735,
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(makeBody!.isModify).toBe(true);
+      expect(makeBody!.reservationId).toBe(170008082287);
+      expect(makeBody!.experienceId).toBe(514735);
+      expect(makeBody!.experienceVersion).toBe(7);
+      expect(makeBody!.reservationType).toBe('Experience');
+      const json = JSON.parse((result.content[0] as { text: string }).text);
+      expect(json.confirmation_number).toBe(29541);
+      expect(json.was_modified).toBe(true);
+      expect(json.booking_type).toBe('experience_mandatory');
+    });
+
+    it('refuses without a modify_token', async () => {
+      const result = await harness.callTool('opentable_modify', {
+        restaurant_id: 278896,
+        confirmation_number: 29541,
+        security_token: '01abc',
+        date: '2026-06-25',
+        time: '19:15',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '4444',
+        dining_area_id: 21881,
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/modify_preview/);
+    });
+
+    it('refuses a book_preview token (no existingReservationId)', async () => {
+      const bookToken = encodeBookingToken({
+        slotLockId: 9999, restaurantId: 278896, diningAreaId: 21881,
+        partySize: 5, date: '2026-06-25', time: '19:15',
+        reservationToken: 'tok', slotHash: '4444',
+        paymentCard: null, ccRequired: false,
+        issuedAt: new Date().toISOString(),
+        bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
+      });
+
+      const result = await harness.callTool('opentable_modify', {
+        restaurant_id: 278896,
+        confirmation_number: 29541,
+        security_token: '01abc',
+        date: '2026-06-25',
+        time: '19:15',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '4444',
+        dining_area_id: 21881,
+        modify_token: bookToken,
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/book_preview.*not.*opentable_modify_preview/i);
+    });
+
+    it('refuses when caller confirmation_number diverges from the token', async () => {
+      const token = encodeBookingToken({
+        slotLockId: 8888, restaurantId: 278896, diningAreaId: 21881,
+        partySize: 5, date: '2026-06-25', time: '19:15',
+        reservationToken: 'tok', slotHash: '4444',
+        paymentCard: null, ccRequired: false,
+        issuedAt: new Date().toISOString(),
+        bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
+        existingReservationId: 170008082287,
+        existingConfirmationNumber: 29541,
+        existingSecurityToken: '01abc',
+      });
+
+      const result = await harness.callTool('opentable_modify', {
+        restaurant_id: 278896,
+        confirmation_number: 99999, // ← drifted
+        security_token: '01abc',
+        date: '2026-06-25',
+        time: '19:15',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '4444',
+        dining_area_id: 21881,
+        modify_token: token,
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+    });
+  });
 });
