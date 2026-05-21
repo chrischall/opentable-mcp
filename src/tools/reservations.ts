@@ -49,6 +49,14 @@ function bookingDetailsPath(input: {
   reservation_token: string;
   dining_area_id: number;
   experience_id?: number;
+  /** When set together with `security_token`, marks this URL as a modify
+   *  of an existing reservation. OpenTable's /booking/details SSR loads
+   *  the modify state (existing CC hold, current slot details, the
+   *  modifyReservation block) when both are in the query string + isModify=true.
+   *  Required by opentable_modify_preview. */
+  confirmation_number?: number;
+  /** Required together with `confirmation_number` for the modify flow. */
+  security_token?: string;
 }): string {
   const params = new URLSearchParams({
     rid: String(input.restaurant_id),
@@ -66,6 +74,11 @@ function bookingDetailsPath(input: {
     params.set('tableCategory', 'default');
     params.set('st', 'Experience');
     params.set('isMandatory', 'true');
+  }
+  if (typeof input.confirmation_number === 'number' && typeof input.security_token === 'string') {
+    params.set('confirmationNumber', String(input.confirmation_number));
+    params.set('securityToken', input.security_token);
+    params.set('isModify', 'true');
   }
   return `/booking/details?${params.toString()}`;
 }
