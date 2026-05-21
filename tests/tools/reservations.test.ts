@@ -1148,7 +1148,13 @@ describe('reservation tools', () => {
 
       expect(result.isError).toBeFalsy();
       expect(makeBody!.isModify).toBe(true);
-      expect(makeBody!.reservationId).toBe(170008082287);
+      // make-reservation modify identity = isModify + securityToken + confnumber.
+      // reservationId is explicitly NOT allowed (live: 400 "reservationId
+      // is not allowed"). gpid stays in the token for tamper-check purposes
+      // but never goes on the wire.
+      expect(makeBody!.reservationId).toBeUndefined();
+      expect(makeBody!.securityToken).toBe('01abc');
+      expect(makeBody!.confnumber).toBe(29541);
       expect(makeBody!.experienceId).toBe(514735);
       expect(makeBody!.experienceVersion).toBe(7);
       expect(makeBody!.reservationType).toBe('Experience');

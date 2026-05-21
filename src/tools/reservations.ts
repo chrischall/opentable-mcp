@@ -1172,7 +1172,14 @@ export function registerReservationTools(
           confirmPoints: true,
           optInEmailRestaurant: false,
           isModify: true,
-          reservationId: payload.existingReservationId,
+          // Modify identity — make-reservation's isModify path identifies
+          // the existing reservation by confnumber + securityToken (not
+          // reservationId; the REST endpoint 400s "reservationId is not
+          // allowed" if we include it). The field name `confnumber`
+          // (lowercase, no underscore) is OpenTable's quirky shorthand.
+          // Verified live against Pasqual's 2026-05-21.
+          securityToken: payload.existingSecurityToken,
+          confnumber: payload.existingConfirmationNumber,
           additionalServiceFees: [],
           nonBookableExperiences: [],
           katakanaFirstName: '',
