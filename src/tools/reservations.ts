@@ -848,10 +848,6 @@ export function registerReservationTools(
           .positive()
           .optional()
           .describe('Optional tamper-check signal. When set, must match the experienceId baked into modify_token.'),
-        experience_ids: z
-          .array(z.number().int().positive())
-          .optional()
-          .describe('Pass-through from find_slots. Not directly used; modify always goes through preview-first.'),
       },
     },
     async ({
