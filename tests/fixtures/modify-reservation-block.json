@@ -1,0 +1,45 @@
+{
+  "loading": false,
+  "success": false,
+  "error": null,
+  "errorCode": null,
+  "source": "Online",
+  "securityToken": "01lUHmpLpJ31EwPYPUSGIZTSMb3O41ehMhojol5ybqkWk1",
+  "gpid": 170008082287,
+  "confirmationNumber": 29541,
+  "correlationId": "61d40721-92dc-4cd2-a6bc-487b02d6ff9f",
+  "partySize": 5,
+  "dateTime": "2026-06-26T00:00Z",
+  "localDateTime": "2026-06-25T18:00",
+  "cancelCutoffDate": "2026-06-25T00:00Z",
+  "attribute": "Default",
+  "points": 100,
+  "notes": "",
+  "occasion": null,
+  "state": {
+    "reservationStateId": 1,
+    "__typename": "ReservationState"
+  },
+  "paymentMethod": {
+    "charges": [],
+    "__typename": "PaymentMethodHoldData"
+  },
+  "creditCardLastFourDigits": 2630,
+  "diningArea": {
+    "name": "Community Table",
+    "diningAreaId": 21881,
+    "__typename": "ReservationDiningArea"
+  },
+  "experience": {
+    "name": "Community Table Dining",
+    "experienceId": 514735,
+    "typeEnum": "PRIX_FIXE",
+    "priceInfo": null,
+    "__typename": "Experience"
+  },
+  "experienceAddOnsTransaction": {
+    "experienceId": 514735,
+    "experienceVersion": 7
+  },
+  "__typename": "ModifyReservation"
+}
