@@ -32,7 +32,10 @@ export class FetchproxyTransport implements OpenTableTransport {
       port: opts.port ?? 37149,
       serverName: opts.server ?? 'opentable-mcp',
       version: opts.version,
-      domain: 'opentable.com',
+      // 0.2.0+ takes a `domains` array. Subdomains of opentable.com
+      // (e.g. www.opentable.com, mobile.opentable.com) match the
+      // declared root automatically.
+      domains: ['opentable.com'],
     };
     this.inner = new FetchproxyServer(options);
   }
