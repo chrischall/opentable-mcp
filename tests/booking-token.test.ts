@@ -96,7 +96,7 @@ describe('booking-token — bookingType + experienceId', () => {
 });
 
 describe('booking-token — modify-token shape', () => {
-  it('round-trips a modify token with the existing-reservation fields', () => {
+  it('round-trips a modify token with the existing-reservation identity pair', () => {
     const before = {
       slotLockId: 111, restaurantId: 278896, diningAreaId: 21881,
       partySize: 5, date: '2026-06-25', time: '19:15',
@@ -105,17 +105,16 @@ describe('booking-token — modify-token shape', () => {
       issuedAt: '2026-05-20T00:00:00.000Z',
       bookingType: 'experience' as const,
       experienceId: 514735, experienceVersion: 7,
-      existingReservationId: 2082218741,
       existingConfirmationNumber: 29541,
       existingSecurityToken: '01lUHmpLpJ31EwPYPUSGIZTSMb3O41ehMhojol5ybqkWk1',
     };
     const after = decodeBookingToken(encodeBookingToken(before));
-    expect(after.existingReservationId).toBe(2082218741);
     expect(after.existingConfirmationNumber).toBe(29541);
     expect(after.existingSecurityToken).toBe(before.existingSecurityToken);
   });
 
-  it('a token with only some existing-* fields fails decode (partial-modify token)', () => {
+  it('a token with only one existing-* field fails decode (partial-modify token)', () => {
+    // existingConfirmationNumber set without the matching securityToken
     const malformed = {
       slotLockId: 1, restaurantId: 1, diningAreaId: 1,
       partySize: 1, date: '2026-06-25', time: '18:00',
@@ -123,10 +122,10 @@ describe('booking-token — modify-token shape', () => {
       paymentCard: null, ccRequired: false,
       issuedAt: '2026-05-20T00:00:00.000Z',
       bookingType: 'standard' as const,
-      existingReservationId: 1234, // ← present without the matching confirmation/security
+      existingConfirmationNumber: 29541,
     };
     const encoded = Buffer.from(JSON.stringify(malformed), 'utf8').toString('base64');
-    expect(() => decodeBookingToken(encoded)).toThrow(/modify token must include existingConfirmationNumber and existingSecurityToken/);
+    expect(() => decodeBookingToken(encoded)).toThrow(/partial-modify tokens are rejected/);
   });
 
   it('book tokens (no existing-* fields) decode unchanged', () => {
@@ -139,7 +138,6 @@ describe('booking-token — modify-token shape', () => {
       bookingType: 'standard' as const,
     };
     const after = decodeBookingToken(encodeBookingToken(bookToken));
-    expect(after.existingReservationId).toBeUndefined();
     expect(after.existingConfirmationNumber).toBeUndefined();
     expect(after.existingSecurityToken).toBeUndefined();
   });

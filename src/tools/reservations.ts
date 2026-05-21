@@ -540,23 +540,20 @@ export function registerReservationTools(
         endpoints: SLOT_LOCK_ENDPOINTS,
       });
 
-      // 4) Existing reservation details — from modifyReservation in the SSR
-      //    state. gpid is the modify-flow primary key (kept in the token as
-      //    a discriminator; not sent on the make-reservation wire since
-      //    the body uses confnumber+securityToken for identity instead).
-      //    localDateTime / partySize / diningArea power the existing_reservation
-      //    echo in the response so the agent can phrase "moving X from A to B".
+      // 4) Existing-reservation details — read from `modifyReservation` in
+      //    the SSR state to power the existing_reservation echo in the
+      //    response. Lets the agent phrase "moving your booking from
+      //    A → B". Each field is best-effort: if SSR doesn't surface the
+      //    block (e.g. fixtures that don't include modifyReservation),
+      //    the echo just omits that detail.
       const modifyRecord = (state as {
         modifyReservation?: {
-          gpid?: number;
           localDateTime?: string;
           partySize?: number;
           diningArea?: { diningAreaId?: number };
         };
       }).modifyReservation;
-      const existingReservationId = modifyRecord?.gpid ?? confirmation_number;
-      const existingDate =
-        modifyRecord?.localDateTime?.slice(0, 10) ?? null;
+      const existingDate = modifyRecord?.localDateTime?.slice(0, 10) ?? null;
       const existingTime =
         modifyRecord?.localDateTime && modifyRecord.localDateTime.length >= 16
           ? modifyRecord.localDateTime.slice(11, 16)
@@ -596,7 +593,6 @@ export function registerReservationTools(
               experienceVersion: summary.experience?.version ?? 1,
             }
           : {}),
-        existingReservationId,
         existingConfirmationNumber: confirmation_number,
         existingSecurityToken: security_token,
       });
@@ -882,7 +878,7 @@ export function registerReservationTools(
 
       const payload = decodeBookingToken(modify_token);
 
-      if (typeof payload.existingReservationId !== 'number') {
+      if (typeof payload.existingConfirmationNumber !== 'number') {
         throw new Error(
           'This token was issued by opentable_book_preview (a new-booking token), not opentable_modify_preview. Use opentable_book to commit, or call opentable_modify_preview if you meant to edit an existing reservation.'
         );

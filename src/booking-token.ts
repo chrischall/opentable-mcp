@@ -49,18 +49,15 @@ export interface BookingTokenPayload {
    *  /booking/details page. Required for Experience bookings (the REST
    *  /dapi/booking/make-reservation endpoint 400s without it). */
   experienceVersion?: number;
-  /** Existing reservation's database id, populated when this token is
-   *  a modify token (minted by opentable_modify_preview). Presence of
-   *  this field is the modify-vs-book discriminator. Absent on tokens
-   *  minted by opentable_book_preview. */
-  existingReservationId?: number;
-  /** Existing reservation's confirmation_number, echoed back when the
-   *  modify completes (OpenTable preserves confirmation_numbers across
-   *  modifies). Required when existingReservationId is set. */
+  /** Existing reservation's confirmation_number, populated when this
+   *  token is a modify token (minted by opentable_modify_preview).
+   *  Presence of this field is the modify-vs-book discriminator. Goes
+   *  on the make-reservation wire as `confnumber` (OpenTable's quirky
+   *  shorthand). Absent on tokens minted by opentable_book_preview. */
   existingConfirmationNumber?: number;
-  /** Existing reservation's security_token, used by opentable_modify
-   *  for an additional tamper check against the caller's args.
-   *  Required when existingReservationId is set. */
+  /** Existing reservation's security_token. Goes on the make-reservation
+   *  wire as `securityToken`. Required together with
+   *  existingConfirmationNumber; partial-modify tokens fail decode. */
   existingSecurityToken?: string;
 }
 
@@ -113,13 +110,20 @@ export function decodeBookingToken(token: string): BookingTokenPayload {
     );
   }
   // experienceId stays optional — leave it untouched if absent.
-  if ('existingReservationId' in obj) {
+  // Modify-token integrity: existingConfirmationNumber + existingSecurityToken
+  // must be present together (or both absent). The pair forms the
+  // modify identity that make-reservation needs on the wire. Partial-
+  // modify tokens (only one field set) fail decode here rather than
+  // surfacing as an opaque server-side error.
+  const hasConfNum = 'existingConfirmationNumber' in obj;
+  const hasSecTok = 'existingSecurityToken' in obj;
+  if (hasConfNum || hasSecTok) {
     if (
       typeof (obj as { existingConfirmationNumber?: unknown }).existingConfirmationNumber !== 'number' ||
       typeof (obj as { existingSecurityToken?: unknown }).existingSecurityToken !== 'string'
     ) {
       throw new Error(
-        'modify token must include existingConfirmationNumber and existingSecurityToken alongside existingReservationId — was the token tampered with?'
+        'modify token must include both existingConfirmationNumber (number) and existingSecurityToken (string) — partial-modify tokens are rejected.'
       );
     }
   }

@@ -981,7 +981,6 @@ describe('reservation tools', () => {
 
         // Token carries existing-reservation identity + new slot routing info
         const decoded = decodeBookingToken(json.modify_token);
-        expect(decoded.existingReservationId).toBeGreaterThan(0);
         expect(decoded.existingConfirmationNumber).toBe(29541);
         expect(decoded.existingSecurityToken).toBe('01abc');
         expect(decoded.bookingType).toBe('experience');
@@ -1133,7 +1132,6 @@ describe('reservation tools', () => {
         ccRequired: true,
         issuedAt: new Date().toISOString(),
         bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
-        existingReservationId: 170008082287,
         existingConfirmationNumber: 29541,
         existingSecurityToken: '01abc',
       });
@@ -1186,7 +1184,7 @@ describe('reservation tools', () => {
       expect((result.content[0] as { text: string }).text).toMatch(/modify_preview/);
     });
 
-    it('refuses a book_preview token (no existingReservationId)', async () => {
+    it('refuses a book_preview token (no existingConfirmationNumber)', async () => {
       const bookToken = encodeBookingToken({
         slotLockId: 9999, restaurantId: 278896, diningAreaId: 21881,
         partySize: 5, date: '2026-06-25', time: '19:15',
@@ -1220,7 +1218,6 @@ describe('reservation tools', () => {
         paymentCard: null, ccRequired: false,
         issuedAt: new Date().toISOString(),
         bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
-        existingReservationId: 170008082287,
         existingConfirmationNumber: 29541,
         existingSecurityToken: '01abc',
       });
