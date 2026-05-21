@@ -61,7 +61,7 @@ describe('booking-token — bookingType + experienceId', () => {
     expect(after.experienceId).toBeUndefined();
   });
 
-  it('round-trips an experience token including experienceId', () => {
+  it('round-trips an experience token including experienceId + experienceVersion', () => {
     const before = {
       slotLockId: 111, restaurantId: 222, diningAreaId: 333,
       partySize: 2, date: '2026-06-25', time: '18:00',
@@ -70,10 +70,13 @@ describe('booking-token — bookingType + experienceId', () => {
       issuedAt: '2026-05-20T00:00:00.000Z',
       bookingType: 'experience' as const,
       experienceId: 514735,
+      experienceVersion: 7,
     };
     const after = decodeBookingToken(encodeBookingToken(before));
     expect(after.bookingType).toBe('experience');
     expect(after.experienceId).toBe(514735);
+    // Required for the make-reservation REST body — missing version → 400.
+    expect(after.experienceVersion).toBe(7);
   });
 
   it('decodes a legacy token (no bookingType field) as standard', () => {
@@ -89,5 +92,53 @@ describe('booking-token — bookingType + experienceId', () => {
     const decoded = decodeBookingToken(encoded);
     expect(decoded.bookingType).toBe('standard');
     expect(decoded.experienceId).toBeUndefined();
+  });
+});
+
+describe('booking-token — modify-token shape', () => {
+  it('round-trips a modify token with the existing-reservation identity pair', () => {
+    const before = {
+      slotLockId: 111, restaurantId: 278896, diningAreaId: 21881,
+      partySize: 5, date: '2026-06-25', time: '19:15',
+      reservationToken: 'tok', slotHash: 'h',
+      paymentCard: null, ccRequired: true,
+      issuedAt: '2026-05-20T00:00:00.000Z',
+      bookingType: 'experience' as const,
+      experienceId: 514735, experienceVersion: 7,
+      existingConfirmationNumber: 29541,
+      existingSecurityToken: '01lUHmpLpJ31EwPYPUSGIZTSMb3O41ehMhojol5ybqkWk1',
+    };
+    const after = decodeBookingToken(encodeBookingToken(before));
+    expect(after.existingConfirmationNumber).toBe(29541);
+    expect(after.existingSecurityToken).toBe(before.existingSecurityToken);
+  });
+
+  it('a token with only one existing-* field fails decode (partial-modify token)', () => {
+    // existingConfirmationNumber set without the matching securityToken
+    const malformed = {
+      slotLockId: 1, restaurantId: 1, diningAreaId: 1,
+      partySize: 1, date: '2026-06-25', time: '18:00',
+      reservationToken: 't', slotHash: 'h',
+      paymentCard: null, ccRequired: false,
+      issuedAt: '2026-05-20T00:00:00.000Z',
+      bookingType: 'standard' as const,
+      existingConfirmationNumber: 29541,
+    };
+    const encoded = Buffer.from(JSON.stringify(malformed), 'utf8').toString('base64');
+    expect(() => decodeBookingToken(encoded)).toThrow(/partial-modify tokens are rejected/);
+  });
+
+  it('book tokens (no existing-* fields) decode unchanged', () => {
+    const bookToken = {
+      slotLockId: 1, restaurantId: 1, diningAreaId: 1,
+      partySize: 1, date: '2026-06-25', time: '18:00',
+      reservationToken: 't', slotHash: 'h',
+      paymentCard: null, ccRequired: false,
+      issuedAt: '2026-05-20T00:00:00.000Z',
+      bookingType: 'standard' as const,
+    };
+    const after = decodeBookingToken(encodeBookingToken(bookToken));
+    expect(after.existingConfirmationNumber).toBeUndefined();
+    expect(after.existingSecurityToken).toBeUndefined();
   });
 });

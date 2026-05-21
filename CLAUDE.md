@@ -4,7 +4,7 @@ Guidance for Claude working in this repo.
 
 ## TL;DR
 
-v0.9.0: OpenTable MCP server with 11 tools (read + write), fronted by a
+v0.9.0: OpenTable MCP server with 13 tools (read + write), fronted by a
 pluggable browser bridge. Default transport: localhost WebSocket to a
 companion Chrome extension under `./extension/`. Opt-in alternative:
 `OT_BRIDGE=mcp-chrome` routes through hangwin/mcp-chrome's HTTP MCP
@@ -85,7 +85,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the extension loaded at `chrome://
 | `opentable_add_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/add` | write |
 | `opentable_remove_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/remove` | write |
 
-Note: `manifest.json` historically lists only 10 tools (missing `opentable_book_preview`); the runtime registers 11. The release workflow rewrites versions but not the tool list — if you change the tool surface, update `manifest.json` by hand.
+Note: `manifest.json` now lists all 13 tools (was historically out of sync — `opentable_book_preview` was missing). The release workflow rewrites versions but not the tool list — if you change the tool surface, update `manifest.json` by hand.
 
 ## Environment
 
@@ -98,7 +98,7 @@ No environment variables required. Auth lives in the user's browser via the comp
 - Readonly tools set `annotations: { readOnlyHint: true }`.
 - Prefer JSON bodies. The write tools hit OpenTable's internal JSON/GraphQL endpoints; don't use `URLSearchParams` unless an endpoint explicitly requires form-encoding.
 - Write a failing test before implementation (TDD). Tool tests live in `tests/tools/<name>.test.ts` and mock `OpenTableClient.fetchJson` / `fetchHtml`.
-- Prefer Apollo persisted queries (just the `sha256Hash`, no GraphQL body). Hashes are pinned at the top of the tool file — if OpenTable re-deploys, the server returns `PersistedQueryNotFound` and the hashes need re-capture via the extension's XHR logger.
+- Prefer Apollo persisted queries (just the `sha256Hash`, no GraphQL body). Hashes are pinned at the top of the tool file — if OpenTable re-deploys, the server returns `PersistedQueryNotFound` and the hashes need re-capture. Fastest re-capture path: on the page where the op fires (e.g. `/booking/details` for slot-lock ops), once the mutation has run, read `window.__APOLLO_CLIENT__.queryManager.mutationStore['1'].mutation.documentId` from DevTools — Apollo's `documentId` IS the persisted-query sha256Hash. For queries, iterate `queryManager.queries.forEach((q) => q.document.documentId)`. Beats the XHR-logger approach because the cookie/CSRF stays in the page and there's nothing to copy out of a request body.
 
 ## Testing
 
@@ -157,6 +157,7 @@ Main is always one version ahead of the latest tag. To release, run the **Tag & 
   surfaces as `bookable: false` on `opentable_get_restaurant`. There's
   no slot picker; agents should surface the restaurant's phone + URL
   rather than call `opentable_book`.
+- **Modify uses the same SSR + slot-lock as book, with three URL markers.** `/booking/details?confirmationNumber=<n>&securityToken=<t>&isModify=true&…<new-slot-params>` returns the modify state. The `make-reservation` body for the modify path keys off `confnumber` (lowercase, no underscore — OpenTable's quirky shorthand) + `securityToken`; `reservationId` is NOT allowed in the modify body even though the SSR state's `modifyReservation.gpid` looks like it should be the identifier. The same-day-conflict helper takes an `excludeConfirmation` arg — `opentable_modify_preview` uses it to avoid false-positives against the reservation being moved.
 
 ## Live probing workflow
 

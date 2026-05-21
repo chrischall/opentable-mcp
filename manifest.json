@@ -60,12 +60,24 @@
       "description": "List available reservation slots for a restaurant on a given date + party size."
     },
     {
+      "name": "opentable_book_preview",
+      "description": "Preview an OpenTable booking before committing — surfaces the cancellation policy + saved card; required for CC-required slots."
+    },
+    {
       "name": "opentable_book",
       "description": "Book an OpenTable reservation using a fresh slot from opentable_find_slots."
     },
     {
       "name": "opentable_cancel",
       "description": "Cancel a reservation given its restaurant_id + confirmation_number + security_token."
+    },
+    {
+      "name": "opentable_modify_preview",
+      "description": "Preview a modification to an existing OpenTable reservation; returns the new slot's policy + a modify_token."
+    },
+    {
+      "name": "opentable_modify",
+      "description": "Modify an existing OpenTable reservation in place. Requires a modify_token from opentable_modify_preview."
     },
     {
       "name": "opentable_add_favorite",

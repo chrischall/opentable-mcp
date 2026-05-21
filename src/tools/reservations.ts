@@ -14,7 +14,6 @@
 // User PII (name/email/phone) is read from the dining-dashboard SSR
 // on every book call — cheaper than a dedicated profile endpoint, and
 // the data we need is always there for authenticated users.
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
@@ -24,6 +23,13 @@ import { parseUserProfile } from '../parse-user-profile.js';
 import { parseBookingDetailsState, sameDayConflicts } from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
 import { encodeBookingToken, decodeBookingToken } from '../booking-token.js';
+import {
+  lockSlot,
+  makeReservation,
+  expiryMmYy,
+  CC_PROVIDER,
+  type BookProfile,
+} from './booking-flow.js';
 
 const DINING_DASHBOARD_PATH = '/user/dining-dashboard';
 
@@ -49,6 +55,14 @@ function bookingDetailsPath(input: {
   reservation_token: string;
   dining_area_id: number;
   experience_id?: number;
+  /** When set together with `security_token`, marks this URL as a modify
+   *  of an existing reservation. OpenTable's /booking/details SSR loads
+   *  the modify state (existing CC hold, current slot details, the
+   *  modifyReservation block) when both are in the query string + isModify=true.
+   *  Required by opentable_modify_preview. */
+  confirmation_number?: number;
+  /** Required together with `confirmation_number` for the modify flow. */
+  security_token?: string;
 }): string {
   const params = new URLSearchParams({
     rid: String(input.restaurant_id),
@@ -67,23 +81,31 @@ function bookingDetailsPath(input: {
     params.set('st', 'Experience');
     params.set('isMandatory', 'true');
   }
+  if (typeof input.confirmation_number === 'number' && typeof input.security_token === 'string') {
+    params.set('confirmationNumber', String(input.confirmation_number));
+    params.set('securityToken', input.security_token);
+    params.set('isModify', 'true');
+  }
   return `/booking/details?${params.toString()}`;
 }
 
-// Apollo persisted-query hashes captured from opentable.com on 2026-04-20.
+// Apollo persisted-query hashes captured from opentable.com.
 // If OpenTable re-deploys and invalidates these, the server returns
-// `PersistedQueryNotFound` and we'll need to re-capture via the
-// extension's XHR logger.
+// `PersistedQueryNotFound` and we'll need to re-capture them. The
+// fastest re-capture path: on a /booking/details page in the bridged
+// Chrome tab, run
+//   window.__APOLLO_CLIENT__.queryManager.mutationStore['1'].mutation.documentId
+// after the page's slot-lock has fired. Apollo's `documentId` IS the
+// persisted-query sha256Hash. Same trick works for query documents via
+// `queryManager.queries` (a Map iterated with .forEach).
 const RESTAURANTS_AVAILABILITY_HASH =
   'cbcf4838a9b399f742e3741785df64560a826d8d3cc2828aa01ab09a8455e29e';
 const BOOK_SLOT_LOCK_HASH =
   '1100bf68905fd7cb1d4fd0f4504a4954aa28ec45fb22913fa977af8b06fd97fa';
-// TODO(pre-merge): re-pin via scripts/probe-experience-slot-lock-hash.ts
-// against Pasqual's. Placeholder hash below is invalid for production use;
-// CI tests are fully mocked so this doesn't gate unit-test green, but the
-// release-checklist live probe in Task 9 MUST capture and update this.
+// Captured 2026-05-21 from a live Pasqual's Experience slot-lock via the
+// __APOLLO_CLIENT__.queryManager.mutationStore inspection technique above.
 const BOOK_EXPERIENCE_SLOT_LOCK_HASH =
-  '0000000000000000000000000000000000000000000000000000000000000000';
+  '363af9e3bd17efa82ad71c5808c5272603b5f1abe13b535d3beed1e6258ce504';
 const CANCEL_RESERVATION_HASH =
   '4ee53a006030f602bdeb1d751fa90ddc4240d9e17d015fb7976f8efcb80a026e';
 
@@ -94,24 +116,16 @@ const EXPERIENCE_SLOT_LOCK_PATH =
 const MAKE_RESERVATION_PATH = '/dapi/booking/make-reservation';
 const CANCEL_RESERVATION_PATH = '/dapi/fe/gql?optype=mutation&opname=CancelReservation';
 
-/** OpenTable uses Spreedly for card tokenization. Saved-card `cardId`s
- *  are already Spreedly tokens; we don't run any tokenization ourselves. */
-const CC_PROVIDER = 'spreedly';
-
-/** Hardcoded in OpenTable's FE — URL the user would be redirected to if
- *  the card's bank triggers a 3D-Secure (SCA) challenge. We never hit it
- *  for pre-authenticated saved cards, but the make-reservation validator
- *  requires the field when creditCard* fields are set. */
-const SCA_REDIRECT_URL = 'https://www.opentable.com/booking/payments-sca';
-
-/** Format `month` + `year` as `"MMYY"` — OpenTable's make-reservation
- *  expects `creditCardMMYY` in that form. e.g. (10, 2028) → "1028". */
-function expiryMmYy(month: number | null, year: number | null): string {
-  if (month == null || year == null) return '';
-  const mm = String(month).padStart(2, '0');
-  const yy = String(year % 100).padStart(2, '0');
-  return `${mm}${yy}`;
-}
+/** Endpoint paths + persisted-query hashes the slot-lock helper consumes.
+ *  Bundled here (rather than in booking-flow.ts) so the inline
+ *  re-capture instructions on the hash constants stay co-located with
+ *  the constants themselves. */
+const SLOT_LOCK_ENDPOINTS = {
+  standardPath: SLOT_LOCK_PATH,
+  experiencePath: EXPERIENCE_SLOT_LOCK_PATH,
+  standardHash: BOOK_SLOT_LOCK_HASH,
+  experienceHash: BOOK_EXPERIENCE_SLOT_LOCK_HASH,
+} as const;
 
 /** Build a human-readable error when OpenTable would reject the booking
  *  as a same-day conflict. Called pre-flight from book/book_preview
@@ -326,52 +340,22 @@ export function registerReservationTools(
         );
       }
 
-      // Step 3 — slot-lock (reserves the slot for ~90s; returns slotLockId).
-      // Standard vs Experience routes use different persisted-query ops and
-      // pass different variables.input shapes.
-      const lockPath = isExperience ? EXPERIENCE_SLOT_LOCK_PATH : SLOT_LOCK_PATH;
-      const lockOp = isExperience ? 'BookDetailsExperienceSlotLock' : 'BookDetailsStandardSlotLock';
-      const lockHash = isExperience ? BOOK_EXPERIENCE_SLOT_LOCK_HASH : BOOK_SLOT_LOCK_HASH;
-      const lockVariables: Record<string, unknown> = {
-        input: {
-          restaurantId: restaurant_id,
-          seatingOption: 'DEFAULT',
-          reservationDateTime,
-          partySize: party_size,
-          databaseRegion: 'NA',
-          slotHash: slot_hash,
-          reservationType: isExperience ? 'EXPERIENCE' : 'STANDARD',
-          diningAreaId: dining_area_id,
-          ...(isExperience ? { experienceId: experience_id, tableCategory: 'default' } : {}),
-        },
-      };
-      const lockResponse = await client.fetchJson<{
-        data?: {
-          lockSlot?: {
-            success?: boolean;
-            slotLock?: { slotLockId?: number };
-            slotLockErrors?: unknown;
-          };
-        };
-      }>(lockPath, {
-        method: 'POST',
-        headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
-        body: {
-          operationName: lockOp,
-          variables: lockVariables,
-          extensions: {
-            persistedQuery: { version: 1, sha256Hash: lockHash },
-          },
-        },
+      // Step 3 — slot-lock (reserves the slot for ~90s).
+      const slotLockId = await lockSlot(client, {
+        restaurantId: restaurant_id,
+        reservationDateTime,
+        partySize: party_size,
+        slotHash: slot_hash,
+        diningAreaId: dining_area_id,
+        reservationToken: reservation_token,
+        experience: isExperience
+          ? {
+              experienceId: experience_id!,
+              experienceVersion: summary.experience?.version ?? 1,
+            }
+          : undefined,
+        endpoints: SLOT_LOCK_ENDPOINTS,
       });
-      const slotLockId = lockResponse?.data?.lockSlot?.slotLock?.slotLockId;
-      if (!slotLockId || lockResponse?.data?.lockSlot?.success !== true) {
-        throw new Error(
-          `OpenTable failed to lock slot for preview: ${JSON.stringify(
-            lockResponse?.data?.lockSlot ?? lockResponse
-          )}`
-        );
-      }
 
       // Step 4 — mint the booking_token. paymentCard carries everything
       // make-reservation needs for a CC-required POST (id, last4, expiry,
@@ -401,7 +385,12 @@ export function registerReservationTools(
         ccRequired: summary.cc_required,
         issuedAt: new Date().toISOString(),
         bookingType: isExperience ? 'experience' : 'standard',
-        ...(isExperience ? { experienceId: experience_id } : {}),
+        ...(isExperience
+          ? {
+              experienceId: experience_id,
+              experienceVersion: summary.experience?.version ?? 1,
+            }
+          : {}),
       });
 
       const chargesDescription = summary.cc_required
@@ -439,6 +428,205 @@ export function registerReservationTools(
                 // Restaurant-supplied custom terms (common at UK venues).
                 // When non-null, surface to the user before they tell
                 // opentable_book to commit.
+                terms: summary.terms,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    'opentable_modify_preview',
+    {
+      description:
+        "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        restaurant_id: z.number().int().positive(),
+        confirmation_number: z.number().int().positive(),
+        security_token: z.string(),
+        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
+        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        party_size: z.number().int().positive(),
+        reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
+        slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
+        dining_area_id: z.number().int(),
+        experience_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('For Experience-mandatory slots; required when the new slot has experience_ids.'),
+        experience_ids: z
+          .array(z.number().int().positive())
+          .optional()
+          .describe('Pass-through from find_slots.experience_ids. When non-empty, experience_id must also be set.'),
+      },
+    },
+    async ({
+      restaurant_id,
+      confirmation_number,
+      security_token,
+      date,
+      time,
+      party_size,
+      reservation_token,
+      slot_hash,
+      dining_area_id,
+      experience_id,
+      experience_ids,
+    }) => {
+      const reservationDateTime = `${date}T${time}`;
+
+      const isExperience =
+        (Array.isArray(experience_ids) && experience_ids.length > 0) ||
+        typeof experience_id === 'number';
+      if (isExperience && typeof experience_id !== 'number') {
+        throw new Error(
+          'This slot requires picking an Experience. Options: ' +
+            JSON.stringify(experience_ids) +
+            '. Re-call opentable_modify_preview with experience_id set to one of them.'
+        );
+      }
+
+      // 1) /booking/details SSR with modify markers (confirmationNumber + securityToken + isModify=true).
+      const detailsHtml = await client.fetchHtml(
+        bookingDetailsPath({
+          restaurant_id,
+          date,
+          time,
+          party_size,
+          slot_hash,
+          reservation_token,
+          dining_area_id,
+          experience_id,
+          confirmation_number,
+          security_token,
+        })
+      );
+      const state = extractInitialState(detailsHtml);
+      const summary = parseBookingDetailsState(state);
+
+      // 2) Same-day conflicts — exclude the reservation being moved.
+      const conflicts = sameDayConflicts(summary.conflicts, date, confirmation_number);
+      if (conflicts.length > 0) {
+        throw sameDayConflictError(conflicts, date);
+      }
+
+      if (summary.cc_required && !summary.default_card) {
+        throw new Error(
+          'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
+        );
+      }
+
+      // 3) Slot-lock — same hashes/ops as book_preview.
+      const slotLockId = await lockSlot(client, {
+        restaurantId: restaurant_id,
+        reservationDateTime,
+        partySize: party_size,
+        slotHash: slot_hash,
+        diningAreaId: dining_area_id,
+        reservationToken: reservation_token,
+        experience: isExperience
+          ? {
+              experienceId: experience_id!,
+              experienceVersion: summary.experience?.version ?? 1,
+            }
+          : undefined,
+        endpoints: SLOT_LOCK_ENDPOINTS,
+      });
+
+      // 4) Existing-reservation details — read from `modifyReservation` in
+      //    the SSR state to power the existing_reservation echo in the
+      //    response. Lets the agent phrase "moving your booking from
+      //    A → B". Each field is best-effort: if SSR doesn't surface the
+      //    block (e.g. fixtures that don't include modifyReservation),
+      //    the echo just omits that detail.
+      const modifyRecord = (state as {
+        modifyReservation?: {
+          localDateTime?: string;
+          partySize?: number;
+          diningArea?: { diningAreaId?: number };
+        };
+      }).modifyReservation;
+      const existingDate = modifyRecord?.localDateTime?.slice(0, 10) ?? null;
+      const existingTime =
+        modifyRecord?.localDateTime && modifyRecord.localDateTime.length >= 16
+          ? modifyRecord.localDateTime.slice(11, 16)
+          : null;
+      const existingPartySize = modifyRecord?.partySize ?? null;
+      const existingDiningAreaId = modifyRecord?.diningArea?.diningAreaId ?? null;
+
+      const paymentCard =
+        summary.cc_required && summary.default_card
+          ? {
+              id: summary.default_card.id,
+              last4: summary.default_card.last4,
+              expiryMmYy: expiryMmYy(
+                summary.default_card.expiry_month,
+                summary.default_card.expiry_year
+              ),
+              provider: CC_PROVIDER,
+            }
+          : null;
+
+      const modify_token = encodeBookingToken({
+        slotLockId,
+        restaurantId: restaurant_id,
+        diningAreaId: dining_area_id,
+        partySize: party_size,
+        date,
+        time,
+        reservationToken: reservation_token,
+        slotHash: slot_hash,
+        paymentCard,
+        ccRequired: summary.cc_required,
+        issuedAt: new Date().toISOString(),
+        bookingType: isExperience ? 'experience' : 'standard',
+        ...(isExperience
+          ? {
+              experienceId: experience_id,
+              experienceVersion: summary.experience?.version ?? 1,
+            }
+          : {}),
+        existingConfirmationNumber: confirmation_number,
+        existingSecurityToken: security_token,
+      });
+
+      const chargesDescription = summary.cc_required
+        ? `Nothing charged now — ${summary.default_card!.brand} •••• ${summary.default_card!.last4} re-held only. ${summary.policy.description}`
+        : 'Nothing charged now — no card required.';
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                modify_token,
+                booking_type: isExperience ? 'experience_mandatory' : 'instant',
+                experience: summary.experience,
+                existing_reservation: {
+                  confirmation_number,
+                  restaurant_id,
+                  date: existingDate,
+                  time: existingTime,
+                  party_size: existingPartySize,
+                  dining_area_id: existingDiningAreaId,
+                },
+                reservation: { date, time, party_size, restaurant_id, dining_area_id },
+                cancellation_policy: summary.policy,
+                payment_method:
+                  summary.cc_required && summary.default_card
+                    ? { brand: summary.default_card.brand, last4: summary.default_card.last4 }
+                    : null,
+                charges_at_booking: { amount_usd: 0, description: chargesDescription },
+                cc_required: summary.cc_required,
+                policy_type: summary.policy_type,
                 terms: summary.terms,
               },
               null,
@@ -508,6 +696,7 @@ export function registerReservationTools(
       let ccRequired = false;
       let bookingType: 'standard' | 'experience' = 'standard';
       let experienceId: number | undefined;
+      let experienceVersion: number | undefined;
 
       // Caller-declared Experience: signal via experience_ids when there's no token yet.
       const callerDeclaredExperience =
@@ -541,6 +730,7 @@ export function registerReservationTools(
         ccRequired = payload.ccRequired;
         bookingType = payload.bookingType;
         experienceId = payload.experienceId;
+        experienceVersion = payload.experienceVersion;
       } else {
         if (callerDeclaredExperience) {
           throw new Error(
@@ -577,155 +767,34 @@ export function registerReservationTools(
         }
 
         // Standard-no-guarantee path: lock the slot ourselves.
-        const lockResponse = await client.fetchJson<{
-          data?: {
-            lockSlot?: {
-              success?: boolean;
-              slotLock?: { slotLockId?: number };
-              slotLockErrors?: unknown;
-            };
-          };
-        }>(SLOT_LOCK_PATH, {
-          method: 'POST',
-          headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
-          body: {
-            operationName: 'BookDetailsStandardSlotLock',
-            variables: {
-              input: {
-                restaurantId: restaurant_id,
-                seatingOption: 'DEFAULT',
-                reservationDateTime,
-                partySize: party_size,
-                databaseRegion: 'NA',
-                slotHash: slot_hash,
-                reservationType: 'STANDARD',
-                diningAreaId,
-              },
-            },
-            extensions: {
-              persistedQuery: { version: 1, sha256Hash: BOOK_SLOT_LOCK_HASH },
-            },
-          },
-        });
-        const lockedId = lockResponse?.data?.lockSlot?.slotLock?.slotLockId;
-        if (!lockedId || lockResponse?.data?.lockSlot?.success !== true) {
-          throw new Error(
-            `OpenTable failed to lock slot for booking: ${JSON.stringify(
-              lockResponse?.data?.lockSlot ?? lockResponse
-            )}`
-          );
-        }
-        slotLockId = lockedId;
-      }
-
-      const profile = await fetchProfile(client);
-
-      // CC-required bookings need five extra fields (all derived from the
-      // saved card's metadata, which the preview already stashed in the
-      // booking_token). OpenTable's validator rejects `paymentMethodId`
-      // outright; the actual Spreedly token is `creditCardToken` and the
-      // card's last4 + expiry are separate flat fields.
-      const ccFields = paymentCard
-        ? {
-            creditCardToken: paymentCard.id,
-            creditCardLast4: paymentCard.last4,
-            creditCardMMYY: paymentCard.expiryMmYy,
-            creditCardProvider: paymentCard.provider,
-            scaRedirectUrl: SCA_REDIRECT_URL,
-          }
-        : {};
-
-      // Experience-mandatory bookings need the experience id + a
-      // reservationType of "Experience" (Pascal-case here vs. the
-      // SHOUTING used in the slot-lock GraphQL — make-reservation is a
-      // REST-style endpoint and uses different casing). For the
-      // Standard path we still emit reservationType: 'Standard' to
-      // match today's wire format byte-for-byte.
-      const experienceFields =
-        bookingType === 'experience' && typeof experienceId === 'number'
-          ? {
-              experienceId,
-              reservationType: 'Experience',
-              tableCategory: 'default',
-            }
-          : { reservationType: 'Standard' };
-
-      const reservation = await client.fetchJson<{
-        success?: boolean;
-        reservationId?: number;
-        confirmationNumber?: number;
-        securityToken?: string;
-        points?: number;
-        reservationDateTime?: string;
-        partySize?: number;
-        reservationStateId?: number;
-        errorCode?: string;
-        errorMessage?: string;
-        partnerScaRequired?: boolean;
-        partnerScaRedirectUrl?: string | null;
-      }>(MAKE_RESERVATION_PATH, {
-        method: 'POST',
-        body: {
+        slotLockId = await lockSlot(client, {
           restaurantId: restaurant_id,
           reservationDateTime,
           partySize: party_size,
           slotHash: slot_hash,
-          slotAvailabilityToken: reservation_token,
-          slotLockId,
           diningAreaId,
-          firstName: profile.first_name,
-          lastName: profile.last_name,
-          email: profile.email,
-          phoneNumber: profile.mobile_phone_number,
-          phoneNumberCountryId: profile.country_id || 'US',
-          country: profile.country_id || 'US',
-          reservationAttribute: 'default',
-          pointsType: 'Standard',
-          points: 100,
-          tipAmount: 0,
-          tipPercent: 0,
-          confirmPoints: true,
-          optInEmailRestaurant: false,
-          isModify: false,
-          additionalServiceFees: [],
-          nonBookableExperiences: [],
-          katakanaFirstName: '',
-          katakanaLastName: '',
-          correlationId: randomUUID(),
-          ...experienceFields,
-          ...ccFields,
-        },
+          reservationToken: reservation_token,
+          endpoints: SLOT_LOCK_ENDPOINTS,
+        });
+      }
+
+      const profile = await fetchProfile(client);
+
+      const result = await makeReservation(client, {
+        restaurantId: restaurant_id,
+        reservationDateTime,
+        partySize: party_size,
+        slotHash: slot_hash,
+        reservationToken: reservation_token,
+        slotLockId,
+        diningAreaId,
+        profile,
+        bookingType,
+        experienceId,
+        experienceVersion,
+        paymentCard,
+        endpoint: MAKE_RESERVATION_PATH,
       });
-
-      // 3-D Secure challenge — only fires for cards that haven't been
-      // pre-authenticated by the issuer. Our default saved cards on
-      // opentable.com are almost always pre-authenticated, so this is
-      // rare. When it does fire we can't complete the challenge from
-      // outside the browser; surface the redirect URL and bail.
-      if (reservation?.partnerScaRequired === true) {
-        throw new Error(
-          `This card requires 3-D Secure authentication (SCA), which can't be completed from the MCP. Complete the booking in your browser: ${
-            reservation.partnerScaRedirectUrl ?? 'https://www.opentable.com/booking'
-          }`
-        );
-      }
-
-      if (reservation?.errorCode || reservation?.success === false) {
-        const raw = `${reservation.errorCode ?? 'unknown'}${
-          reservation.errorMessage ? ` — ${reservation.errorMessage}` : ''
-        }`;
-        if (/slot.?lock.?expired/i.test(raw) || /SLOT_LOCK_EXPIRED/i.test(raw)) {
-          throw new Error(
-            'Slot lock expired. Call opentable_find_slots for a fresh slot, then re-preview with opentable_book_preview.'
-          );
-        }
-        throw new Error(`OpenTable book failed: ${raw}`);
-      }
-      if (!reservation?.confirmationNumber) {
-        throw new Error(
-          `OpenTable book response missing confirmationNumber: ${JSON.stringify(reservation)}`
-        );
-      }
 
       return {
         content: [
@@ -733,17 +802,146 @@ export function registerReservationTools(
             type: 'text' as const,
             text: JSON.stringify(
               {
-                confirmation_number: reservation.confirmationNumber,
-                reservation_id: reservation.reservationId ?? null,
-                security_token: reservation.securityToken ?? '',
+                confirmation_number: result.confirmationNumber,
+                reservation_id: result.reservationId,
+                security_token: result.securityToken,
                 restaurant_id,
                 date,
                 time,
                 party_size,
-                points: reservation.points ?? 0,
+                points: result.points,
                 status: 'Pending',
                 cc_required: ccRequired,
                 booking_type: bookingType === 'experience' ? 'experience_mandatory' : 'instant',
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    'opentable_modify',
+    {
+      description:
+        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first.",
+      inputSchema: {
+        restaurant_id: z.number().int().positive(),
+        confirmation_number: z.number().int().positive(),
+        security_token: z.string(),
+        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
+        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        party_size: z.number().int().positive(),
+        reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
+        slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
+        dining_area_id: z.number().int(),
+        modify_token: z
+          .string()
+          .optional()
+          .describe('REQUIRED. From opentable_modify_preview. No no-token path — the new slot\'s policy + CC re-hold can differ from the original.'),
+        experience_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('Optional tamper-check signal. When set, must match the experienceId baked into modify_token.'),
+      },
+    },
+    async ({
+      restaurant_id,
+      confirmation_number,
+      security_token,
+      date,
+      time,
+      party_size,
+      reservation_token,
+      slot_hash,
+      dining_area_id,
+      modify_token,
+      experience_id: callerExperienceId,
+    }) => {
+      const reservationDateTime = `${date}T${time}`;
+      const diningAreaId = dining_area_id;
+
+      if (!modify_token) {
+        throw new Error(
+          'opentable_modify requires a modify_token from opentable_modify_preview. The new slot\'s policy and CC re-hold details can differ from the original — preview is mandatory.'
+        );
+      }
+
+      const payload = decodeBookingToken(modify_token);
+
+      if (typeof payload.existingConfirmationNumber !== 'number') {
+        throw new Error(
+          'This token was issued by opentable_book_preview (a new-booking token), not opentable_modify_preview. Use opentable_book to commit, or call opentable_modify_preview if you meant to edit an existing reservation.'
+        );
+      }
+
+      if (
+        payload.restaurantId !== restaurant_id ||
+        payload.date !== date ||
+        payload.time !== time ||
+        payload.partySize !== party_size ||
+        payload.diningAreaId !== dining_area_id ||
+        payload.existingConfirmationNumber !== confirmation_number ||
+        payload.existingSecurityToken !== security_token ||
+        (typeof callerExperienceId === 'number' && payload.experienceId !== callerExperienceId)
+      ) {
+        throw new Error(
+          'modify_token was issued for a different reservation (party_size, date/time, dining area, experience_id, or the existing reservation identifier has changed since opentable_modify_preview). Call opentable_modify_preview again with the current args.'
+        );
+      }
+
+      const slotLockId = payload.slotLockId;
+      const paymentCard = payload.paymentCard;
+      const ccRequired = payload.ccRequired;
+      const bookingType = payload.bookingType;
+      const experienceId = payload.experienceId;
+      const experienceVersion = payload.experienceVersion;
+
+      const profile = await fetchProfile(client);
+
+      const result = await makeReservation(client, {
+        restaurantId: restaurant_id,
+        reservationDateTime,
+        partySize: party_size,
+        slotHash: slot_hash,
+        reservationToken: reservation_token,
+        slotLockId,
+        diningAreaId,
+        profile,
+        bookingType,
+        experienceId,
+        experienceVersion,
+        paymentCard,
+        modify: {
+          confirmationNumber: payload.existingConfirmationNumber!,
+          securityToken: payload.existingSecurityToken!,
+        },
+        endpoint: MAKE_RESERVATION_PATH,
+      });
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                confirmation_number: result.confirmationNumber,
+                reservation_id: result.reservationId,
+                security_token: result.securityToken,
+                restaurant_id,
+                date,
+                time,
+                party_size,
+                points: result.points,
+                status: 'Pending',
+                cc_required: ccRequired,
+                booking_type: bookingType === 'experience' ? 'experience_mandatory' : 'instant',
+                was_modified: true,
               },
               null,
               2
@@ -809,14 +1007,6 @@ export function registerReservationTools(
 }
 
 // ─── helpers (module-private) ─────────────────────────────────────
-
-interface BookProfile {
-  first_name: string;
-  last_name: string;
-  email: string;
-  mobile_phone_number: string;
-  country_id: string;
-}
 
 async function fetchProfile(client: OpenTableClient): Promise<BookProfile> {
   const html = await client.fetchHtml(DINING_DASHBOARD_PATH);
