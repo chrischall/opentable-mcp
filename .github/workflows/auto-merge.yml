@@ -1,52 +1,75 @@
 name: Auto-merge PRs
 
-# Arm auto-merge on every non-draft PR. The actual merge still waits for
-# branch protection's required `ci` status check, so this is just "merge
-# as soon as CI is green" — no review gate is bypassed by this workflow.
+# Source-aware auto-merge:
 #
-# Why `pull_request_target` instead of `pull_request`:
-# Dependabot opens PRs with a restricted GITHUB_TOKEN that can't enable
-# auto-merge on `pull_request`. `pull_request_target` runs from the base
-# branch's perspective with the repo's normal token, which both human-
-# authored and dependabot-authored PRs can use. Security-wise this is
-# safe because we never check out or execute PR code — we only call the
-# GitHub API via the `gh` CLI to enable auto-merge.
+#  - dependabot[bot] PRs: arm `--auto --merge` as soon as the PR is non-
+#    draft. Merges when CI is green; no review gating.
+#  - Same-repo (non-fork) PRs with the `ready-to-merge` label: arm
+#    `--auto --merge`. That label is added either:
+#      * by the owner manually (to override Claude's warn/fail), OR
+#      * automatically by pr-auto-review.yml when Claude's verdict =
+#        `pass` on a same-repo PR, OR
+#      * automatically by release-please.yml on the release PR.
+#    Either way, the label is the signal.
+#  - Fork PRs: never auto-armed. Reviewed for advisory value only;
+#    the owner merges those by hand.
+#
+# The merge still waits for branch protection's required status check
+# (`ci`), so this is "merge as soon as CI is green," not "merge without
+# CI."
+#
+# pull_request_target is used (not pull_request) so dependabot PRs can
+# arm — dependabot's pull_request token is restricted. Safe because we
+# never check out or execute PR code; we only call the GitHub API via
+# the gh CLI.
+#
+# RELEASE_PAT (not GITHUB_TOKEN) is used to arm `gh pr merge --auto`.
+# GitHub suppresses workflow runs for events triggered by GITHUB_TOKEN
+# to prevent loops; with the PAT, the merge it eventually performs
+# fires `push` events on main, which is what release-please.yml
+# listens on (to open / tag / publish the next release).
 
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review, synchronize]
+    types: [opened, reopened, ready_for_review, synchronize, labeled]
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
-  # Don't pile up auto-merge attempts on rapid pushes. The latest event
-  # supersedes any in-flight job; auto-merge is idempotent so this is safe.
   group: auto-merge-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  enable-auto-merge:
+  arm-dependabot:
     runs-on: ubuntu-latest
-    # Two filters:
-    #   1. Drafts are skipped. Authors mark a PR "ready for review" when
-    #      they want it to land; until then this workflow stays out of the
-    #      way.
-    #   2. Only the repo owner and dependabot get auto-merge. External
-    #      contributors (rare on a personal repo but possible) still go
-    #      through manual review. Tighten further with additional logins,
-    #      or broaden to all authors, by editing the second clause.
+    # Fire on the lifecycle events but NOT on `labeled` — that's the
+    # owner-PR path. Without this guard, adding any label to a
+    # dependabot PR would re-arm (harmless but noisy).
     if: |
+      github.event.action != 'labeled' &&
       github.event.pull_request.draft == false &&
-      (github.event.pull_request.user.login == github.repository_owner ||
-       github.event.pull_request.user.login == 'dependabot[bot]')
+      github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
-      - name: Enable auto-merge via gh
+      - name: Arm auto-merge for dependabot
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        # Merge commit (not squash/rebase) — matches the repo's policy,
-        # which has squash/rebase disabled at the repo level.
-        run: |
-          gh pr merge --auto --merge "$PR_URL"
+        run: gh pr merge --auto --merge "$PR_URL"
+
+  arm-on-ready-label:
+    runs-on: ubuntu-latest
+    # Same-repo PRs only (excludes forks). The label may be added by the
+    # owner manually or by pr-auto-review.yml on Claude's `verdict=pass`.
+    if: |
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ready-to-merge' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Arm auto-merge on ready-to-merge label
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --merge "$PR_URL"
