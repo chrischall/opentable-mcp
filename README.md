@@ -31,6 +31,28 @@ No cookie-pasting. No cycletls. No Playwright.
 | `opentable_add_favorite` | write | `/dapi/wishlist/add` |
 | `opentable_remove_favorite` | write | `/dapi/wishlist/remove` |
 
+## Acknowledgement of Terms
+
+By using this MCP server, you acknowledge and agree to the following:
+
+**1. This server accesses your own OpenTable account.** Every request is dispatched through your own signed-in browser tab via the fetchproxy extension (or hangwin/mcp-chrome). It does not — and cannot — access anyone else's reservations.
+
+**2. [OpenTable's Terms of Use](https://www.opentable.com/c/legal/terms-and-conditions/) govern your use of this server**, just as they govern your direct use of opentable.com. The clauses most relevant here:
+
+> You may not use any deep-link, robot, spider, scraper, generative AI or other AI technology including, but not limited to, those that operate by interacting with or otherwise making use of your browser, such as automated assistants or other automatic or manual device, process, or means to access, copy, search, or monitor any portion of the Services or OpenTable Content, except as expressly authorized by OpenTable.
+
+And, critically: *"Actions of AI agents are acknowledged as actions of the User that is using them, and the User is responsible for checking and verifying the action…"*
+
+You are agreeing to those terms — read by the maintainer 2026-05-23 — every time you invoke a tool in this server. OpenTable's ToU explicitly enumerates AI/automated-assistant access among the things they have not authorized; they also explicitly impute AI-agent actions back to you.
+
+**3. Personal, non-commercial use only.** This project is not affiliated with, endorsed by, sponsored by, or in partnership with OpenTable, Inc. It is a personal automation tool that drives the same `/dapi/...` and `/booking/...` endpoints opentable.com uses. Do not use it to mass-book, sweep CC-required tables, resell reservations, or for any commercial purpose. The book/cancel/modify tools exist so you can manage one reservation as if you were sitting at your browser.
+
+**4. Stability is not guaranteed.** This server depends on internal OpenTable persisted-GraphQL query hashes that OpenTable rotates between deployments. When they rotate, tools break and we re-capture them. Your own use is at the mercy of OpenTable's release cadence.
+
+**5. You accept full responsibility** for any consequences of using this server in connection with your OpenTable account — rate limiting, slot-lock rejections, no-show penalties for runaway bookings, account warnings, suspension, or any enforcement action. **Per OpenTable's ToU, the AI agent's actions are your actions** — review every book/cancel before you confirm. If OpenTable objects to your use, stop using this server.
+
+This section is the maintainer's good-faith summary of the terms — it is not legal advice and does not modify or supersede OpenTable's actual ToU.
+
 ## Install
 
 ```bash
