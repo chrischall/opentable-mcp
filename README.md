@@ -2,19 +2,19 @@
 
 OpenTable reservation manager as an MCP server for Claude — find slots, book, cancel, manage favorites, and read your dashboard via natural language.
 
-> **v0.3.0-alpha status: Chrome-extension bridge, 10 tools, read + write.** Every OpenTable request is relayed through your signed-in Chrome tab over a localhost WebSocket, so Akamai sees a real browser and we get clean 200s on paths that block Node `fetch` entirely.
+> **v0.3.0-alpha status: Chrome-extension bridge, 10 tools, read + write.** Every OpenTable request is relayed through your signed-in Chrome tab over a localhost WebSocket — each request rides your existing session and reaches OpenTable as if you'd clicked it yourself.
 
 ## How it works
 
-OpenTable's edge (Akamai Bot Manager) serves a behavioral challenge to non-browser HTTP clients on `/`, `/s`, `/r/…`, `/dapi/…`, and `/booking/…`. cycletls, impersonated curl, and headless Chrome all hit 403 or a JS interstitial. The only thing Akamai never blocks is the actual signed-in Chrome tab.
+OpenTable's edge (Akamai Bot Manager) enforces a behavioral challenge on `/`, `/s`, `/r/…`, `/dapi/…`, and `/booking/…`. Tooling that builds its own HTTP client — cycletls, impersonated curl, headless Chrome — invents a separate identity and gets a 403 or JS interstitial. opentable-mcp does the opposite: it uses your own browser session as-is, with the cookies and TLS context it already has.
 
-So instead of shipping another bot-evasion dance, this MCP server:
+So instead of standing in for the browser, this MCP server:
 
 1. Starts a WebSocket listener on `127.0.0.1:37149` via [`@fetchproxy/server`](https://github.com/chrischall/fetchproxy).
-2. The [fetchproxy browser extension](https://github.com/chrischall/fetchproxy) (installed once, shared across all fetchproxy-based MCPs) connects from your signed-in browser and relays every request through the opentable.com tab via `fetch(..., { credentials: 'include' })` — real TLS, real cookies, real challenge-solved `_abck`.
+2. The [fetchproxy browser extension](https://github.com/chrischall/fetchproxy) (installed once, shared across all fetchproxy-based MCPs) connects from your signed-in browser and relays every request through the opentable.com tab via `fetch(..., { credentials: 'include' })` — your TLS, your cookies, your already-solved `_abck`.
 3. Parses JSON responses (public GraphQL / JSON endpoints) and SSR HTML (`/user/*`) into tool-shaped output.
 
-No cookie-pasting. No cycletls. No Playwright.
+No cookie-pasting. No cycletls. No Playwright. Just your own browser, acting on its own behalf — the MCP server only picks what to ask for.
 
 ## Tools
 

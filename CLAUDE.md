@@ -10,8 +10,8 @@ pluggable browser bridge. Default transport: localhost WebSocket via
 companion browser extension is installed separately (Chrome Web Store /
 Safari .dmg) rather than embedded in this repo. Opt-in alternative:
 `OT_BRIDGE=mcp-chrome` routes through hangwin/mcp-chrome's HTTP MCP
-endpoint instead. Either way, Akamai sees a real browser fetch — never
-us directly.
+endpoint instead. Either way, every request rides the user's own browser
+session — their cookies, their TLS, their JS context — never ours.
 
 ## Bridge selection
 
@@ -179,7 +179,7 @@ Main is always one version ahead of the latest tag. To release, run the **Tag & 
 
 ## What to *not* do
 
-- Don't add new transport-layer hacks (cycletls, impersonate-curl, Playwright). v0.2 tried those; Akamai wins. The fetchproxy bridge is the whole design.
+- Don't add new transport-layer libraries (cycletls, impersonate-curl, Playwright). v0.2 tried those, and each one builds a separate stand-in identity that the rest of the design has to compensate for. The whole point is to ride the user's own session via fetchproxy — don't replace it with a different client.
 - Don't paste cookies or env-configure auth. Auth lives in the user's browser now.
 - Don't register tools that can't be tested against a mock `OpenTableClient`. All tool logic should be behind `fetchJson` / `fetchHtml` so tests can drive it without a real WS.
 - Don't bump the persisted-query hashes speculatively. Only re-capture when a live request fails with `PersistedQueryNotFound`.
