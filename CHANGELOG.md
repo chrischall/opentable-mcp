@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.1](https://github.com/chrischall/opentable-mcp/compare/v0.10.0...v0.10.1) (2026-05-24)
+
+
+### Documentation
+
+* add Acknowledgement of Terms section to README ([#39](https://github.com/chrischall/opentable-mcp/issues/39)) ([3e69148](https://github.com/chrischall/opentable-mcp/commit/3e69148b70b2cd87309fb04d3d34f7652861b54b))
+* canonical auto-merge guidance ([#42](https://github.com/chrischall/opentable-mcp/issues/42)) ([0849347](https://github.com/chrischall/opentable-mcp/commit/0849347fc2fcda5d7fd344795b15fa832e15f739))
+* correct release-please PR handling in merge guidance ([#44](https://github.com/chrischall/opentable-mcp/issues/44)) ([ccd667c](https://github.com/chrischall/opentable-mcp/commit/ccd667c21b33833bd45bddd5d81731ca2d2954e3))
+* softer fetchproxy framing ([#43](https://github.com/chrischall/opentable-mcp/issues/43)) ([6e26fa1](https://github.com/chrischall/opentable-mcp/commit/6e26fa10239110c9dce96a6be588784b16620e53))
+
 ## [0.10.0](https://github.com/chrischall/opentable-mcp/compare/v0.9.3...v0.10.0) (2026-05-23)
 
 
