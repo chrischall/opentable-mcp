@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/chrischall/opentable-mcp/compare/v0.10.2...v0.10.3) (2026-05-26)
+
+
+### Documentation
+
+* **claude:** warn against early PRs and call out first-party dep bumps ([#49](https://github.com/chrischall/opentable-mcp/issues/49)) ([9f5b22a](https://github.com/chrischall/opentable-mcp/commit/9f5b22a63461767e9028fd2ed8f38bc75418fada))
+
 ## [0.10.2](https://github.com/chrischall/opentable-mcp/compare/v0.10.1...v0.10.2) (2026-05-25)
 
 
