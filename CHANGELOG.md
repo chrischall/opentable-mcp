@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/chrischall/opentable-mcp/compare/v0.10.1...v0.10.2) (2026-05-25)
+
+
+### Bug Fixes
+
+* **ci:** prevent labeled event from cancelling auto-review ([#46](https://github.com/chrischall/opentable-mcp/issues/46)) ([74aa872](https://github.com/chrischall/opentable-mcp/commit/74aa8724ec02fbff0eb722bee98bf5b7557d0455))
+
 ## [0.10.1](https://github.com/chrischall/opentable-mcp/compare/v0.10.0...v0.10.1) (2026-05-24)
 
 
