@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.4](https://github.com/chrischall/opentable-mcp/compare/v0.10.3...v0.10.4) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ci:** substitute repo name in publish workflow ([#51](https://github.com/chrischall/opentable-mcp/issues/51)) ([e3d6041](https://github.com/chrischall/opentable-mcp/commit/e3d6041b3e11c08684153d7b4c765d610191c42b))
+
 ## [0.10.3](https://github.com/chrischall/opentable-mcp/compare/v0.10.2...v0.10.3) (2026-05-26)
 
 
