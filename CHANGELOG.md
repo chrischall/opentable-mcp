@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/chrischall/opentable-mcp/compare/v0.10.4...v0.11.0) (2026-05-27)
+
+
+### Features
+
+* **transport-fetchproxy:** adopt @fetchproxy/server 0.8.0 ([#54](https://github.com/chrischall/opentable-mcp/issues/54)) ([ed584f7](https://github.com/chrischall/opentable-mcp/commit/ed584f71776ceaed068ff655facc8c4754456d4d))
+
 ## [0.10.4](https://github.com/chrischall/opentable-mcp/compare/v0.10.3...v0.10.4) (2026-05-26)
 
 
