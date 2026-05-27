@@ -1,20 +1,14 @@
 // Adapter that lets the @fetchproxy/server FetchproxyServer satisfy
 // opentable-mcp's OpenTableTransport interface.
 //
-// FetchproxyServer is domain-agnostic — its FetchInit shape is
-// `{ url, method, tabUrl, headers?, body? }`. opentable-mcp's tools and
-// OpenTableClient have always used opentable-relative paths
-// (`/dapi/...`, `/user/...`), so the adapter prepends
-// `https://www.opentable.com` and pins `tabUrl` to opentable.com so the
-// extension routes the fetch through the right tab.
-//
-// Aside from URL shape, the lifecycle and result types are identical to
-// the legacy OpenTableWsServer.
+// As of @fetchproxy/server 0.8.0, lazy-revive on Chrome MV3
+// service-worker eviction (default 2000ms) and per-request timeouts
+// (default 30000ms) are server defaults — we get them with zero
+// configuration. The convenience `request()` method throws typed
+// `FetchproxyBridgeDownError` / `FetchproxyTimeoutError` on failure
+// (both subclasses of `FetchproxyProtocolError`).
 import { FetchproxyServer, type FetchproxyServerOpts } from '@fetchproxy/server';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
-
-const OPENTABLE_ORIGIN = 'https://www.opentable.com';
-const OPENTABLE_TAB_URL = 'https://www.opentable.com/';
 
 export interface FetchproxyTransportOptions {
   port?: number;
@@ -49,23 +43,17 @@ export class FetchproxyTransport implements OpenTableTransport {
   }
 
   async fetch(init: FetchInit): Promise<FetchResult> {
-    const url = init.path.startsWith('http')
-      ? init.path
-      : `${OPENTABLE_ORIGIN}${init.path}`;
-    const result = await this.inner.fetch({
-      url,
-      method: init.method,
-      tabUrl: OPENTABLE_TAB_URL,
+    // 0.8.0+: `request()` throws FetchproxyBridgeDownError on persistent
+    // SW eviction (after the server's one-shot lazy-revive retry) and
+    // FetchproxyTimeoutError on fetchTimeoutMs — both subclasses of
+    // FetchproxyProtocolError so any caller catching the parent still
+    // matches. The opentable contract (throw on protocol failures,
+    // return on HTTP-level outcomes) is preserved.
+    const response = await this.inner.request(init.method, init.path, {
+      subdomain: 'www',
       headers: init.headers,
       body: init.body,
     });
-    // fetchproxy 0.1.0 returns a discriminated union. opentable-mcp's
-    // OpenTableTransport contract is "return on HTTP-level outcomes
-    // (including 4xx/5xx), throw on protocol-level failures". So map
-    // ok:false to a thrown error here.
-    if (!result.ok) {
-      throw new Error(`fetchproxy transport error: ${result.error}`);
-    }
-    return { status: result.status, body: result.body, url: result.url };
+    return { status: response.status, body: response.body, url: response.url };
   }
 }
