@@ -32,17 +32,18 @@ beforeEach(() => {
 });
 
 describe('FetchproxyTransport constructor', () => {
-  it('opts into proactive keep-alive by passing keepAliveIntervalMs: 25_000', () => {
-    // fetchproxy#71 / opentable-mcp#56 — round-3 #67 evidence shows the
+  it('does NOT pass keepAliveIntervalMs (relies on the 0.10.0 server default of 25_000)', () => {
+    // fetchproxy#71 / opentable-mcp#56 — round-3 #67 evidence showed the
     // reactive lazy-revive in 0.8.0 loses the race against Chrome's ~30s
     // SW eviction during real human-paced sessions. 0.9.0 added a
-    // proactive ping (off by default for back-compat); this assertion
-    // pins the opentable-mcp opt-in so a future refactor can't silently
-    // drop it.
+    // proactive ping (off by default for back-compat) which we opted into.
+    // 0.10.0 makes 25_000 the server default (fetchproxy#72), so the
+    // explicit opt-in is dropped — this assertion pins that we leave it to
+    // the server rather than re-passing a redundant value.
     new FetchproxyTransport({ version: '9.9.9' });
 
     expect(ctorCalls).toHaveLength(1);
-    expect(ctorCalls[0]).toMatchObject({ keepAliveIntervalMs: 25_000 });
+    expect(ctorCalls[0]).not.toHaveProperty('keepAliveIntervalMs');
   });
 
   it('wires through serverName, version, and the opentable domain', () => {

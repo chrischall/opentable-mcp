@@ -3,10 +3,11 @@
 //
 // As of @fetchproxy/server 0.9.0, lazy-revive on Chrome MV3
 // service-worker eviction (default 2000ms) and per-request timeouts
-// (default 30000ms) are server defaults. We additionally opt into the
-// 0.9.0 proactive keep-alive (`keepAliveIntervalMs: 25_000`) below to
-// hold the SW resident across human-paced session gaps — round-3 #67
-// evidence showed reactive lazy-revive alone wasn't enough. The
+// (default 30000ms) are server defaults. We relied on the proactive
+// keep-alive (`keepAliveIntervalMs: 25_000`) to hold the SW resident
+// across human-paced session gaps — round-3 #67 evidence showed reactive
+// lazy-revive alone wasn't enough. As of 0.10.0 that 25_000 cadence is
+// the server default, so the explicit opt-in is gone (fetchproxy#72). The
 // convenience `request()` method throws typed `FetchproxyBridgeDownError`
 // / `FetchproxyTimeoutError` on failure (both subclasses of
 // `FetchproxyProtocolError`).
@@ -33,8 +34,9 @@ export class FetchproxyTransport implements OpenTableTransport {
       // (e.g. www.opentable.com, mobile.opentable.com) match the
       // declared root automatically.
       domains: ['opentable.com'],
-      // fetchproxy#71 — keep SW resident across human-paced session gaps
-      keepAliveIntervalMs: 25_000,
+      // keepAliveIntervalMs is no longer set here: @fetchproxy/server 0.10.0
+      // defaults it to 25_000 — the same cadence we used to hold the SW
+      // resident across human-paced session gaps (fetchproxy#72).
     };
     this.inner = new FetchproxyServer(options);
   }
