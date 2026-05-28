@@ -1,12 +1,15 @@
 // Adapter that lets the @fetchproxy/server FetchproxyServer satisfy
 // opentable-mcp's OpenTableTransport interface.
 //
-// As of @fetchproxy/server 0.8.0, lazy-revive on Chrome MV3
+// As of @fetchproxy/server 0.9.0, lazy-revive on Chrome MV3
 // service-worker eviction (default 2000ms) and per-request timeouts
-// (default 30000ms) are server defaults — we get them with zero
-// configuration. The convenience `request()` method throws typed
-// `FetchproxyBridgeDownError` / `FetchproxyTimeoutError` on failure
-// (both subclasses of `FetchproxyProtocolError`).
+// (default 30000ms) are server defaults. We additionally opt into the
+// 0.9.0 proactive keep-alive (`keepAliveIntervalMs: 25_000`) below to
+// hold the SW resident across human-paced session gaps — round-3 #67
+// evidence showed reactive lazy-revive alone wasn't enough. The
+// convenience `request()` method throws typed `FetchproxyBridgeDownError`
+// / `FetchproxyTimeoutError` on failure (both subclasses of
+// `FetchproxyProtocolError`).
 import { FetchproxyServer, type FetchproxyServerOpts } from '@fetchproxy/server';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
@@ -30,6 +33,8 @@ export class FetchproxyTransport implements OpenTableTransport {
       // (e.g. www.opentable.com, mobile.opentable.com) match the
       // declared root automatically.
       domains: ['opentable.com'],
+      // fetchproxy#71 — keep SW resident across human-paced session gaps
+      keepAliveIntervalMs: 25_000,
     };
     this.inner = new FetchproxyServer(options);
   }
