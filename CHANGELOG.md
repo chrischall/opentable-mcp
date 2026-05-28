@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/chrischall/opentable-mcp/compare/v0.12.0...v0.13.0) (2026-05-28)
+
+
+### Features
+
+* adopt @fetchproxy/server 0.10.0 — drop redundant keepAliveIntervalMs opt-in ([#72](https://github.com/chrischall/opentable-mcp/issues/72)) ([#59](https://github.com/chrischall/opentable-mcp/issues/59)) ([57a8d2e](https://github.com/chrischall/opentable-mcp/commit/57a8d2eaf2b8e26e04dff8cdf4b1c3d5fbb57cdf))
+
 ## [0.12.0](https://github.com/chrischall/opentable-mcp/compare/v0.11.0...v0.12.0) (2026-05-28)
 
 
