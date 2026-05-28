@@ -30,6 +30,8 @@ export class FetchproxyTransport implements OpenTableTransport {
       // (e.g. www.opentable.com, mobile.opentable.com) match the
       // declared root automatically.
       domains: ['opentable.com'],
+      // fetchproxy#71 — keep SW resident across human-paced session gaps
+      keepAliveIntervalMs: 25_000,
     };
     this.inner = new FetchproxyServer(options);
   }
