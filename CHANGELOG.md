@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/chrischall/opentable-mcp/compare/v0.13.0...v0.14.0) (2026-05-29)
+
+
+### Features
+
+* adopt @fetchproxy/server 0.11.0 ([#64](https://github.com/chrischall/opentable-mcp/issues/64)) ([ee75432](https://github.com/chrischall/opentable-mcp/commit/ee75432c24ac0c3eacbcc8b0aa7d8dcb8eaa4a7f))
+
+
+### Bug Fixes
+
+* **ci:** arm auto-merge from verdict comment when structured_output is empty ([#63](https://github.com/chrischall/opentable-mcp/issues/63)) ([1dff342](https://github.com/chrischall/opentable-mcp/commit/1dff3424a8d0922c25d58e05e843b7efbd5cdd94))
+* **ci:** treat instant-merge race as success in auto-merge arm ([#61](https://github.com/chrischall/opentable-mcp/issues/61)) ([47b487b](https://github.com/chrischall/opentable-mcp/commit/47b487b2571ca07be15589ca89a121b2ef4e0fa7))
+
 ## [0.13.0](https://github.com/chrischall/opentable-mcp/compare/v0.12.0...v0.13.0) (2026-05-28)
 
 
