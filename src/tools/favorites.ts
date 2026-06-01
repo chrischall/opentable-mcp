@@ -4,7 +4,7 @@
 // page is cached — a fresh add may take ~10s to show up there, so we
 // treat the 204 as authoritative and don't round-trip through list to
 // "verify".
-import { z } from 'zod';
+import { textResult, PositiveInt } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseFavorites } from '../parse-favorites.js';
@@ -30,11 +30,7 @@ export function registerFavoriteTools(
     async () => {
       const html = await client.fetchHtml(FAVORITES_PATH);
       const favorites = parseFavorites(html);
-      return {
-        content: [
-          { type: 'text' as const, text: JSON.stringify(favorites, null, 2) },
-        ],
-      };
+      return textResult(favorites);
     }
   );
 
@@ -44,7 +40,7 @@ export function registerFavoriteTools(
       description:
         "Add a restaurant to the user's Saved Restaurants list.",
       inputSchema: {
-        restaurant_id: z.number().int().positive(),
+        restaurant_id: PositiveInt,
       },
     },
     async ({ restaurant_id }) => {
@@ -52,14 +48,7 @@ export function registerFavoriteTools(
         method: 'POST',
         body: { restaurantId: restaurant_id, wishListName: WISHLIST_NAME },
       });
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({ favorited: true, restaurant_id }, null, 2),
-          },
-        ],
-      };
+      return textResult({ favorited: true, restaurant_id });
     }
   );
 
@@ -69,7 +58,7 @@ export function registerFavoriteTools(
       description:
         "Remove a restaurant from the user's Saved Restaurants list.",
       inputSchema: {
-        restaurant_id: z.number().int().positive(),
+        restaurant_id: PositiveInt,
       },
     },
     async ({ restaurant_id }) => {
@@ -77,14 +66,7 @@ export function registerFavoriteTools(
         method: 'POST',
         body: { restaurantId: restaurant_id, wishListName: WISHLIST_NAME },
       });
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({ removed: true, restaurant_id }, null, 2),
-          },
-        ],
-      };
+      return textResult({ removed: true, restaurant_id });
     }
   );
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { textResult, PositiveInt } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseSearch } from '../parse-search.js';
@@ -54,7 +55,7 @@ export function registerSearchTools(
           .describe('City / neighborhood / address — appended to the term. Prefer lat/lng when precise.'),
         date: z.string().optional().describe('YYYY-MM-DD. Affects search ranking but not returned slots.'),
         time: z.string().optional().describe('HH:MM (24h). Default 19:00 when date is set.'),
-        party_size: z.number().int().positive().optional().describe('Number of guests. Default 2.'),
+        party_size: PositiveInt.optional().describe('Number of guests. Default 2.'),
         latitude: z.number().optional(),
         longitude: z.number().optional(),
         metro_id: z.number().int().optional().describe('OpenTable metro id (e.g. 8 = SF Bay Area, 31 = Charlotte).'),
@@ -64,11 +65,7 @@ export function registerSearchTools(
       const path = buildSearchUrl(input);
       const html = await client.fetchHtml(path);
       const result = parseSearch(html);
-      return {
-        content: [
-          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
-        ],
-      };
+      return textResult(result);
     }
   );
 }
