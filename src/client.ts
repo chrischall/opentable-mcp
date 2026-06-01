@@ -8,6 +8,7 @@
 // Error mapping (non-2xx, sign-in interstitial, empty 204 body) lives
 // here so tool authors never have to think about it AND so it stays
 // consistent across transports.
+import { truncateErrorMessage } from '@chrischall/mcp-utils';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 export class SessionNotAuthenticatedError extends Error {
@@ -93,13 +94,13 @@ export class OpenTableClient {
 
   private throwIfNotOk(result: FetchResult, method: string, path: string): void {
     if (result.status >= 200 && result.status < 300) return;
-    // Include the response body (trimmed) — OpenTable's 4xx bodies usually name
-    // the missing/invalid field, which is essential for debugging write tools.
-    const bodyPreview = result.body
-      ? ` — ${result.body.slice(0, 500).replace(/\s+/g, ' ').trim()}${
-          result.body.length > 500 ? '…' : ''
-        }`
-      : '';
+    // Include the response body (collapsed + trimmed) — OpenTable's 4xx bodies
+    // usually name the missing/invalid field, which is essential for debugging
+    // write tools. truncateErrorMessage (mcp-utils) redacts any bearer/JWT
+    // secrets and caps the length at the fleet-wide 500-char budget; we collapse
+    // internal whitespace first so multi-line HTML error pages stay one line.
+    const collapsed = result.body.replace(/\s+/g, ' ').trim();
+    const bodyPreview = collapsed ? ` — ${truncateErrorMessage(collapsed)}` : '';
     throw new Error(
       `OpenTable API error: ${result.status} for ${method} ${path}${bodyPreview}`
     );

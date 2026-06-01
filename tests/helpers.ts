@@ -1,40 +1,6 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
-export async function createTestHarness(
-  registerFn: (server: McpServer) => void
-): Promise<{
-  client: Client;
-  server: McpServer;
-  callTool: (name: string, args?: Record<string, unknown>) => Promise<CallToolResult>;
-  listTools: () => Promise<{ name: string }[]>;
-  close: () => Promise<void>;
-}> {
-  const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerFn(server);
-
-  const client = new Client({ name: 'test-client', version: '0.0.0' });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-  await Promise.all([
-    server.connect(serverTransport),
-    client.connect(clientTransport),
-  ]);
-
-  return {
-    client,
-    server,
-    callTool: async (name, args) =>
-      client.callTool({ name, arguments: args ?? {} }) as Promise<CallToolResult>,
-    listTools: async () => {
-      const result = await client.listTools();
-      return result.tools.map((t) => ({ name: t.name }));
-    },
-    close: async () => {
-      await client.close();
-      await server.close();
-    },
-  };
-}
+// The in-memory MCP harness is now provided by @chrischall/mcp-utils/test —
+// a byte-identical version of what this file used to define. Re-exported here
+// so the existing `import { createTestHarness } from '../helpers.js'` call
+// sites across tests/tools/*.test.ts keep working unchanged.
+export { createTestHarness, parseToolResult } from '@chrischall/mcp-utils/test';
+export type { TestHarness, RegisterFn } from '@chrischall/mcp-utils/test';

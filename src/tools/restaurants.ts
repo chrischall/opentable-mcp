@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { textResult, PositiveInt } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseRestaurant } from '../parse-restaurant.js';
@@ -25,7 +26,7 @@ export function registerRestaurantTools(
       annotations: { readOnlyHint: true },
       inputSchema: {
         restaurant_id: z
-          .union([z.string(), z.number().int().positive()])
+          .union([z.string(), PositiveInt])
           .describe(
             'URL slug (e.g. "state-of-confusion-charlotte"). Numeric ids 404 on /r/{...} — grab the slug from opentable_search_restaurants.'
           ),
@@ -39,11 +40,7 @@ export function registerRestaurantTools(
       // identifies the right restaurant in the rid sense).
       const slug = typeof restaurant_id === 'string' ? restaurant_id : undefined;
       const restaurant = parseRestaurant(html, slug);
-      return {
-        content: [
-          { type: 'text' as const, text: JSON.stringify(restaurant, null, 2) },
-        ],
-      };
+      return textResult(restaurant);
     }
   );
 }

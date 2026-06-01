@@ -11,7 +11,10 @@
 // convenience `request()` method throws typed `FetchproxyBridgeDownError`
 // / `FetchproxyTimeoutError` on failure (both subclasses of
 // `FetchproxyProtocolError`).
-import { FetchproxyServer, type FetchproxyServerOpts } from '@fetchproxy/server';
+import {
+  createFetchproxyTransport,
+  type FetchproxyTransport as FetchproxyTransportAdapter,
+} from '@chrischall/mcp-utils/fetchproxy';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 export interface FetchproxyTransportOptions {
@@ -23,10 +26,16 @@ export interface FetchproxyTransportOptions {
 }
 
 export class FetchproxyTransport implements OpenTableTransport {
-  private readonly inner: FetchproxyServer;
+  // mcp-utils' createFetchproxyTransport owns the FetchproxyServer construction
+  // + start/close lifecycle (the boilerplate ~12 sibling MCPs duplicate). It
+  // forwards FetchproxyServerOpts verbatim, so the opentable contract is intact:
+  // port 37149, serverName, version, and the opentable.com domain pin. We keep
+  // the opentable-specific fetch() mapping (relative path → www subdomain →
+  // {status,body,url}) here since it's domain-specific, not generic glue.
+  private readonly inner: FetchproxyTransportAdapter;
 
   constructor(opts: FetchproxyTransportOptions) {
-    const options: FetchproxyServerOpts = {
+    this.inner = createFetchproxyTransport({
       port: opts.port ?? 37149,
       serverName: opts.server ?? 'opentable-mcp',
       version: opts.version,
@@ -37,12 +46,11 @@ export class FetchproxyTransport implements OpenTableTransport {
       // keepAliveIntervalMs is no longer set here: @fetchproxy/server 0.10.0
       // defaults it to 25_000 — the same cadence we used to hold the SW
       // resident across human-paced session gaps (fetchproxy#72).
-    };
-    this.inner = new FetchproxyServer(options);
+    });
   }
 
   start(): Promise<void> {
-    return this.inner.listen();
+    return this.inner.start();
   }
 
   close(): Promise<void> {
@@ -56,7 +64,7 @@ export class FetchproxyTransport implements OpenTableTransport {
     // FetchproxyProtocolError so any caller catching the parent still
     // matches. The opentable contract (throw on protocol failures,
     // return on HTTP-level outcomes) is preserved.
-    const response = await this.inner.request(init.method, init.path, {
+    const response = await this.inner.server.request(init.method, init.path, {
       subdomain: 'www',
       headers: init.headers,
       body: init.body,

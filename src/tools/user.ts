@@ -4,6 +4,7 @@
 // because it's the canonical authenticated landing page; a follow-up
 // list_reservations call can reuse the same HTML via the extension's
 // own caching (though we don't currently cache on the server side).
+import { textResult } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseUserProfile } from '../parse-user-profile.js';
@@ -24,11 +25,7 @@ export function registerUserTools(
     async () => {
       const html = await client.fetchHtml(PROFILE_SOURCE_PATH);
       const profile = parseUserProfile(html);
-      return {
-        content: [
-          { type: 'text' as const, text: JSON.stringify(profile, null, 2) },
-        ],
-      };
+      return textResult(profile);
     }
   );
 }

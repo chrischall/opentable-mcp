@@ -1,27 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// Capture the options the adapter passes to FetchproxyServer's constructor.
-// We don't exercise the real WebSocket here — the FetchproxyServer surface
-// itself is owned (and tested) upstream in @fetchproxy/server. All we care
-// about is that the adapter wires its options through correctly.
+// Capture the options the adapter passes to mcp-utils' createFetchproxyTransport.
+// As of the @chrischall/mcp-utils adoption, FetchproxyServer construction +
+// start/close lifecycle is owned by createFetchproxyTransport (and tested
+// upstream in mcp-utils). All this repo's adapter has to do is wire its options
+// through correctly and keep the opentable-specific fetch() mapping. We mock the
+// mcp-utils subpath so we can assert exactly what opentable-mcp hands it.
 const ctorCalls: unknown[] = [];
 
-vi.mock('@fetchproxy/server', () => {
-  class FakeFetchproxyServer {
-    constructor(opts: unknown) {
+vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
+  return {
+    createFetchproxyTransport: (opts: unknown) => {
       ctorCalls.push(opts);
-    }
-    listen() {
-      return Promise.resolve();
-    }
-    close() {
-      return Promise.resolve();
-    }
-    request() {
-      return Promise.resolve({ status: 200, body: '', url: '' });
-    }
-  }
-  return { FetchproxyServer: FakeFetchproxyServer };
+      return {
+        server: {
+          request: () => Promise.resolve({ status: 200, body: '', url: '' }),
+        },
+        start: () => Promise.resolve(),
+        close: () => Promise.resolve(),
+        status: () => ({}),
+        role: null,
+      };
+    },
+  };
 });
 
 // Import AFTER vi.mock so the adapter picks up the fake.
