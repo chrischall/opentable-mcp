@@ -11,6 +11,22 @@
 import { truncateErrorMessage } from '@chrischall/mcp-utils';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
+/**
+ * Thrown on any non-2xx response. Carries the numeric `status` so callers
+ * can branch on it (e.g. `opentable_get_restaurant` falls back from
+ * `/r/{slug}` to `/{slug}` on a 404). The `message` is unchanged from the
+ * previous plain-Error form, so existing string/regex assertions still hold.
+ */
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 export class SessionNotAuthenticatedError extends Error {
   constructor() {
     super(
@@ -101,7 +117,8 @@ export class OpenTableClient {
     // internal whitespace first so multi-line HTML error pages stay one line.
     const collapsed = result.body.replace(/\s+/g, ' ').trim();
     const bodyPreview = collapsed ? ` — ${truncateErrorMessage(collapsed)}` : '';
-    throw new Error(
+    throw new HttpError(
+      result.status,
       `OpenTable API error: ${result.status} for ${method} ${path}${bodyPreview}`
     );
   }

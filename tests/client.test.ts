@@ -3,7 +3,7 @@
 // The WS layer itself now lives in @fetchproxy/server; its protocol is
 // tested upstream in the fetchproxy repo.
 import { describe, it, expect, vi } from 'vitest';
-import { OpenTableClient } from '../src/client.js';
+import { OpenTableClient, HttpError } from '../src/client.js';
 import type { FetchInit, FetchResult, OpenTableTransport } from '../src/transport.js';
 
 function stubTransport(handler: (init: FetchInit) => Promise<FetchResult>): OpenTableTransport {
@@ -49,6 +49,21 @@ describe('OpenTableClient', () => {
       })),
     });
     await expect(client.fetchHtml('/x')).rejects.toThrow(/500/);
+  });
+
+  it('fetchHtml throws an HttpError carrying the status code', async () => {
+    const client = new OpenTableClient({
+      transport: stubTransport(async () => ({
+        status: 404,
+        body: '<html>not found</html>',
+        url: 'https://www.opentable.com/r/missing',
+      })),
+    });
+    await expect(client.fetchHtml('/r/missing')).rejects.toMatchObject({
+      name: 'HttpError',
+      status: 404,
+    });
+    await expect(client.fetchHtml('/r/missing')).rejects.toBeInstanceOf(HttpError);
   });
 
   it('fetchJson POSTs JSON and parses the reply', async () => {
