@@ -21,7 +21,12 @@ import type { OpenTableClient } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
 import { parseUserProfile } from '../parse-user-profile.js';
-import { parseBookingDetailsState, sameDayConflicts } from '../parse-booking-details-state.js';
+import {
+  parseBookingDetailsState,
+  sameDayConflicts,
+  resolveDiningAreaId,
+  type BookingDetailsSummary,
+} from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
 import { encodeBookingToken, decodeBookingToken } from '../booking-token.js';
 import {
@@ -54,7 +59,10 @@ function bookingDetailsPath(input: {
   party_size: number;
   slot_hash: string;
   reservation_token: string;
-  dining_area_id: number;
+  /** Optional. When omitted, the diningAreaId query param is left off the
+   *  URL — OpenTable still returns the page's full diningAreasBySeating
+   *  list, which the caller resolves a concrete id from. */
+  dining_area_id?: number;
   experience_id?: number;
   /** When set together with `security_token`, marks this URL as a modify
    *  of an existing reservation. OpenTable's /booking/details SSR loads
@@ -73,8 +81,10 @@ function bookingDetailsPath(input: {
     seating: 'default',
     slotHash: input.slot_hash,
     slotAvailabilityToken: input.reservation_token,
-    diningAreaId: String(input.dining_area_id),
   });
+  if (typeof input.dining_area_id === 'number') {
+    params.set('diningAreaId', String(input.dining_area_id));
+  }
   if (typeof input.experience_id === 'number') {
     params.set('experienceIds', String(input.experience_id));
     params.set('selectedExperience', String(input.experience_id));
@@ -148,6 +158,29 @@ function sameDayConflictError(
   );
 }
 
+/**
+ * Resolve the `dining_area_id` to book with: the caller's explicit value if
+ * given, otherwise the default dining area parsed from the /booking/details
+ * page. This is what decouples booking from `opentable_get_restaurant` — the
+ * numeric id isn't in find_slots' availability response, only on the
+ * booking-details page (which book/book_preview already fetch). Throws an
+ * actionable error when neither source yields one.
+ */
+function requireDiningAreaId(
+  explicit: number | undefined,
+  summary: BookingDetailsSummary
+): number {
+  if (typeof explicit === 'number') return explicit;
+  const resolved = resolveDiningAreaId(summary.dining_areas);
+  if (resolved === null) {
+    throw new Error(
+      "Couldn't determine a dining area for this slot from OpenTable's booking page. " +
+        'Pass dining_area_id explicitly and retry.'
+    );
+  }
+  return resolved;
+}
+
 /** Minimum viable `variables` for the RestaurantsAvailability query. */
 function buildAvailabilityVariables(input: {
   restaurant_ids: number[];
@@ -203,7 +236,7 @@ export function registerReservationTools(
     'opentable_find_slots',
     {
       description:
-        "List available reservation slots at a specific OpenTable restaurant for a date + party size. Returns each slot's reservation_token (use it with opentable_book — tokens expire quickly, book promptly). Slots may be attributes=['default'|'bar'|'highTop'|'outdoor'] and type=Standard|Experience|POP.",
+        "List available reservation slots at a specific OpenTable restaurant for a date + party size. Returns each slot's reservation_token (use it with opentable_book — tokens expire quickly, book promptly). Slots may be attributes=['default'|'bar'|'highTop'|'outdoor'] and type=Standard|Experience|POP. You can pass a slot's reservation_token + slot_hash straight to opentable_book without a separate opentable_get_restaurant call — book auto-resolves the dining area. (OpenTable's availability response carries only the seating category, not the numeric dining-area id, so that id is resolved at book time from the booking-details page.)",
       annotations: { readOnlyHint: true },
       inputSchema: {
         restaurant_id: PositiveInt,
@@ -254,7 +287,10 @@ export function registerReservationTools(
         dining_area_id: z
           .number()
           .int()
-          .describe('Dining area id (from opentable_get_restaurant → diningAreas[])'),
+          .optional()
+          .describe(
+            'Optional dining-area (room) id. When omitted, auto-resolved to the default dining area from OpenTable\'s booking-details page — so you can go straight from find_slots to book without calling opentable_get_restaurant. Pass explicitly only to pin a specific room.'
+          ),
         experience_id: z
           .number()
           .int()
@@ -333,13 +369,17 @@ export function registerReservationTools(
         );
       }
 
+      // Step 2c — resolve the dining area (caller's value, or the default
+      // parsed from this page). Drops the hard dependency on get_restaurant.
+      const resolvedDiningAreaId = requireDiningAreaId(dining_area_id, summary);
+
       // Step 3 — slot-lock (reserves the slot for ~90s).
       const slotLockId = await lockSlot(client, {
         restaurantId: restaurant_id,
         reservationDateTime,
         partySize: party_size,
         slotHash: slot_hash,
-        diningAreaId: dining_area_id,
+        diningAreaId: resolvedDiningAreaId,
         reservationToken: reservation_token,
         experience: isExperience
           ? {
@@ -368,7 +408,7 @@ export function registerReservationTools(
       const booking_token = encodeBookingToken({
         slotLockId,
         restaurantId: restaurant_id,
-        diningAreaId: dining_area_id,
+        diningAreaId: resolvedDiningAreaId,
         partySize: party_size,
         date,
         time,
@@ -402,7 +442,13 @@ export function registerReservationTools(
                 // the bookable experience surfaced from the booking-details
                 // page's __INITIAL_STATE__ (name, type, description, price).
                 experience: summary.experience,
-                reservation: { date, time, party_size, restaurant_id, dining_area_id },
+                reservation: {
+                  date,
+                  time,
+                  party_size,
+                  restaurant_id,
+                  dining_area_id: resolvedDiningAreaId,
+                },
                 cancellation_policy: summary.policy,
                 payment_method:
                   summary.cc_required && summary.default_card
@@ -617,7 +663,7 @@ export function registerReservationTools(
     'opentable_book',
     {
       description:
-        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book) AND the dining_area_id for the room you want (from opentable_get_restaurant → diningAreas[]). For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead.",
+        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). dining_area_id is OPTIONAL: when omitted it's auto-resolved to the default dining area from OpenTable's booking-details page, so find_slots → book works without a separate opentable_get_restaurant call. For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead.",
       inputSchema: {
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
@@ -628,7 +674,8 @@ export function registerReservationTools(
         dining_area_id: z
           .number()
           .int()
-          .describe("Dining area id (from opentable_get_restaurant → diningAreas[]). Required — OpenTable's numeric-id restaurant URLs 404, so we can't auto-resolve."),
+          .optional()
+          .describe("Optional dining-area (room) id. When omitted, auto-resolved to the default dining area from the booking-details page — no opentable_get_restaurant call needed. Pass explicitly only to pin a specific room. Ignored on the booking_token path (the token already carries the resolved area)."),
         booking_token: z
           .string()
           .optional()
@@ -664,7 +711,9 @@ export function registerReservationTools(
       experience_id: callerExperienceId,
     }) => {
       const reservationDateTime = `${date}T${time}`;
-      const diningAreaId = dining_area_id;
+      // Resolved below: from the token (token path) or the booking-details
+      // page (no-token path). dining_area_id is optional on this tool.
+      let diningAreaId: number;
 
       let slotLockId: number;
       let paymentCard: { id: string; last4: string; expiryMmYy: string; provider: string } | null = null;
@@ -692,7 +741,9 @@ export function registerReservationTools(
           payload.date !== date ||
           payload.time !== time ||
           payload.partySize !== party_size ||
-          payload.diningAreaId !== dining_area_id ||
+          // dining_area_id is optional here — only tamper-check it when the
+          // caller restated one. Omitted means "trust the token's area".
+          (typeof dining_area_id === 'number' && payload.diningAreaId !== dining_area_id) ||
           (typeof callerExperienceId === 'number' &&
             payload.experienceId !== callerExperienceId)
         ) {
@@ -700,6 +751,8 @@ export function registerReservationTools(
             'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, dining area, or experience_id). Call opentable_book_preview again with the current args.'
           );
         }
+        // The token is authoritative for the dining area (preview resolved it).
+        diningAreaId = payload.diningAreaId;
         slotLockId = payload.slotLockId;
         paymentCard = payload.paymentCard;
         ccRequired = payload.ccRequired;
@@ -740,6 +793,10 @@ export function registerReservationTools(
             'This slot requires a credit-card guarantee. Call opentable_book_preview first to review the cancellation policy, then pass the returned booking_token back to opentable_book.'
           );
         }
+
+        // Resolve the dining area (caller's value, or the default parsed from
+        // this same page) before locking.
+        diningAreaId = requireDiningAreaId(dining_area_id, summary);
 
         // Standard-no-guarantee path: lock the slot ourselves.
         slotLockId = await lockSlot(client, {

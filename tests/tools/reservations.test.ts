@@ -413,6 +413,177 @@ describe('reservation tools', () => {
     });
   });
 
+  describe('dining_area_id auto-resolution (decouples booking from get_restaurant)', () => {
+    const userState = {
+      header: {
+        userProfile: {
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'test@example.com',
+          mobilePhoneNumber: { number: '5551234567', countryId: 'US' },
+          countryId: 'US',
+        },
+      },
+      diningDashboard: { upcomingReservations: [], pastReservations: [] },
+    };
+
+    it('book_preview resolves dining_area_id from /booking/details when omitted', async () => {
+      // no-cc fixture's diningAreasBySeating = [{ diningAreaId: 48750, default }]
+      mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-no-cc.json')));
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        // dining_area_id omitted
+      });
+
+      expect(result.isError).toBeFalsy();
+      // The /booking/details URL must NOT pin a diningAreaId we don't have yet.
+      const url = mockFetchHtml.mock.calls[0][0] as string;
+      expect(url).not.toContain('diningAreaId=');
+      // The slot-lock carries the resolved id.
+      const lockBody = (mockFetchJson.mock.calls[0][1] as { body: { variables: { input: { diningAreaId: number } } } }).body;
+      expect(lockBody.variables.input.diningAreaId).toBe(48750);
+
+      const body = JSON.parse((result.content[0] as { text: string }).text);
+      expect(body.reservation.dining_area_id).toBe(48750);
+      expect(decodeBookingToken(body.booking_token).diningAreaId).toBe(48750);
+    });
+
+    it('book_preview still pins diningAreaId in the URL when one is provided', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-no-cc.json')));
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+      });
+
+      await harness.callTool('opentable_book_preview', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 999,
+      });
+
+      const url = mockFetchHtml.mock.calls[0][0] as string;
+      expect(url).toContain('diningAreaId=999');
+      const lockBody = (mockFetchJson.mock.calls[0][1] as { body: { variables: { input: { diningAreaId: number } } } }).body;
+      expect(lockBody.variables.input.diningAreaId).toBe(999);
+    });
+
+    it('book_preview errors clearly when omitted and the page has no dining areas', async () => {
+      const noAreas = {
+        ...fixture('booking-details-state-no-cc.json'),
+        timeSlot: { creditCardRequired: false },
+      };
+      mockFetchHtml.mockResolvedValue(htmlWith(noAreas));
+      mockFetchJson.mockRejectedValue(new Error('should not slot-lock'));
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+      });
+
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/dining area/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('book (no token, no CC) resolves dining_area_id from /booking/details when omitted', async () => {
+      mockFetchHtml
+        .mockResolvedValueOnce(htmlWith(fixture('booking-details-state-no-cc.json')))
+        .mockResolvedValueOnce(htmlWith(userState));
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
+        if (path.includes('SlotLock')) {
+          return { data: { lockSlot: { success: true, slotLock: { slotLockId: 5555 } } } };
+        }
+        if (path.includes('make-reservation')) {
+          expect((init?.body as { diningAreaId: number }).diningAreaId).toBe(48750);
+          return {
+            success: true,
+            reservationId: 1,
+            confirmationNumber: 222,
+            securityToken: 'st',
+            points: 100,
+            partnerScaRequired: false,
+          };
+        }
+        throw new Error(`unexpected fetchJson path: ${path}`);
+      });
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 1272781,
+        date: '2026-05-01',
+        time: '19:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        // dining_area_id omitted
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(JSON.parse((result.content[0] as { text: string }).text).confirmation_number).toBe(222);
+      expect(mockFetchHtml.mock.calls[0][0] as string).not.toContain('diningAreaId=');
+    });
+
+    it('book (token path) uses the token dining area when dining_area_id is omitted', async () => {
+      const token = encodeBookingToken({
+        slotLockId: 12345,
+        restaurantId: 2827,
+        diningAreaId: 48750,
+        partySize: 5,
+        date: '2026-05-01',
+        time: '20:45',
+        reservationToken: 'rt',
+        slotHash: 'sh',
+        paymentCard: null,
+        ccRequired: false,
+        issuedAt: '2026-04-21T00:00:00Z',
+      });
+      mockFetchHtml.mockResolvedValue(htmlWith(userState));
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
+        if (path.includes('make-reservation')) {
+          expect((init?.body as { diningAreaId: number }).diningAreaId).toBe(48750);
+          return {
+            success: true,
+            reservationId: 1,
+            confirmationNumber: 333,
+            securityToken: 'st',
+            points: 0,
+            partnerScaRequired: false,
+          };
+        }
+        throw new Error(`unexpected fetchJson path: ${path}`);
+      });
+
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 2827,
+        date: '2026-05-01',
+        time: '20:45',
+        party_size: 5,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        booking_token: token,
+        // dining_area_id omitted — comes from the token
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(JSON.parse((result.content[0] as { text: string }).text).confirmation_number).toBe(333);
+    });
+  });
+
   describe('opentable_book_preview — Experience-mandatory slot', () => {
     it('builds the /booking/details URL with experience query params and calls Experience slot-lock', async () => {
       mockFetchHtml.mockResolvedValue(

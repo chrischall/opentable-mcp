@@ -93,6 +93,11 @@ export interface BookingDetailsSummary {
    *  flow (timeSlot.experiencesBySeating non-empty). Null for Standard
    *  bookings. */
   experience: BookingExperience | null;
+  /** Bookable dining areas (with numeric ids) for this slot, in the order
+   *  OpenTable returns them. Lets book/book_preview auto-resolve
+   *  `dining_area_id` when the caller doesn't pass one — the numeric id
+   *  isn't available from find_slots' availability response, only here. */
+  dining_areas: DiningAreaOption[];
 }
 
 interface RawBookableExperienceMini {
@@ -103,6 +108,15 @@ interface RawDiningAreaBySeating {
   tableCategory?: string;
   bookableExperienceIds?: number[];
   bookableExperiences?: RawBookableExperienceMini[];
+}
+
+/** A bookable dining area surfaced from the /booking/details page.
+ *  `table_category` is OpenTable's seating bucket (default | bar | highTop
+ *  | outdoor). Used to auto-resolve `dining_area_id` when a caller books
+ *  without specifying one — see {@link resolveDiningAreaId}. */
+export interface DiningAreaOption {
+  dining_area_id: number;
+  table_category: string;
 }
 interface RawExperiencesBySeating {
   tableCategory?: string;
@@ -337,6 +351,15 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
     }
   }
 
+  const dining_areas: DiningAreaOption[] = dasBySeating
+    .filter((d): d is RawDiningAreaBySeating & { diningAreaId: number } =>
+      typeof d.diningAreaId === 'number'
+    )
+    .map((d) => ({
+      dining_area_id: d.diningAreaId,
+      table_category: d.tableCategory ?? '',
+    }));
+
   return {
     cc_required: ccRequired,
     policy_type: policyType,
@@ -345,7 +368,33 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
     conflicts,
     terms,
     experience,
+    dining_areas,
   };
+}
+
+/**
+ * Pick the `dining_area_id` to book when the caller didn't specify one.
+ *
+ * The numeric dining-area id required by the slot-lock + make-reservation
+ * POSTs is NOT present in find_slots' availability response — it only
+ * appears on the /booking/details page (`timeSlot.diningAreasBySeating`).
+ * This resolves it from that list: the first area matching `seating`
+ * (default "default"), falling back to the first area overall. Returns
+ * null when the page surfaced no dining areas, in which case the caller
+ * must pass `dining_area_id` explicitly.
+ *
+ * Heuristic note: when a seating bucket maps to multiple areas (OpenTable
+ * sometimes lists both a named room and a sentinel id 1), the first entry
+ * is OpenTable's own primary — it matches what the booking UI sends. A
+ * caller who needs a specific room can always pass `dining_area_id`.
+ */
+export function resolveDiningAreaId(
+  diningAreas: DiningAreaOption[],
+  seating: string = 'default'
+): number | null {
+  const match = diningAreas.find((d) => d.table_category === seating);
+  if (match) return match.dining_area_id;
+  return diningAreas[0]?.dining_area_id ?? null;
 }
 
 /**
