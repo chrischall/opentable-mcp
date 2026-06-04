@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import {
   parseBookingDetailsState,
   sameDayConflicts,
+  resolveDiningAreaId,
 } from '../src/parse-booking-details-state.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -200,6 +201,61 @@ describe('parseBookingDetailsState — Experience-mandatory page', () => {
     // The existing CC fixture is a Standard flow.
     const summary = parseBookingDetailsState(fixture('booking-details-state-cc.json'));
     expect(summary.experience).toBeNull();
+  });
+});
+
+describe('parseBookingDetailsState — dining_areas', () => {
+  it('surfaces diningAreasBySeating as {dining_area_id, table_category}, preserving order', () => {
+    const summary = parseBookingDetailsState({
+      timeSlot: {
+        diningAreasBySeating: [
+          { diningAreaId: 48750, tableCategory: 'default', environment: 'Indoor' },
+          { diningAreaId: 1, tableCategory: 'default', environment: 'Indoor' },
+          { diningAreaId: 48749, tableCategory: 'outdoor', environment: 'Outdoor' },
+        ],
+      },
+    });
+    expect(summary.dining_areas).toEqual([
+      { dining_area_id: 48750, table_category: 'default' },
+      { dining_area_id: 1, table_category: 'default' },
+      { dining_area_id: 48749, table_category: 'outdoor' },
+    ]);
+  });
+
+  it('drops entries with no numeric diningAreaId', () => {
+    const summary = parseBookingDetailsState({
+      timeSlot: {
+        diningAreasBySeating: [
+          { tableCategory: 'default', inventoryAccessRuleMap: null },
+          { diningAreaId: 99, tableCategory: 'bar' },
+        ],
+      },
+    });
+    expect(summary.dining_areas).toEqual([{ dining_area_id: 99, table_category: 'bar' }]);
+  });
+
+  it('returns [] when the page carries no dining areas', () => {
+    expect(parseBookingDetailsState({ timeSlot: {} }).dining_areas).toEqual([]);
+  });
+});
+
+describe('resolveDiningAreaId', () => {
+  const areas = [
+    { dining_area_id: 48750, table_category: 'default' },
+    { dining_area_id: 1, table_category: 'default' },
+    { dining_area_id: 48749, table_category: 'outdoor' },
+  ];
+
+  it('picks the first area matching the default seating', () => {
+    expect(resolveDiningAreaId(areas)).toBe(48750);
+  });
+
+  it('falls back to the first area when no entry matches the requested seating', () => {
+    expect(resolveDiningAreaId([{ dining_area_id: 777, table_category: 'outdoor' }])).toBe(777);
+  });
+
+  it('returns null when there are no dining areas', () => {
+    expect(resolveDiningAreaId([])).toBeNull();
   });
 });
 
