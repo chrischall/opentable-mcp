@@ -28,7 +28,7 @@ import { registerFavoriteTools } from './tools/favorites.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerRestaurantTools } from './tools/restaurants.js';
 
-const VERSION = '0.14.0'; // x-release-please-version
+const VERSION = '0.14.1'; // x-release-please-version
 
 type BridgeKind = 'websocket' | 'mcp-chrome';
 
