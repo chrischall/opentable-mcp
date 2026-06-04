@@ -80,7 +80,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed
 | `opentable_get_profile` | `tools/user.ts` | GET `/user/dining-dashboard` SSR | read |
 | `opentable_list_favorites` | `tools/favorites.ts` | GET `/user/favorites` SSR | read |
 | `opentable_search_restaurants` | `tools/search.ts` | POST `/dapi/fe/gql?opname=Autocomplete` | read |
-| `opentable_get_restaurant` | `tools/restaurants.ts` | GET `/r/{slug}` SSR | read |
+| `opentable_get_restaurant` | `tools/restaurants.ts` | GET `/r/{slug}` SSR (falls back to legacy root `/{slug}`) | read |
 | `opentable_find_slots` | `tools/reservations.ts` | POST `/dapi/fe/gql?opname=RestaurantsAvailability` | read |
 | `opentable_book_preview` | `tools/reservations.ts` | GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` | read |
 | `opentable_book` | `tools/reservations.ts` | (token path) POST `/dapi/booking/make-reservation`; (no-token path) GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` → POST `/dapi/booking/make-reservation` | write |
@@ -146,7 +146,8 @@ Main is always one version ahead of the latest tag. To release, run the **Tag & 
 
 ## Hot spots / gotchas
 
-- **`/r/<numeric-id>` 404s.** OpenTable's restaurant URLs use slugs (`/r/state-of-confusion-charlotte`), not numeric IDs. `opentable_book` therefore requires `dining_area_id` as an explicit arg — call `opentable_get_restaurant` with a slug first to read `diningAreas[]`.
+- **`/r/<numeric-id>` 404s.** OpenTable's restaurant URLs use slugs (`/r/state-of-confusion-charlotte`), not numeric IDs. `opentable_book` therefore requires `dining_area_id` as an explicit arg — call `opentable_get_restaurant` with a slug first to read `diningAreas[]`. `opentable_get_restaurant` rejects numeric ids up front with an actionable error rather than fetching a doomed `/r/<id>`.
+- **Legacy detail pages live at root `/{slug}`, not `/r/{slug}`.** A subset of (older) listings — e.g. The Cellar at Duckworth's (`/the-cellar-at-duckworths`) — are served at the root path. `opentable_get_restaurant` accepts a slug, an absolute path, or a full URL: a path/URL is fetched verbatim (pass the search result's `url` for a guaranteed hit), while a bare slug tries `/r/{slug}` then falls back to `/{slug}` on a 404. The output `url` echoes whichever path actually resolved, so it stays clickable. See `resolveCandidatePaths` in `src/tools/restaurants.ts`.
 - **Extension lifecycle is owned by `@fetchproxy/server`.** Self-healing content scripts, MV3 service-worker keepalive, and CSRF token handling all live upstream in the fetchproxy extension. If a user hits "extension offline" or "Could not establish connection", point them at the fetchproxy installation docs — there's nothing for opentable-mcp to fix.
 - **Persisted-query cache lag on `/user/favorites`.** After `add_favorite` returns 204, the SSR dashboard may not reflect the new entry for ~10s. Document this in the tool description, don't fight the cache.
 - **Sign-in detection.** `OpenTableClient.throwIfSignInPage` checks for `/authenticate/` in the response URL or sign-in markers in a short response body. When it throws, the user must sign into opentable.com in the bridged Chrome tab.

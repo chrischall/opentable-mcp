@@ -141,15 +141,18 @@ function joinAddress(a: RawRestaurant['address']): string {
 /**
  * Parse the restaurant SSR state into the tool-facing shape.
  *
- * @param html  Raw HTML from `/r/{slug}`.
- * @param slug  The slug used in the URL the HTML was fetched from. Threaded
- *              through so the `url` field can be built as `/r/{slug}` —
- *              OpenTable 404s on `/r/{numeric-id}`. Optional for callers
- *              that don't have it (e.g., unit tests or numeric-id inputs
- *              to `opentable_get_restaurant`); url falls back to the
- *              numeric id form in that case.
+ * @param html          Raw HTML from the restaurant detail page.
+ * @param canonicalUrl  The full URL the HTML was fetched from, threaded
+ *              through so the `url` field reflects the exact form OpenTable
+ *              serves — `/r/{slug}` for most venues, root `/{slug}` for
+ *              legacy listings. Optional for callers that don't have it
+ *              (e.g. unit tests); url falls back to `/r/{numeric-id}` in
+ *              that case (404s on opentable.com, but better than empty).
  */
-export function parseRestaurant(html: string, slug?: string): FormattedRestaurant {
+export function parseRestaurant(
+  html: string,
+  canonicalUrl?: string
+): FormattedRestaurant {
   const state = extractInitialState(html);
   const rp = state.restaurantProfile as
     | { restaurant?: RawRestaurant; availabilityToken?: string }
@@ -218,11 +221,11 @@ export function parseRestaurant(html: string, slug?: string): FormattedRestauran
     latest_review: latest?.content ?? '',
     photo_url: r.photos?.profile?.url ?? '',
     availability_token: rp.availabilityToken ?? '',
-    // URL: /r/{slug} when we have it (the only form opentable.com serves);
-    // fall back to /r/{numeric-id} so the field at least leads to the right
-    // restaurant in the API/CDN sense even if the public-facing URL 404s.
-    url: slug
-      ? `${BASE_URL}/r/${slug}`
+    // URL: the canonical URL we fetched from when we have it (preserves
+    // /r/{slug} vs legacy root /{slug}); fall back to /r/{numeric-id} so the
+    // field at least leads to the right restaurant even though it 404s.
+    url: canonicalUrl
+      ? canonicalUrl
       : r.restaurantId !== undefined
         ? `${BASE_URL}/r/${r.restaurantId}`
         : '',

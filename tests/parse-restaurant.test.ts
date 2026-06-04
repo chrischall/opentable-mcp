@@ -209,17 +209,30 @@ describe('parseRestaurant — Listing-type fallbacks', () => {
 });
 
 describe('parseRestaurant — url construction', () => {
-  it('uses the slug arg to build /r/{slug} (the only form opentable.com accepts)', () => {
+  it('uses the canonical url arg verbatim for a standard /r/{slug} venue', () => {
     const html = htmlWith({
       restaurantProfile: {
         restaurant: { restaurantId: 2508, name: 'Le Bernardin', type: 'Listing' },
       },
     });
-    const r = parseRestaurant(html, 'le-bernardin');
+    const r = parseRestaurant(html, 'https://www.opentable.com/r/le-bernardin');
     expect(r.url).toBe('https://www.opentable.com/r/le-bernardin');
   });
 
-  it('falls back to /r/{numeric-id} when no slug is provided (404s on opentable.com, but better than empty)', () => {
+  it('uses the canonical url arg verbatim for a legacy root /{slug} venue', () => {
+    const html = htmlWith({
+      restaurantProfile: {
+        restaurant: { restaurantId: 188233, name: "The Cellar at Duckworth's" },
+      },
+    });
+    const r = parseRestaurant(
+      html,
+      'https://www.opentable.com/the-cellar-at-duckworths'
+    );
+    expect(r.url).toBe('https://www.opentable.com/the-cellar-at-duckworths');
+  });
+
+  it('falls back to /r/{numeric-id} when no canonical url is provided (404s on opentable.com, but better than empty)', () => {
     const html = htmlWith({
       restaurantProfile: {
         restaurant: { restaurantId: 2508, name: 'X' },
