@@ -1585,5 +1585,83 @@ describe('reservation tools', () => {
       };
       expect(init.body.variables.input.databaseRegion).toBe('NA');
     });
+
+    it('book (no-token path) threads database_region onto the slot-lock input', async () => {
+      // databaseRegion is only load-bearing on the no-token path — the token
+      // path skips the slot-lock entirely.
+      const bookUserState = {
+        header: {
+          userProfile: {
+            firstName: 'Test',
+            lastName: 'User',
+            email: 'test@example.com',
+            mobilePhoneNumber: { number: '5551234567', countryId: 'US' },
+            countryId: 'US',
+          },
+        },
+        diningDashboard: { upcomingReservations: [], pastReservations: [] },
+      };
+      mockFetchHtml
+        .mockResolvedValueOnce(htmlWith(fixture('booking-details-state-no-cc.json')))
+        .mockResolvedValueOnce(htmlWith(bookUserState));
+      let slotLockBody: { variables: { input: { databaseRegion: string } } } | undefined;
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+        if (path.includes('SlotLock')) {
+          slotLockBody = init?.body as typeof slotLockBody;
+          return { data: { lockSlot: { success: true, slotLock: { slotLockId: 5555 } } } };
+        }
+        if (path.includes('make-reservation')) {
+          return {
+            success: true,
+            reservationId: 1,
+            confirmationNumber: 222,
+            securityToken: 'st',
+            points: 0,
+            partnerScaRequired: false,
+          };
+        }
+        throw new Error(`unexpected fetchJson path: ${path}`);
+      });
+
+      await harness.callTool('opentable_book', {
+        restaurant_id: 141537,
+        date: '2026-05-01',
+        time: '21:00',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+        database_region: 'EU',
+      });
+
+      expect(slotLockBody?.variables.input.databaseRegion).toBe('EU');
+    });
+
+    it('modify_preview threads database_region onto the slot-lock input', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-no-cc.json')));
+      let slotLockBody: { variables: { input: { databaseRegion: string } } } | undefined;
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+        if (path.includes('opname=BookDetailsStandardSlotLock')) {
+          slotLockBody = init?.body as typeof slotLockBody;
+          return { data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } } };
+        }
+        throw new Error(`unexpected POST: ${path}`);
+      });
+
+      await harness.callTool('opentable_modify_preview', {
+        restaurant_id: 141537,
+        confirmation_number: 11111,
+        security_token: '02xyz',
+        date: '2026-05-05',
+        time: '20:00',
+        party_size: 2,
+        reservation_token: 'tok',
+        slot_hash: 'h',
+        dining_area_id: 1,
+        database_region: 'EU',
+      });
+
+      expect(slotLockBody?.variables.input.databaseRegion).toBe('EU');
+    });
   });
 });
