@@ -40,6 +40,33 @@ import {
 const DINING_DASHBOARD_PATH = '/user/dining-dashboard';
 
 /**
+ * OpenTable shards its reservation data by "database region". North-American
+ * venues live in the `'NA'` shard; UK/EU/APAC restaurants live in other
+ * shards. Slot-lock, availability, and cancel mutations all carry a
+ * `databaseRegion` field and route to the wrong shard (or fail opaquely)
+ * when it's wrong.
+ *
+ * We don't yet derive the region from restaurant data: the booking flow
+ * works purely from `restaurant_id` + slot tokens and never fetches the
+ * restaurant detail page, and neither the `RestaurantsAvailability`
+ * response nor the `/booking/details` SSR state surfaces OpenTable's
+ * `databaseRegion` enum (the restaurant SSR carries a postal `country`,
+ * not the shard id). So the tools take it as an optional input defaulting
+ * to `'NA'`. Callers booking/cancelling at a non-NA restaurant pass the
+ * venue's region explicitly. See the `database_region` param docs.
+ */
+const DEFAULT_DATABASE_REGION = 'NA';
+
+/** Optional `database_region` input shared by the region-keyed tools
+ *  (find_slots / book_preview / book / modify_preview / modify / cancel). */
+const DatabaseRegion = z
+  .string()
+  .optional()
+  .describe(
+    "OpenTable's sharded-database region for the restaurant. Defaults to 'NA' (North America). Pass the venue's region (e.g. for UK/EU/APAC restaurants) when booking or cancelling outside North America — slot-lock, availability, and cancel route to the wrong database shard, or fail opaquely, when this is wrong. LIMITATION: not auto-derived from restaurant data (OpenTable's availability/booking responses don't surface the shard id), so non-NA bookings must set it explicitly."
+  );
+
+/**
  * URL for the SSR /booking/details page. OpenTable shows this page right
  * before the user clicks "Complete Reservation" and it ships the
  * cancellation policy + saved cards + CC-required flag in its
@@ -187,6 +214,7 @@ function buildAvailabilityVariables(input: {
   date: string;
   time: string;
   party_size: number;
+  database_region: string;
 }): Record<string, unknown> {
   return {
     onlyPop: false,
@@ -207,7 +235,7 @@ function buildAvailabilityVariables(input: {
     date: input.date,
     time: input.time,
     partySize: input.party_size,
-    databaseRegion: 'NA',
+    databaseRegion: input.database_region,
   };
 }
 
@@ -243,9 +271,10 @@ export function registerReservationTools(
         date: z.string().describe('YYYY-MM-DD'),
         time: z.string().describe('HH:MM (24h) — anchor time; slots come back relative to this'),
         party_size: PositiveInt,
+        database_region: DatabaseRegion,
       },
     },
-    async ({ restaurant_id, date, time, party_size }) => {
+    async ({ restaurant_id, date, time, party_size, database_region }) => {
       const body = {
         operationName: 'RestaurantsAvailability',
         variables: buildAvailabilityVariables({
@@ -253,6 +282,7 @@ export function registerReservationTools(
           date,
           time,
           party_size,
+          database_region: database_region ?? DEFAULT_DATABASE_REGION,
         }),
         extensions: {
           persistedQuery: {
@@ -305,6 +335,7 @@ export function registerReservationTools(
           .describe(
             'Pass-through from find_slots.experience_ids. When non-empty, experience_id must also be set.'
           ),
+        database_region: DatabaseRegion,
       },
     },
     async ({
@@ -317,8 +348,10 @@ export function registerReservationTools(
       dining_area_id,
       experience_id,
       experience_ids,
+      database_region,
     }) => {
       const reservationDateTime = `${date}T${time}`;
+      const databaseRegion = database_region ?? DEFAULT_DATABASE_REGION;
 
       // Detect Experience-mandatory: caller passed experience_ids (from
       // find_slots) and/or picked an experience_id. The ambiguous case
@@ -381,6 +414,7 @@ export function registerReservationTools(
         slotHash: slot_hash,
         diningAreaId: resolvedDiningAreaId,
         reservationToken: reservation_token,
+        databaseRegion,
         experience: isExperience
           ? {
               experienceId: experience_id!,
@@ -495,6 +529,7 @@ export function registerReservationTools(
           .array(PositiveInt)
           .optional()
           .describe('Pass-through from find_slots.experience_ids. When non-empty, experience_id must also be set.'),
+        database_region: DatabaseRegion,
       },
     },
     async ({
@@ -509,8 +544,10 @@ export function registerReservationTools(
       dining_area_id,
       experience_id,
       experience_ids,
+      database_region,
     }) => {
       const reservationDateTime = `${date}T${time}`;
+      const databaseRegion = database_region ?? DEFAULT_DATABASE_REGION;
 
       const isExperience =
         (Array.isArray(experience_ids) && experience_ids.length > 0) ||
@@ -561,6 +598,7 @@ export function registerReservationTools(
         slotHash: slot_hash,
         diningAreaId: dining_area_id,
         reservationToken: reservation_token,
+        databaseRegion,
         experience: isExperience
           ? {
               experienceId: experience_id!,
@@ -696,6 +734,7 @@ export function registerReservationTools(
           .describe(
             'Tamper-check signal for Experience tokens. When set, must match the experienceId baked into the booking_token by preview — agents that re-state the experience choice here get refused if it drifted from preview.'
           ),
+        database_region: DatabaseRegion,
       },
     },
     async ({
@@ -709,8 +748,10 @@ export function registerReservationTools(
       booking_token,
       experience_ids,
       experience_id: callerExperienceId,
+      database_region,
     }) => {
       const reservationDateTime = `${date}T${time}`;
+      const databaseRegion = database_region ?? DEFAULT_DATABASE_REGION;
       // Resolved below: from the token (token path) or the booking-details
       // page (no-token path). dining_area_id is optional on this tool.
       let diningAreaId: number;
@@ -806,6 +847,7 @@ export function registerReservationTools(
           slotHash: slot_hash,
           diningAreaId,
           reservationToken: reservation_token,
+          databaseRegion,
           endpoints: SLOT_LOCK_ENDPOINTS,
         });
       }
@@ -975,9 +1017,10 @@ export function registerReservationTools(
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
+        database_region: DatabaseRegion,
       },
     },
-    async ({ restaurant_id, confirmation_number, security_token }) => {
+    async ({ restaurant_id, confirmation_number, security_token, database_region }) => {
       const response = await client.fetchJson<{
         data?: {
           cancelReservation?: {
@@ -996,7 +1039,7 @@ export function registerReservationTools(
               restaurantId: restaurant_id,
               confirmationNumber: confirmation_number,
               securityToken: security_token,
-              databaseRegion: 'NA',
+              databaseRegion: database_region ?? DEFAULT_DATABASE_REGION,
               reservationSource: 'Online',
             },
           },
