@@ -8,7 +8,10 @@
 // Error mapping (non-2xx, sign-in interstitial, empty 204 body) lives
 // here so tool authors never have to think about it AND so it stays
 // consistent across transports.
-import { truncateErrorMessage } from '@chrischall/mcp-utils';
+import {
+  SessionNotAuthenticatedError,
+  truncateErrorMessage,
+} from '@chrischall/mcp-utils';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 /**
@@ -27,14 +30,13 @@ export class HttpError extends Error {
   }
 }
 
-export class SessionNotAuthenticatedError extends Error {
-  constructor() {
-    super(
-      'Not signed in to OpenTable. Open the pinned OpenTable tab in your browser and sign in, then try again.'
-    );
-    this.name = 'SessionNotAuthenticatedError';
-  }
-}
+// Sign-in failures throw the canonical SessionNotAuthenticatedError from
+// @chrischall/mcp-utils (re-exported below for existing import sites).
+// NOTE: the message changed from the old local copy ("Open the pinned
+// OpenTable tab…") to the fleet-wide canonical form ("Not signed in to
+// OpenTable. Open opentable.com in your browser and sign in, then try
+// again. …").
+export { SessionNotAuthenticatedError };
 
 export interface OpenTableClientOptions {
   /** Transport used to relay fetches to the user's browser. Required —
@@ -132,6 +134,8 @@ export class OpenTableClient {
     const looksLikeSignIn =
       result.url.includes('/authenticate/') ||
       signInMarkers.some((m) => result.body.includes(m) && result.body.length < 80_000);
-    if (looksLikeSignIn) throw new SessionNotAuthenticatedError();
+    if (looksLikeSignIn) {
+      throw new SessionNotAuthenticatedError('OpenTable', 'opentable.com');
+    }
   }
 }
