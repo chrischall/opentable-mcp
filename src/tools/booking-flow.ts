@@ -45,6 +45,12 @@ export interface SlotLockArgs {
   slotHash: string;
   diningAreaId: number;
   reservationToken: string; // slotAvailabilityToken — only sent for the Experience variant
+  /** OpenTable's sharded-database region the restaurant lives in. Sent
+   *  verbatim on the slot-lock input. North-American venues are `'NA'`;
+   *  non-NA (UK/EU/APAC) restaurants live in other shards and slot-lock
+   *  against the wrong database — or fail opaquely — when this is wrong.
+   *  Defaults to `'NA'` at the tool layer. */
+  databaseRegion: string;
   /** When set, routes through `BookDetailsExperienceSlotLock` instead of
    *  `BookDetailsStandardSlotLock`. The `experienceVersion` is an
    *  optimistic-concurrency stamp from the booking-details SSR state. */
@@ -86,7 +92,7 @@ export async function lockSlot(
         seatingOption: 'DEFAULT',
         reservationDateTime: args.reservationDateTime,
         partySize: args.partySize,
-        databaseRegion: 'NA',
+        databaseRegion: args.databaseRegion,
         slotHash: args.slotHash,
         experienceId: args.experience!.experienceId,
         experienceVersion: args.experience!.experienceVersion,
@@ -99,7 +105,7 @@ export async function lockSlot(
         seatingOption: 'DEFAULT',
         reservationDateTime: args.reservationDateTime,
         partySize: args.partySize,
-        databaseRegion: 'NA',
+        databaseRegion: args.databaseRegion,
         slotHash: args.slotHash,
         reservationType: 'STANDARD',
         diningAreaId: args.diningAreaId,
