@@ -3,6 +3,7 @@
 // The WS layer itself now lives in @fetchproxy/server; its protocol is
 // tested upstream in the fetchproxy repo.
 import { describe, it, expect, vi } from 'vitest';
+import { SessionNotAuthenticatedError } from '@chrischall/mcp-utils';
 import { OpenTableClient, HttpError } from '../src/client.js';
 import type { FetchInit, FetchResult, OpenTableTransport } from '../src/transport.js';
 
@@ -38,6 +39,24 @@ describe('OpenTableClient', () => {
       })),
     });
     await expect(client.fetchHtml('/user/dining-dashboard')).rejects.toThrow(/sign in/i);
+  });
+
+  it('sign-in error is the canonical @chrischall/mcp-utils SessionNotAuthenticatedError', async () => {
+    const client = new OpenTableClient({
+      transport: stubTransport(async () => ({
+        status: 200,
+        body:
+          '<html><body><form action="/authenticate/start">' +
+          '<button>Sign in</button></form></body></html>',
+        url: 'https://www.opentable.com/authenticate/start',
+      })),
+    });
+    const rejection = expect(client.fetchHtml('/user/dining-dashboard')).rejects;
+    await rejection.toBeInstanceOf(SessionNotAuthenticatedError);
+    // Canonical message: names the service and points at opentable.com.
+    await expect(client.fetchHtml('/user/dining-dashboard')).rejects.toThrow(
+      /Not signed in to OpenTable\. Open opentable\.com in your browser/
+    );
   });
 
   it('fetchHtml throws for non-2xx status', async () => {
