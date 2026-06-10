@@ -130,19 +130,11 @@ Version appears in SIX places — all must match:
 
 ### Important
 
-Do NOT manually bump versions or create tags unless the user explicitly asks. Versioning is handled by the **Tag & Bump** GitHub Action (`.github/workflows/tag-and-bump.yml`).
+Do NOT manually bump versions or create tags unless the user explicitly asks. Versioning is handled by **release-please** (`.github/workflows/release-please.yml`). `release-please-config.json` registers all of the files above as `extra-files`, so a single release PR bumps them in lockstep.
 
 ### Release workflow
 
-Main is always one version ahead of the latest tag. To release, run the **Tag & Bump** GitHub Action which:
-
-1. Runs CI (`.github/workflows/ci.yml`: build + test)
-2. Tags the current commit with the current version
-3. Bumps patch via `npm version patch` and `sed`s `src/index.ts` + rewrites `manifest.json`
-4. Rebuilds, commits, and pushes main + tag
-5. The tag push triggers `.github/workflows/release.yml` (CI + `.mcpb` pack + `.skill` zip + npm publish + MCP registry + ClawHub + GitHub release with auto-generated notes)
-
-`release.yml` also normalises `server.json`, `manifest.json`, `.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json` to the tag version on every release — so a stale version in those files at build time is recoverable; a stale version in `src/index.ts` (the banner) is not.
+Commits land on `main` via PR. release-please (`.github/workflows/release-please.yml`) opens or updates a `chore(main): release X.Y.Z` PR whenever Conventional-Commit messages (`feat:`, `fix:`, etc.) accumulate. Merging the release PR (arm `ready-to-merge`) creates the tag and a GitHub Release; the `publish` job then packs the `.mcpb` bundle and `.skill` archive, publishes to npm with provenance, and pushes to the MCP Registry.
 
 ## Hot spots / gotchas
 
