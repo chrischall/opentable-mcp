@@ -1,5 +1,9 @@
 # opentable-mcp
 
+[![CI](https://github.com/chrischall/opentable-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/chrischall/opentable-mcp/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/opentable-mcp)](https://www.npmjs.com/package/opentable-mcp)
+[![license](https://img.shields.io/npm/l/opentable-mcp)](LICENSE)
+
 OpenTable reservation manager as an MCP server for Claude — find slots, book, cancel, manage favorites, and read your dashboard via natural language.
 
 > **v0.3.0-alpha status: Chrome-extension bridge, 10 tools, read + write.** Every OpenTable request is relayed through your signed-in Chrome tab over a localhost WebSocket — each request rides your existing session and reaches OpenTable as if you'd clicked it yourself.
