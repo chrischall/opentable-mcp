@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.2](https://github.com/chrischall/opentable-mcp/compare/v0.14.1...v0.14.2) (2026-06-13)
+
+
+### Bug Fixes
+
+* bot PRs bypass the CI gate unconditionally (upstream curtaincall[#86](https://github.com/chrischall/opentable-mcp/issues/86) review) ([#87](https://github.com/chrischall/opentable-mcp/issues/87)) ([9a0ba74](https://github.com/chrischall/opentable-mcp/commit/9a0ba74054afd99787f8c5155067220e481d9eeb))
+
+
+### Documentation
+
+* add MIT LICENSE file and README badges ([#85](https://github.com/chrischall/opentable-mcp/issues/85)) ([9d724e7](https://github.com/chrischall/opentable-mcp/commit/9d724e796e7e3d76395dfd6dfbaa3666898eb931))
+* correct Versioning section to describe release-please ([#83](https://github.com/chrischall/opentable-mcp/issues/83)) ([999dbc3](https://github.com/chrischall/opentable-mcp/commit/999dbc3b368d82cba0e82a79b76033d956bd5e69))
+
 ## [0.14.1](https://github.com/chrischall/opentable-mcp/compare/v0.14.0...v0.14.1) (2026-06-04)
 
 
