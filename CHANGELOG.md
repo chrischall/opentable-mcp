@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.3](https://github.com/chrischall/opentable-mcp/compare/v0.14.2...v0.14.3) (2026-06-14)
+
+
+### Documentation
+
+* require Conventional Commit PR titles for release-please ([#91](https://github.com/chrischall/opentable-mcp/issues/91)) ([c9ba7e1](https://github.com/chrischall/opentable-mcp/commit/c9ba7e131cac63ce9d7d8fd5943c059646c49113))
+
 ## [0.14.2](https://github.com/chrischall/opentable-mcp/compare/v0.14.1...v0.14.2) (2026-06-13)
 
 
