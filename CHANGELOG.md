@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.3](https://github.com/chrischall/opentable-mcp/compare/v0.14.2...v0.14.3) (2026-06-15)
+
+
+### Documentation
+
+* refresh CLAUDE.md audit + add auto-review follow-up convention ([#95](https://github.com/chrischall/opentable-mcp/issues/95)) ([c670a30](https://github.com/chrischall/opentable-mcp/commit/c670a30e9f424e76600ed3fa29ece40c29b4c7e3))
+* require Conventional Commit PR titles for release-please ([#91](https://github.com/chrischall/opentable-mcp/issues/91)) ([c9ba7e1](https://github.com/chrischall/opentable-mcp/commit/c9ba7e131cac63ce9d7d8fd5943c059646c49113))
+
 ## [0.14.2](https://github.com/chrischall/opentable-mcp/compare/v0.14.1...v0.14.2) (2026-06-13)
 
 
