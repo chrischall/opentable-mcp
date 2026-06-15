@@ -4,7 +4,7 @@ Guidance for Claude working in this repo.
 
 ## TL;DR
 
-v0.9.1: OpenTable MCP server with 13 tools (read + write), fronted by a
+OpenTable MCP server with 13 tools (read + write), fronted by a
 pluggable browser bridge. Default transport: localhost WebSocket via
 [`@fetchproxy/server`](https://github.com/chrischall/fetchproxy) — the
 companion browser extension is installed separately (Chrome Web Store /
@@ -41,6 +41,8 @@ session — their cookies, their TLS, their JS context — never ours.
 - `npx tsx scripts/probe-book-cancel.ts` — **books and immediately cancels a real reservation.** Pick a restaurant that won't mind a 3-second booking.
 - `npx tsx scripts/probe-book-cc-cancel.ts` — same as above but for a CC-required slot (exercises the preview → book flow).
 - `npx tsx scripts/probe-book-cancel-uk.ts` — UK-region variant (databaseRegion, country handling).
+- `npx tsx scripts/probe-book-cancel-experience.ts` — **books + cancels a real Experience-mandatory slot** (book_preview → book path; targets Cafe Pasqual's).
+- `npx tsx scripts/probe-modify-experience.ts` — **books → modifies (moves time) → cancels** a real reservation; the live truth-check for the modify path.
 - `npx tsx scripts/probe-find-slots-raw.ts` — dumps the raw GraphQL availability response (useful when re-capturing persisted-query hashes).
 - `npx tsx scripts/probe-list-res.ts` — dump upcoming reservations; useful after a probe to check for dangling ones.
 - `npx tsx scripts/serve-only.ts` — raw WS listener that logs every extension frame. Debugging only.
@@ -66,11 +68,12 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed
   - **`src/transport-fetchproxy.ts`** — `FetchproxyTransport`: thin adapter that wraps `@fetchproxy/server`'s `FetchproxyServer`. opentable-mcp passes opentable-relative paths (`/dapi/...`); the adapter prepends `https://www.opentable.com` and pins `tabUrl` to opentable.com so the extension routes fetches through the right tab.
   - **`src/transport-mcp-chrome.ts`** — `McpChromeTransport`: opt-in via `OT_BRIDGE=mcp-chrome`. Talks to hangwin/mcp-chrome's HTTP MCP at `127.0.0.1:12306/mcp`. Each fetch maps to a `chrome_network_request` call pinned to `tabUrl: "https://www.opentable.com/"`. Requires the `tabUrl` param landing upstream — see https://github.com/hangwin/mcp-chrome/pull/348.
 - **`src/client.ts`** — `OpenTableClient`: thin facade over `OpenTableTransport`. `fetchHtml(path)` for GETs that return HTML, `fetchJson(path, init)` for JSON POSTs/DELETEs. Maps non-2xx, empty-body (204), and sign-in-page responses into typed errors. Transport-agnostic.
-- **`src/tools/*.ts`** — one file per concern (reservations, restaurants, favorites, search, user). Each exports `registerXxxTools(server, client)`. See "Tool surface" below.
+- **`src/tools/*.ts`** — one file per concern (reservations, restaurants, favorites, search, user). Each exports `registerXxxTools(server, client)`. See "Tool surface" below. `tools/booking-flow.ts` is the exception: not a tool registrar but the shared booking primitives (`lockSlot`, `makeReservation`) behind `opentable_book`/`opentable_book_preview` and `opentable_modify`/`opentable_modify_preview` — it hides the Standard-vs-Experience and new-book-vs-modify body/response divergence. The persisted-query hashes + endpoint paths stay in `tools/reservations.ts` and are passed in.
 - **`src/parse-*.ts`** — pure HTML/JSON parsers. Fully unit-tested.
 - **`src/initial-state.ts`** — extracts `window.__INITIAL_STATE__` from SSR HTML pages.
 - **`src/booking-token.ts`** — encodes/decodes the opaque, stateless base64-JSON `booking_token` that bridges `opentable_book_preview` → `opentable_book` with a tamper check.
-- **`tests/`** — 1:1 mirror of `src/`. `tests/helpers.ts` provides an in-memory MCP harness (stdio transports on a PassThrough pair) for tool tests. WS-protocol-level tests now live upstream in the fetchproxy repo.
+- **`tests/`** — 1:1 mirror of `src/`. `tests/helpers.ts` re-exports the in-memory MCP harness (`createTestHarness`, `parseToolResult`) from `@chrischall/mcp-utils/test` so the existing `../helpers.js` call sites keep working. WS-protocol-level tests now live upstream in the fetchproxy repo.
+- **`@chrischall/mcp-utils`** — shared helper package used across the fleet (also imported throughout `src/`, e.g. `readEnvVar`, error/result helpers). Its `/test` entry provides the test harness and the `versionSyncTest` drift guard.
 
 ## Tool surface
 
@@ -84,6 +87,8 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed
 | `opentable_find_slots` | `tools/reservations.ts` | POST `/dapi/fe/gql?opname=RestaurantsAvailability` | read |
 | `opentable_book_preview` | `tools/reservations.ts` | GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` | read |
 | `opentable_book` | `tools/reservations.ts` | (token path) POST `/dapi/booking/make-reservation`; (no-token path) GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` → POST `/dapi/booking/make-reservation` | write |
+| `opentable_modify_preview` | `tools/reservations.ts` | GET `/booking/details?…&isModify=true` SSR + POST `BookDetailsStandardSlotLock` | read |
+| `opentable_modify` | `tools/reservations.ts` | GET `/booking/details?…&isModify=true` SSR + slot-lock → POST `/dapi/booking/make-reservation` (`isModify: true`) | write |
 | `opentable_cancel` | `tools/reservations.ts` | POST `/dapi/fe/gql?opname=CancelReservation` | write |
 | `opentable_add_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/add` | write |
 | `opentable_remove_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/remove` | write |
@@ -123,7 +128,7 @@ Version appears in SIX places — all must match:
 
 1. `package.json` → `"version"`
 2. `package-lock.json` → kept in sync by `npm version` / `npm install --package-lock-only`
-3. `src/index.ts` → `McpServer` constructor `version` field (and the startup `console.error` banner)
+3. `src/index.ts` → the `VERSION` const (tagged `// x-release-please-version`), fed to the `McpServer` constructor and the startup `console.error` banner. `tests/version-sync.test.ts` (via `@chrischall/mcp-utils/test`'s `versionSyncTest`) fails CI if this annotation drifts from `package.json`.
 4. `manifest.json` → `"version"`
 5. `server.json` → `"version"` and `packages[].version`
 6. `.claude-plugin/plugin.json` → `"version"` AND `.claude-plugin/marketplace.json` → `metadata.version` + `plugins[].version`
@@ -209,10 +214,23 @@ The **PR title MUST be a Conventional Commit**, written user-facing (`fix(scope)
 
 **Don't run `gh pr merge` yourself.** The automation does it:
 
-1. `pr-auto-review.yml` runs a Claude review on every PR **except** the release-please release PR (which it deliberately skips). On a `pass` verdict it adds the `ready-to-merge` label.
+1. `pr-auto-review.yml` (a thin stub over `chrischall/workflows`) runs a Claude review on every PR **except** the release-please release PR (which it deliberately skips). A `pass` **or** `warn` verdict arms the `ready-to-merge` label; `warn` (nits only) still merges. A `fail` verdict blocks the merge until the important findings are addressed. Both `warn` and `fail` also open/update an `auto-review-followup` issue (see below).
 2. `auto-merge.yml`, on the `ready-to-merge` label (or on a dependabot PR), arms `gh pr merge --auto --squash`. The moment CI is green the PR squash-merges itself.
 
-For ordinary feature/fix PRs, opening with `gh pr create --label <label>` (or `--label ignore-for-release` for chores not worth a release-notes line) is the whole job. If Claude's verdict was `warn`/`fail` but you've decided to ship anyway, add the label yourself: `gh pr edit <num> --add-label ready-to-merge`.
+For ordinary feature/fix PRs, opening with `gh pr create --label <label>` (or `--label ignore-for-release` for chores not worth a release-notes line) is the whole job. If Claude's verdict was `fail` but you've decided to ship anyway, add the label yourself: `gh pr edit <num> --add-label ready-to-merge`.
+
+### Auto-review follow-up issues
+
+When a PR's auto-review verdict is `warn` or `fail`, the `chrischall/workflows` pipeline opens or updates a single `auto-review-followup` issue ("Auto-review follow-ups for PR #N") whose checklist captures every finding, and links it from the PR's `<!-- auto-review-verdict -->` comment (`📋 Tracking follow-ups: #N`). `warn` (nits only) still auto-merges — the issue carries the nits forward, so most nits are fixed in a *later* PR; `fail` blocks until the important findings are addressed on the PR itself.
+
+When asked to address the auto-review comments / review findings on a PR:
+
+1. Read the verdict comment, open the linked `auto-review-followup` issue, and treat its checklist as the work list (alongside any inline review comments).
+2. Resolve each item, checking off only what you've **verified** is genuinely fixed.
+3. If every item is resolved on the current PR, add `Closes #<issue>` to that PR's body so the merge closes it; if some are deferred, check off only the resolved ones and leave the issue open.
+4. For nits whose `warn` PR already auto-merged, address them in a follow-up PR that references `Closes #<issue>`.
+
+(Mirrors the fleet-wide convention in `~/.claude/CLAUDE.md`.)
 
 ### PR timing — only open when the feature is done
 
