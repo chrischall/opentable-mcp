@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { OpenTableClient } from '../../src/client.js';
 import { registerReservationTools } from '../../src/tools/reservations.js';
-import { createTestHarness } from '../helpers.js';
+import { createTestHarness, parseToolResult } from '../helpers.js';
 import { decodeBookingToken, encodeBookingToken } from '../../src/booking-token.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -524,6 +524,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 1272781,
         date: '2026-05-01',
         time: '19:00',
@@ -569,6 +570,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -728,6 +730,7 @@ describe('reservation tools', () => {
       );
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -759,6 +762,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockRejectedValue(new Error('should not be called'));
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 1272781,
         date: '2026-05-01',
         time: '19:00',
@@ -836,6 +840,7 @@ describe('reservation tools', () => {
       );
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -872,6 +877,7 @@ describe('reservation tools', () => {
       mockFetchHtml.mockRejectedValue(new Error('should not be called'));
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -927,6 +933,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -996,6 +1003,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 278896,
         date: '2026-06-25',
         time: '18:00',
@@ -1030,6 +1038,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockRejectedValue(new Error('should not be called'));
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 278896,
         date: '2026-06-25',
         time: '18:00',
@@ -1068,6 +1077,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 278896,
         date: '2026-06-25',
         time: '18:00',
@@ -1374,6 +1384,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_modify', {
+        confirm: true,
         restaurant_id: 278896,
         confirmation_number: 29541,
         security_token: '01abc',
@@ -1407,6 +1418,7 @@ describe('reservation tools', () => {
 
     it('refuses without a modify_token', async () => {
       const result = await harness.callTool('opentable_modify', {
+        confirm: true,
         restaurant_id: 278896,
         confirmation_number: 29541,
         security_token: '01abc',
@@ -1432,6 +1444,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_modify', {
+        confirm: true,
         restaurant_id: 278896,
         confirmation_number: 29541,
         security_token: '01abc',
@@ -1460,6 +1473,7 @@ describe('reservation tools', () => {
       });
 
       const result = await harness.callTool('opentable_modify', {
+        confirm: true,
         restaurant_id: 278896,
         confirmation_number: 99999, // ← drifted
         security_token: '01abc',
@@ -1560,6 +1574,7 @@ describe('reservation tools', () => {
         data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
       });
       await harness.callTool('opentable_cancel', {
+        confirm: true,
         restaurant_id: 141537,
         confirmation_number: 12345,
         security_token: 'tok',
@@ -1576,6 +1591,7 @@ describe('reservation tools', () => {
         data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
       });
       await harness.callTool('opentable_cancel', {
+        confirm: true,
         restaurant_id: 42,
         confirmation_number: 12345,
         security_token: 'tok',
@@ -1624,6 +1640,7 @@ describe('reservation tools', () => {
       });
 
       await harness.callTool('opentable_book', {
+        confirm: true,
         restaurant_id: 141537,
         date: '2026-05-01',
         time: '21:00',
@@ -1664,4 +1681,36 @@ describe('reservation tools', () => {
       expect(slotLockBody?.variables.input.databaseRegion).toBe('EU');
     });
   });
+
+  describe('confirm-gate (book / modify / cancel)', () => {
+    it('opentable_book without confirm returns a dry-run preview and makes NO network call', async () => {
+      const result = parseToolResult(await harness.callTool('opentable_book', {
+        restaurant_id: 123, date: '2026-08-01', time: '19:30', party_size: 2,
+        reservation_token: 'rt', slot_hash: 'sh',
+      })) as { dryRun?: boolean };
+      expect(result.dryRun).toBe(true);
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_cancel without confirm returns a dry-run preview and makes NO network call', async () => {
+      const result = parseToolResult(await harness.callTool('opentable_cancel', {
+        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
+      })) as { dryRun?: boolean };
+      expect(result.dryRun).toBe(true);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_modify without confirm returns a dry-run preview and makes NO network call', async () => {
+      const result = parseToolResult(await harness.callTool('opentable_modify', {
+        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
+        date: '2026-08-02', time: '20:00', party_size: 2,
+        reservation_token: 'rt', slot_hash: 'sh', dining_area_id: 1, modify_token: 'mt',
+      })) as { dryRun?: boolean };
+      expect(result.dryRun).toBe(true);
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+  });
+
 });

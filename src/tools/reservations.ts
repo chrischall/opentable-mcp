@@ -15,7 +15,7 @@
 // on every book call — cheaper than a dedicated profile endpoint, and
 // the data we need is always there for authenticated users.
 import { z } from 'zod';
-import { textResult, PositiveInt } from '@chrischall/mcp-utils';
+import { textResult, PositiveInt, schemaConfirm } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
@@ -735,6 +735,7 @@ export function registerReservationTools(
             'Tamper-check signal for Experience tokens. When set, must match the experienceId baked into the booking_token by preview — agents that re-state the experience choice here get refused if it drifted from preview.'
           ),
         database_region: DatabaseRegion,
+        confirm: schemaConfirm,
       },
     },
     async ({
@@ -749,7 +750,21 @@ export function registerReservationTools(
       experience_ids,
       experience_id: callerExperienceId,
       database_region,
+      confirm,
     }) => {
+      // Confirm-gate: booking commits a reservation and holds/charges the saved
+      // card per the restaurant's policy. Without confirm:true, return a
+      // no-network preview of the booking intent (use opentable_book_preview for
+      // the exact card + cancellation policy). The unsigned booking_token is not
+      // an intent check — this gate is.
+      if (confirm !== true) {
+        return textResult({
+          dryRun: true,
+          action: `Book a table for ${party_size} at restaurant ${restaurant_id} on ${date} at ${time}`,
+          willSend: { restaurant_id, date, time, party_size },
+          note: 'This commits a reservation and holds/charges your saved card per the restaurant\'s cancellation policy. Call opentable_book_preview first to see the exact card and policy. Re-run with confirm: true to commit.',
+        });
+      }
       const reservationDateTime = `${date}T${time}`;
       const databaseRegion = database_region ?? DEFAULT_DATABASE_REGION;
       // Resolved below: from the token (token path) or the booking-details
@@ -913,6 +928,7 @@ export function registerReservationTools(
           .positive()
           .optional()
           .describe('Optional tamper-check signal. When set, must match the experienceId baked into modify_token.'),
+        confirm: schemaConfirm,
       },
     },
     async ({
@@ -927,7 +943,18 @@ export function registerReservationTools(
       dining_area_id,
       modify_token,
       experience_id: callerExperienceId,
+      confirm,
     }) => {
+      // Confirm-gate: modifying commits a reservation change (new slot's policy /
+      // CC re-hold can differ). Without confirm:true, return a no-network preview.
+      if (confirm !== true) {
+        return textResult({
+          dryRun: true,
+          action: `Modify reservation ${confirmation_number} at restaurant ${restaurant_id} to ${party_size} on ${date} at ${time}`,
+          willSend: { restaurant_id, confirmation_number, date, time, party_size },
+          note: 'The new slot\'s cancellation policy and card re-hold can differ from the original. Call opentable_modify_preview first to see them. Re-run with confirm: true to apply the change.',
+        });
+      }
       const reservationDateTime = `${date}T${time}`;
       const diningAreaId = dining_area_id;
 
@@ -1018,9 +1045,18 @@ export function registerReservationTools(
         confirmation_number: PositiveInt,
         security_token: z.string(),
         database_region: DatabaseRegion,
+        confirm: schemaConfirm,
       },
     },
-    async ({ restaurant_id, confirmation_number, security_token, database_region }) => {
+    async ({ restaurant_id, confirmation_number, security_token, database_region, confirm }) => {
+      if (confirm !== true) {
+        return textResult({
+          dryRun: true,
+          action: `Cancel reservation ${confirmation_number} at restaurant ${restaurant_id}`,
+          willSend: { restaurant_id, confirmation_number },
+          note: 'A cancellation may incur a fee per the restaurant\'s policy. Re-run with confirm: true to cancel.',
+        });
+      }
       const response = await client.fetchJson<{
         data?: {
           cancelReservation?: {
