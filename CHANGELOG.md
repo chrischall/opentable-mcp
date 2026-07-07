@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.15.0](https://github.com/chrischall/opentable-mcp/compare/v0.14.3...v0.15.0) (2026-07-07)
+
+
+### Features
+
+* adopt @chrischall/mcp-utils 0.12.0 (scrape subpath) ([#110](https://github.com/chrischall/opentable-mcp/issues/110)) ([e05f4a5](https://github.com/chrischall/opentable-mcp/commit/e05f4a5bff0758c47d233589a031d165e36f9a18))
+
+
+### Bug Fixes
+
+* confirm-gate opentable_book / opentable_modify / opentable_cancel ([#104](https://github.com/chrischall/opentable-mcp/issues/104)) ([baf9038](https://github.com/chrischall/opentable-mcp/commit/baf9038ebf2dc37a2decc64137e34252733fdf65))
+
+
+### Refactor
+
+* adopt scrape extractJsonAfterMarker + UpstreamHttpError ([#107](https://github.com/chrischall/opentable-mcp/issues/107)) ([2b7e9f6](https://github.com/chrischall/opentable-mcp/commit/2b7e9f60306ffa0dfd9335b498964881c6b04ea8))
+
+
+### Documentation
+
+* note confirm:true requirement in opentable book/modify/cancel descriptions ([#108](https://github.com/chrischall/opentable-mcp/issues/108)) ([574d152](https://github.com/chrischall/opentable-mcp/commit/574d15277abd73171c86e21b122c454fe224374a))
+
 ## [0.14.3](https://github.com/chrischall/opentable-mcp/compare/v0.14.2...v0.14.3) (2026-06-15)
 
 
