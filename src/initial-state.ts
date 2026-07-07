@@ -16,7 +16,7 @@
  * which this wrapper turns into a `ParseError`. No `sanitize` — a JS
  * `undefined` literal must still be a parse failure, not silently coerced.
  */
-import { extractJsonAfterMarker } from '@chrischall/mcp-utils';
+import { extractJsonAfterMarker } from '@chrischall/mcp-utils/scrape';
 
 export class ParseError extends Error {
   constructor(message: string) {
