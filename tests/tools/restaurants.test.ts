@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import type { OpenTableClient } from '../../src/client.js';
-import { HttpError } from '../../src/client.js';
+import { UpstreamHttpError } from '@chrischall/mcp-utils';
 import { registerRestaurantTools } from '../../src/tools/restaurants.js';
 import { createTestHarness } from '../helpers.js';
 
@@ -59,7 +59,7 @@ describe('restaurant tools', () => {
   it('falls back to root /{slug} when /r/{slug} 404s (legacy URL venues)', async () => {
     mockFetchHtml.mockImplementation(async (path: string) => {
       if (path === '/r/the-cellar-at-duckworths') {
-        throw new HttpError(404, 'OpenTable API error: 404 for GET /r/the-cellar-at-duckworths');
+        throw new UpstreamHttpError(404, 'OpenTable API error: 404 for GET /r/the-cellar-at-duckworths');
       }
       return htmlWith(restaurantState(188233, "The Cellar at Duckworth's"));
     });
@@ -133,7 +133,7 @@ describe('restaurant tools', () => {
 
   it('surfaces a clear error when both /r/{slug} and /{slug} 404', async () => {
     mockFetchHtml.mockRejectedValue(
-      new HttpError(404, 'OpenTable API error: 404 for GET /r/ghost')
+      new UpstreamHttpError(404, 'OpenTable API error: 404 for GET /r/ghost')
     );
 
     const result = await harness.callTool('opentable_get_restaurant', {
@@ -148,7 +148,7 @@ describe('restaurant tools', () => {
 
   it('does not fall back on non-404 errors', async () => {
     mockFetchHtml.mockRejectedValue(
-      new HttpError(500, 'OpenTable API error: 500 for GET /r/boom')
+      new UpstreamHttpError(500, 'OpenTable API error: 500 for GET /r/boom')
     );
 
     const result = await harness.callTool('opentable_get_restaurant', {

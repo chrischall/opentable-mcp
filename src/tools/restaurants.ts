@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { textResult, PositiveInt } from '@chrischall/mcp-utils';
+import { textResult, PositiveInt, UpstreamHttpError } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
-import { HttpError } from '../client.js';
 import { parseRestaurant } from '../parse-restaurant.js';
 
 const BASE_URL = 'https://www.opentable.com';
@@ -71,7 +70,7 @@ export function registerRestaurantTools(
       }
 
       const candidates = resolveCandidatePaths(restaurant_id);
-      let lastNotFound: HttpError | undefined;
+      let lastNotFound: UpstreamHttpError | undefined;
       for (const path of candidates) {
         try {
           const html = await client.fetchHtml(path);
@@ -80,7 +79,7 @@ export function registerRestaurantTools(
           const restaurant = parseRestaurant(html, `${BASE_URL}${path}`);
           return textResult(restaurant);
         } catch (e) {
-          if (e instanceof HttpError && e.status === 404) {
+          if (e instanceof UpstreamHttpError && e.status === 404) {
             lastNotFound = e;
             continue;
           }

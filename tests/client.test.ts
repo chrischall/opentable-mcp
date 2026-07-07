@@ -3,8 +3,8 @@
 // The WS layer itself now lives in @fetchproxy/server; its protocol is
 // tested upstream in the fetchproxy repo.
 import { describe, it, expect, vi } from 'vitest';
-import { SessionNotAuthenticatedError } from '@chrischall/mcp-utils';
-import { OpenTableClient, HttpError } from '../src/client.js';
+import { SessionNotAuthenticatedError, UpstreamHttpError } from '@chrischall/mcp-utils';
+import { OpenTableClient } from '../src/client.js';
 import type { FetchInit, FetchResult, OpenTableTransport } from '../src/transport.js';
 
 function stubTransport(handler: (init: FetchInit) => Promise<FetchResult>): OpenTableTransport {
@@ -70,7 +70,7 @@ describe('OpenTableClient', () => {
     await expect(client.fetchHtml('/x')).rejects.toThrow(/500/);
   });
 
-  it('fetchHtml throws an HttpError carrying the status code', async () => {
+  it('fetchHtml throws an UpstreamHttpError carrying the status code', async () => {
     const client = new OpenTableClient({
       transport: stubTransport(async () => ({
         status: 404,
@@ -79,10 +79,10 @@ describe('OpenTableClient', () => {
       })),
     });
     await expect(client.fetchHtml('/r/missing')).rejects.toMatchObject({
-      name: 'HttpError',
+      name: 'UpstreamHttpError',
       status: 404,
     });
-    await expect(client.fetchHtml('/r/missing')).rejects.toBeInstanceOf(HttpError);
+    await expect(client.fetchHtml('/r/missing')).rejects.toBeInstanceOf(UpstreamHttpError);
   });
 
   it('fetchJson POSTs JSON and parses the reply', async () => {

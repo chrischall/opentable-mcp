@@ -7,10 +7,16 @@
  *   2. `"__INITIAL_STATE__":{...}` — a JSON key inside a larger embedded blob
  *      (the current server-rendered form for most user-facing pages).
  *
- * Both forms use the same JSON object; this extractor locates it and walks
- * the brace/string structure to find its matching close (can't use regex —
- * the state contains nested objects and escaped strings).
+ * Both forms use the same JSON object. The locate-marker + balanced-brace walk
+ * + `JSON.parse` is now the fleet-shared `extractJsonAfterMarker` from
+ * `@chrischall/mcp-utils` (its `matchBalanced` handles the nested objects and
+ * escaped strings a regex can't). We keep the throwing `ParseError` contract
+ * that every `parse-*` consumer and its tests rely on: the shared helper
+ * returns `null` on any failure (marker absent / unbalanced / invalid JSON),
+ * which this wrapper turns into a `ParseError`. No `sanitize` — a JS
+ * `undefined` literal must still be a parse failure, not silently coerced.
  */
+import { extractJsonAfterMarker } from '@chrischall/mcp-utils';
 
 export class ParseError extends Error {
   constructor(message: string) {
@@ -20,62 +26,12 @@ export class ParseError extends Error {
 }
 
 export function extractInitialState(html: string): Record<string, unknown> {
-  const markers = ['window.__INITIAL_STATE__', '"__INITIAL_STATE__"'];
-  let idx = -1;
-  let markerLen = 0;
-  for (const m of markers) {
-    const i = html.indexOf(m);
-    if (i >= 0) {
-      idx = i;
-      markerLen = m.length;
-      break;
-    }
+  const state = extractJsonAfterMarker(html, [
+    'window.__INITIAL_STATE__',
+    '"__INITIAL_STATE__"',
+  ]);
+  if (state === null || typeof state !== 'object' || Array.isArray(state)) {
+    throw new ParseError('__INITIAL_STATE__ not found or unparseable in HTML');
   }
-  if (idx < 0) {
-    throw new ParseError('__INITIAL_STATE__ marker not found in HTML');
-  }
-
-  let start = idx + markerLen;
-  while (start < html.length && html[start] !== '{') start++;
-  if (start >= html.length) {
-    throw new ParseError('Could not locate start of __INITIAL_STATE__ JSON');
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let end = -1;
-  for (let i = start; i < html.length; i++) {
-    const ch = html[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (inString) {
-      if (ch === '\\') escape = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) {
-        end = i + 1;
-        break;
-      }
-    }
-  }
-  if (end < 0) {
-    throw new ParseError('Unmatched braces in __INITIAL_STATE__');
-  }
-
-  const json = html.slice(start, end);
-  try {
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch (err) {
-    throw new ParseError(
-      `Failed to parse __INITIAL_STATE__ JSON: ${(err as Error).message}`
-    );
-  }
+  return state as Record<string, unknown>;
 }
