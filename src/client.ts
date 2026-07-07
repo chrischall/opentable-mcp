@@ -11,32 +11,25 @@
 import {
   SessionNotAuthenticatedError,
   truncateErrorMessage,
+  UpstreamHttpError,
 } from '@chrischall/mcp-utils';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
-/**
- * Thrown on any non-2xx response. Carries the numeric `status` so callers
- * can branch on it (e.g. `opentable_get_restaurant` falls back from
- * `/r/{slug}` to `/{slug}` on a 404). The `message` is unchanged from the
- * previous plain-Error form, so existing string/regex assertions still hold.
- */
-export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string
-  ) {
-    super(message);
-    this.name = 'HttpError';
-  }
-}
-
+// Non-2xx responses throw the fleet-shared `UpstreamHttpError`
+// (`@chrischall/mcp-utils`) — the status-carrying error the http kit exposes
+// for manual throws. It carries the numeric `.status` so callers can branch
+// (e.g. `opentable_get_restaurant` falls back from `/r/{slug}` to `/{slug}`
+// on a 404), and the `message` is still the same `OpenTable API error: …`
+// string, so existing string/regex assertions hold. Re-exported below for the
+// existing `./client.js` import sites.
+//
 // Sign-in failures throw the canonical SessionNotAuthenticatedError from
 // @chrischall/mcp-utils (re-exported below for existing import sites).
 // NOTE: the message changed from the old local copy ("Open the pinned
 // OpenTable tab…") to the fleet-wide canonical form ("Not signed in to
 // OpenTable. Open opentable.com in your browser and sign in, then try
 // again. …").
-export { SessionNotAuthenticatedError };
+export { SessionNotAuthenticatedError, UpstreamHttpError };
 
 export interface OpenTableClientOptions {
   /** Transport used to relay fetches to the user's browser. Required —
@@ -119,7 +112,7 @@ export class OpenTableClient {
     // internal whitespace first so multi-line HTML error pages stay one line.
     const collapsed = result.body.replace(/\s+/g, ' ').trim();
     const bodyPreview = collapsed ? ` — ${truncateErrorMessage(collapsed)}` : '';
-    throw new HttpError(
+    throw new UpstreamHttpError(
       result.status,
       `OpenTable API error: ${result.status} for ${method} ${path}${bodyPreview}`
     );
