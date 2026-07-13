@@ -1,5 +1,5 @@
 ---
-name: opentable-mcp
+name: opentable
 description: Manage OpenTable reservations via MCP — search restaurants, check slot availability, book tables, list/cancel reservations, and manage favorites. Triggers on phrases like "book a table on OpenTable", "find me a reservation at", "what OpenTable reservations do I have", "cancel my OpenTable", "add to my OpenTable favorites", "what's available for dinner tonight at", or any request involving OpenTable restaurant reservations. Requires opentable-mcp installed and the fetchproxy browser extension running in a signed-in opentable.com tab.
 ---
 
