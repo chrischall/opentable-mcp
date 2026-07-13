@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.0](https://github.com/chrischall/opentable-mcp/compare/v0.15.0...v0.16.0) (2026-07-13)
+
+
+### Features
+
+* **skill:** add OpenTable fpx access skill ([#114](https://github.com/chrischall/opentable-mcp/issues/114)) ([dccd720](https://github.com/chrischall/opentable-mcp/commit/dccd720357add269796c8b355f7656674d03b0f3))
+
+
+### Bug Fixes
+
+* **skill:** align opentable skill frontmatter name with its directory ([#117](https://github.com/chrischall/opentable-mcp/issues/117)) ([a890947](https://github.com/chrischall/opentable-mcp/commit/a890947c014f3dc05da7d40f3941161615aa6200))
+
 ## [0.15.0](https://github.com/chrischall/opentable-mcp/compare/v0.14.3...v0.15.0) (2026-07-07)
 
 
