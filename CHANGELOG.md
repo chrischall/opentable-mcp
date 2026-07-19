@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/chrischall/opentable-mcp/compare/v0.16.0...v0.16.1) (2026-07-19)
+
+
+### Documentation
+
+* replace duplicated fleet policy with a pointer ([#118](https://github.com/chrischall/opentable-mcp/issues/118)) ([2d38783](https://github.com/chrischall/opentable-mcp/commit/2d38783903ed21801da10cc96f636145e9aed813))
+
 ## [0.16.0](https://github.com/chrischall/opentable-mcp/compare/v0.15.0...v0.16.0) (2026-07-13)
 
 
