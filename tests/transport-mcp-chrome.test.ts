@@ -190,4 +190,18 @@ describe('McpChromeTransport', () => {
     expect(client.connect).not.toHaveBeenCalled();
     expect(client.close).not.toHaveBeenCalled();
   });
+
+  it("graphqlQuery throws a clear 'not supported' error rather than a bare 409", async () => {
+    // mcp-chrome has no equivalent to fetchproxy's MAIN-world Apollo
+    // bridge — chrome_network_request is a plain isolated-path fetch,
+    // the same path Akamai rejects for RestaurantsAvailability. This
+    // transport can't route around it, so it must fail loudly and
+    // actionably instead of silently returning a confusing HTTP error.
+    const client = mockClient(rpcOk({ status: 200, body: 'ok' }));
+    const t = new McpChromeTransport({ client });
+
+    await expect(
+      t.graphqlQuery({ name: 'availability', variables: {} })
+    ).rejects.toThrow(/does not support the 'graphql' capability/);
+  });
 });

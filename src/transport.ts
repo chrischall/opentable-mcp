@@ -33,6 +33,15 @@ export interface FetchResult {
   url: string;
 }
 
+export interface GraphqlQueryInit {
+  /** Logical handle for the declared GraphQL operation (matches an entry
+   *  in the transport's declared `graphqlOps`), e.g. `'availability'`. */
+  name: string;
+  /** GraphQL variables, passed straight through to the page's own Apollo
+   *  client. */
+  variables: Record<string, unknown>;
+}
+
 export interface OpenTableTransport {
   /** Bring the transport up. Idempotent. For WebSocket: start listening
    *  on the port. For mcp-chrome: open the HTTP MCP connection. */
@@ -44,4 +53,14 @@ export interface OpenTableTransport {
   /** Round-trip one request through the bridge. Resolves to a result
    *  triple even for non-2xx statuses — the client maps HTTP errors. */
   fetch(init: FetchInit): Promise<FetchResult>;
+
+  /** Invoke a declared GraphQL operation through the tab's own Apollo
+   *  client (fetchproxy's `graphql` capability) rather than the isolated-
+   *  world `fetch()` path — some endpoints (OpenTable's
+   *  `RestaurantsAvailability`) reject the latter at the edge because the
+   *  bot-detection telemetry lives inside the page's own Apollo link
+   *  chain, not on `window.fetch`. Resolves to the GraphQL response's
+   *  `data` object. Throws if this transport doesn't support the
+   *  capability (mcp-chrome) or on any bridge/GraphQL-level failure. */
+  graphqlQuery(init: GraphqlQueryInit): Promise<unknown>;
 }

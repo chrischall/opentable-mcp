@@ -5,13 +5,27 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SessionNotAuthenticatedError, UpstreamHttpError } from '@chrischall/mcp-utils';
 import { OpenTableClient } from '../src/client.js';
-import type { FetchInit, FetchResult, OpenTableTransport } from '../src/transport.js';
+import type {
+  FetchInit,
+  FetchResult,
+  GraphqlQueryInit,
+  OpenTableTransport,
+} from '../src/transport.js';
 
-function stubTransport(handler: (init: FetchInit) => Promise<FetchResult>): OpenTableTransport {
+function stubTransport(
+  handler: (init: FetchInit) => Promise<FetchResult>,
+  graphqlHandler?: (init: GraphqlQueryInit) => Promise<unknown>
+): OpenTableTransport {
   return {
     start: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     fetch: vi.fn().mockImplementation(handler),
+    graphqlQuery: vi.fn().mockImplementation(
+      graphqlHandler ??
+        (() => {
+          throw new Error('stubTransport: no graphqlHandler configured for this test');
+        })
+    ),
   };
 }
 
@@ -128,5 +142,42 @@ describe('OpenTableClient', () => {
     });
     const result = await client.fetchJson('/thing', { method: 'POST', body: {} });
     expect(result).toBeNull();
+  });
+
+  describe('graphqlQuery', () => {
+    it('forwards name + variables to the transport and returns its result verbatim', async () => {
+      const graphqlHandler = vi.fn().mockResolvedValue({ availability: [{ time: '19:00' }] });
+      const client = new OpenTableClient({
+        transport: stubTransport(
+          async () => ({ status: 200, body: '', url: '' }),
+          graphqlHandler
+        ),
+      });
+      const result = await client.graphqlQuery('availability', {
+        restaurantIds: [42],
+        partySize: 2,
+      });
+      expect(graphqlHandler).toHaveBeenCalledWith({
+        name: 'availability',
+        variables: { restaurantIds: [42], partySize: 2 },
+      });
+      expect(result).toEqual({ availability: [{ time: '19:00' }] });
+    });
+
+    it('propagates the transport rejection unchanged — no HTTP/sign-in mapping applies here', async () => {
+      const client = new OpenTableClient({
+        transport: stubTransport(
+          async () => ({ status: 200, body: '', url: '' }),
+          async () => {
+            throw new Error(
+              'operation availability not yet observed on this tab — open a page on the site that triggers this GraphQL operation, then retry'
+            );
+          }
+        ),
+      });
+      await expect(client.graphqlQuery('availability', {})).rejects.toThrow(
+        /not yet observed on this tab/
+      );
+    });
   });
 });

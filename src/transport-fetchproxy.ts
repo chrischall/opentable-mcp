@@ -15,7 +15,12 @@ import {
   createFetchproxyTransport,
   type FetchproxyTransport as FetchproxyTransportAdapter,
 } from '@chrischall/mcp-utils/fetchproxy';
-import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
+import type { FetchInit, FetchResult, GraphqlQueryInit, OpenTableTransport } from './transport.js';
+
+/** Logical handle for the RestaurantsAvailability op, matched against the
+ *  declared `graphqlOps` entry below and referenced by `client.graphqlQuery`
+ *  callers (currently just `opentable_find_slots`). */
+export const AVAILABILITY_GRAPHQL_OP_NAME = 'availability';
 
 export interface FetchproxyTransportOptions {
   port?: number;
@@ -46,6 +51,17 @@ export class FetchproxyTransport implements OpenTableTransport {
       // keepAliveIntervalMs is no longer set here: @fetchproxy/server 0.10.0
       // defaults it to 25_000 — the same cadence we used to hold the SW
       // resident across human-paced session gaps (fetchproxy#72).
+      //
+      // @fetchproxy/server 1.7.0+: the `graphql` capability routes
+      // RestaurantsAvailability through the tab's own Apollo client
+      // instead of the isolated-world fetch() path, which Akamai rejects
+      // at the edge for this endpoint. The extension resolves the
+      // declared `operationName` to the live DocumentNode it already
+      // observed on the tab — no persisted-query hash needed here.
+      capabilities: ['fetch', 'graphql'],
+      graphqlOps: [
+        { name: AVAILABILITY_GRAPHQL_OP_NAME, operationName: 'RestaurantsAvailability' },
+      ],
     });
   }
 
@@ -70,5 +86,11 @@ export class FetchproxyTransport implements OpenTableTransport {
       body: init.body,
     });
     return { status: response.status, body: response.body, url: response.url };
+  }
+
+  async graphqlQuery(init: GraphqlQueryInit): Promise<unknown> {
+    // No explicit tabUrl: opentable-mcp declares a single domain, so the
+    // bridge auto-resolves a tab on it.
+    return this.inner.server.graphqlQuery({ name: init.name, variables: init.variables });
   }
 }

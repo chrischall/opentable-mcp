@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { textResult, PositiveInt, schemaConfirm } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
+import { AVAILABILITY_GRAPHQL_OP_NAME } from '../transport-fetchproxy.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
 import { parseUserProfile } from '../parse-user-profile.js';
@@ -136,8 +137,11 @@ function bookingDetailsPath(input: {
 // after the page's slot-lock has fired. Apollo's `documentId` IS the
 // persisted-query sha256Hash. Same trick works for query documents via
 // `queryManager.queries` (a Map iterated with .forEach).
-const RESTAURANTS_AVAILABILITY_HASH =
-  'cbcf4838a9b399f742e3741785df64560a826d8d3cc2828aa01ab09a8455e29e';
+//
+// RestaurantsAvailability has NO hash here — find_slots routes through
+// fetchproxy's `graphql` capability (client.graphqlQuery), which resolves
+// the live DocumentNode the tab's own Apollo client already observed for
+// the declared operationName. See transport-fetchproxy.ts.
 const BOOK_SLOT_LOCK_HASH =
   '1100bf68905fd7cb1d4fd0f4504a4954aa28ec45fb22913fa977af8b06fd97fa';
 // Captured 2026-05-21 from a live Pasqual's Experience slot-lock via the
@@ -147,7 +151,6 @@ const BOOK_EXPERIENCE_SLOT_LOCK_HASH =
 const CANCEL_RESERVATION_HASH =
   '4ee53a006030f602bdeb1d751fa90ddc4240d9e17d015fb7976f8efcb80a026e';
 
-const AVAILABILITY_PATH = '/dapi/fe/gql?optype=query&opname=RestaurantsAvailability';
 const SLOT_LOCK_PATH = '/dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock';
 const EXPERIENCE_SLOT_LOCK_PATH =
   '/dapi/fe/gql?optype=mutation&opname=BookDetailsExperienceSlotLock';
@@ -264,7 +267,7 @@ export function registerReservationTools(
     'opentable_find_slots',
     {
       description:
-        "List available reservation slots at a specific OpenTable restaurant for a date + party size. Returns each slot's reservation_token (use it with opentable_book — tokens expire quickly, book promptly). Slots may be attributes=['default'|'bar'|'highTop'|'outdoor'] and type=Standard|Experience|POP. You can pass a slot's reservation_token + slot_hash straight to opentable_book without a separate opentable_get_restaurant call — book auto-resolves the dining area. (OpenTable's availability response carries only the seating category, not the numeric dining-area id, so that id is resolved at book time from the booking-details page.)",
+        "List available reservation slots at a specific OpenTable restaurant for a date + party size. Returns each slot's reservation_token (use it with opentable_book — tokens expire quickly, book promptly). Slots may be attributes=['default'|'bar'|'highTop'|'outdoor'] and type=Standard|Experience|POP. You can pass a slot's reservation_token + slot_hash straight to opentable_book without a separate opentable_get_restaurant call — book auto-resolves the dining area. (OpenTable's availability response carries only the seating category, not the numeric dining-area id, so that id is resolved at book time from the booking-details page.) If this errors with \"operation ... not yet observed on this tab\", open any OpenTable restaurant page in your browser once (the graphql bridge needs to see the page's own availability query fire first), then retry.",
       annotations: { readOnlyHint: true },
       inputSchema: {
         restaurant_id: PositiveInt,
@@ -275,28 +278,20 @@ export function registerReservationTools(
       },
     },
     async ({ restaurant_id, date, time, party_size, database_region }) => {
-      const body = {
-        operationName: 'RestaurantsAvailability',
-        variables: buildAvailabilityVariables({
+      // Routes through fetchproxy's `graphql` capability instead of a raw
+      // fetch — OpenTable's Akamai rejects the isolated-world fetch() path
+      // for this endpoint at the edge. See transport-fetchproxy.ts.
+      const data = await client.graphqlQuery(
+        AVAILABILITY_GRAPHQL_OP_NAME,
+        buildAvailabilityVariables({
           restaurant_ids: [restaurant_id],
           date,
           time,
           party_size,
           database_region: database_region ?? DEFAULT_DATABASE_REGION,
-        }),
-        extensions: {
-          persistedQuery: {
-            version: 1,
-            sha256Hash: RESTAURANTS_AVAILABILITY_HASH,
-          },
-        },
-      };
-      const response = await client.fetchJson<unknown>(AVAILABILITY_PATH, {
-        method: 'POST',
-        headers: { 'ot-page-type': 'home', 'ot-page-group': 'seo-landing-home' },
-        body,
-      });
-      const slots = parseAvailabilityResponse(response, date, time, party_size);
+        })
+      );
+      const slots = parseAvailabilityResponse({ data }, date, time, party_size);
       return textResult(slots);
     }
   );

@@ -20,7 +20,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
+import type { FetchInit, FetchResult, GraphqlQueryInit, OpenTableTransport } from './transport.js';
 
 const DEFAULT_MCP_CHROME_URL = 'http://127.0.0.1:12306/mcp';
 const OPENTABLE_ORIGIN = 'https://www.opentable.com/';
@@ -168,5 +168,17 @@ export class McpChromeTransport implements OpenTableTransport {
       body: parsed.body ?? '',
       url: parsed.url ?? requestUrl,
     };
+  }
+
+  async graphqlQuery(_init: GraphqlQueryInit): Promise<unknown> {
+    // mcp-chrome has no equivalent to fetchproxy's MAIN-world Apollo
+    // bridge — chrome_network_request is a plain fetch from the tab, the
+    // same isolated-path Akamai rejects for RestaurantsAvailability. Throw
+    // clearly rather than silently 409ing, so the caller knows to switch
+    // transports (OT_BRIDGE=fetchproxy, the default) instead of chasing a
+    // bot-detection red herring.
+    throw new Error(
+      "McpChromeTransport does not support the 'graphql' capability — it has no equivalent to fetchproxy's MAIN-world Apollo bridge. Switch to the default fetchproxy transport (unset OT_BRIDGE) to use opentable_find_slots.",
+    );
   }
 }
