@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/chrischall/opentable-mcp/compare/v0.16.1...v0.16.2) (2026-07-30)
+
+
+### Bug Fixes
+
+* **find_slots:** route RestaurantsAvailability through fetchproxy's graphql capability ([#128](https://github.com/chrischall/opentable-mcp/issues/128)) ([9a34eeb](https://github.com/chrischall/opentable-mcp/commit/9a34eeb109b9949e24d4efdaca72c517f9fd06a1))
+
 ## [0.16.1](https://github.com/chrischall/opentable-mcp/compare/v0.16.0...v0.16.1) (2026-07-19)
 
 
