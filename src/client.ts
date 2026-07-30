@@ -15,6 +15,17 @@ import {
 } from '@chrischall/mcp-utils';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
+/**
+ * Logical handle for the RestaurantsAvailability graphql operation,
+ * shared between `transport-fetchproxy.ts` (which declares it in
+ * `graphqlOps`) and `tools/reservations.ts` (which passes it to
+ * `client.graphqlQuery`). Lives here — the one file tool implementations
+ * are allowed to import from — rather than in a transport implementation,
+ * so a nominally transport-agnostic tool file never has to reach into
+ * `transport-fetchproxy.ts` directly.
+ */
+export const AVAILABILITY_GRAPHQL_OP_NAME = 'availability';
+
 // Non-2xx responses throw the fleet-shared `UpstreamHttpError`
 // (`@chrischall/mcp-utils`) — the status-carrying error the http kit exposes
 // for manual throws. It carries the numeric `.status` so callers can branch
