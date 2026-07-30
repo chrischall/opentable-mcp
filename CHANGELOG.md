@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.3](https://github.com/chrischall/opentable-mcp/compare/v0.16.2...v0.16.3) (2026-07-30)
+
+
+### Bug Fixes
+
+* **find_slots:** un-couple reservations.ts from the fetchproxy transport, fix stale probe scripts ([#131](https://github.com/chrischall/opentable-mcp/issues/131)) ([d5657f0](https://github.com/chrischall/opentable-mcp/commit/d5657f0f6a5832ab831fb251cf4a02a96c3eebff))
+
+
+### Documentation
+
+* **claude-md:** fix stale graphql-capability references from [#131](https://github.com/chrischall/opentable-mcp/issues/131) ([#134](https://github.com/chrischall/opentable-mcp/issues/134)) ([d35db69](https://github.com/chrischall/opentable-mcp/commit/d35db6908edd3ea2b2e38af9ceac0cfcac017f9b))
+
 ## [0.16.2](https://github.com/chrischall/opentable-mcp/compare/v0.16.1...v0.16.2) (2026-07-30)
 
 
