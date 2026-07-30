@@ -16,11 +16,7 @@ import {
   type FetchproxyTransport as FetchproxyTransportAdapter,
 } from '@chrischall/mcp-utils/fetchproxy';
 import type { FetchInit, FetchResult, GraphqlQueryInit, OpenTableTransport } from './transport.js';
-
-/** Logical handle for the RestaurantsAvailability op, matched against the
- *  declared `graphqlOps` entry below and referenced by `client.graphqlQuery`
- *  callers (currently just `opentable_find_slots`). */
-export const AVAILABILITY_GRAPHQL_OP_NAME = 'availability';
+import { AVAILABILITY_GRAPHQL_OP_NAME } from './client.js';
 
 export interface FetchproxyTransportOptions {
   port?: number;

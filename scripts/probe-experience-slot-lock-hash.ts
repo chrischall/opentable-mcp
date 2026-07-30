@@ -9,7 +9,7 @@
 // opentable.com signed-in tab open. Does NOT submit a booking — stops
 // after slot-lock.
 import { FetchproxyTransport } from '../src/transport-fetchproxy.js';
-import { OpenTableClient } from '../src/client.js';
+import { OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../src/client.js';
 
 const PASQUAL_RID = 278896;
 const PASQUAL_SLUG = 'cafe-pasquals-santa-fe';
@@ -24,39 +24,23 @@ async function main(): Promise<void> {
   await transport.start();
   const client = new OpenTableClient({ transport });
   try {
-    const availability = await client.fetchJson<unknown>(
-      '/dapi/fe/gql?optype=query&opname=RestaurantsAvailability',
-      {
-        method: 'POST',
-        headers: { 'ot-page-type': 'home', 'ot-page-group': 'seo-landing-home' },
-        body: {
-          operationName: 'RestaurantsAvailability',
-          variables: {
-            onlyPop: false,
-            forwardDays: 0,
-            requireTimes: false,
-            requireTypes: [],
-            useCBR: false,
-            privilegedAccess: [],
-            restaurantIds: [PASQUAL_RID],
-            restaurantAvailabilityTokens: [
-              'eyJ2IjoyLCJtIjoxLCJwIjowLCJzIjowLCJuIjowfQ',
-            ],
-            date: DATE,
-            time: TIME,
-            partySize: PARTY,
-            databaseRegion: 'NA',
-          },
-          extensions: {
-            persistedQuery: {
-              version: 1,
-              sha256Hash:
-                'cbcf4838a9b399f742e3741785df64560a826d8d3cc2828aa01ab09a8455e29e',
-            },
-          },
-        },
-      }
-    );
+    // Routes through fetchproxy's `graphql` capability — a raw fetchJson
+    // POST to this endpoint is rejected by OpenTable's Akamai Bot Manager
+    // at the edge. See client.ts / transport-fetchproxy.ts.
+    const availability = await client.graphqlQuery(AVAILABILITY_GRAPHQL_OP_NAME, {
+      onlyPop: false,
+      forwardDays: 0,
+      requireTimes: false,
+      requireTypes: [],
+      useCBR: false,
+      privilegedAccess: [],
+      restaurantIds: [PASQUAL_RID],
+      restaurantAvailabilityTokens: ['eyJ2IjoyLCJtIjoxLCJwIjowLCJzIjowLCJuIjowfQ'],
+      date: DATE,
+      time: TIME,
+      partySize: PARTY,
+      databaseRegion: 'NA',
+    });
     console.log(JSON.stringify(availability, null, 2));
     console.error('');
     console.error('=== availability dumped to stdout ===');

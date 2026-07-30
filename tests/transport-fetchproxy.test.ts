@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { AVAILABILITY_GRAPHQL_OP_NAME } from '../src/client.js';
 
 // Capture the options the adapter passes to mcp-utils' createFetchproxyTransport.
 // As of the @chrischall/mcp-utils adoption, FetchproxyServer construction +
@@ -28,9 +29,7 @@ vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
 });
 
 // Import AFTER vi.mock so the adapter picks up the fake.
-const { FetchproxyTransport, AVAILABILITY_GRAPHQL_OP_NAME } = await import(
-  '../src/transport-fetchproxy.js'
-);
+const { FetchproxyTransport } = await import('../src/transport-fetchproxy.js');
 
 beforeEach(() => {
   ctorCalls.length = 0;

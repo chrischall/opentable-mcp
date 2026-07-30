@@ -17,8 +17,7 @@
 import { z } from 'zod';
 import { textResult, PositiveInt, schemaConfirm } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { OpenTableClient } from '../client.js';
-import { AVAILABILITY_GRAPHQL_OP_NAME } from '../transport-fetchproxy.js';
+import { type OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
 import { parseUserProfile } from '../parse-user-profile.js';

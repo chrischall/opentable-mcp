@@ -43,7 +43,7 @@ session — their cookies, their TLS, their JS context — never ours.
 - `npx tsx scripts/probe-book-cancel-uk.ts` — UK-region variant (databaseRegion, country handling).
 - `npx tsx scripts/probe-book-cancel-experience.ts` — **books + cancels a real Experience-mandatory slot** (book_preview → book path; targets Cafe Pasqual's).
 - `npx tsx scripts/probe-modify-experience.ts` — **books → modifies (moves time) → cancels** a real reservation; the live truth-check for the modify path.
-- `npx tsx scripts/probe-find-slots-raw.ts` — dumps the raw GraphQL availability response (useful when re-capturing persisted-query hashes).
+- `npx tsx scripts/probe-find-slots-raw.ts` — dumps the raw (unparsed) `RestaurantsAvailability` response via the `graphql` capability — useful for spotting fields `parse-slots.ts` currently drops. No persisted-query hash involved (see the graphql-capability gotcha above).
 - `npx tsx scripts/probe-list-res.ts` — dump upcoming reservations; useful after a probe to check for dangling ones.
 - `npx tsx scripts/serve-only.ts` — raw WS listener that logs every extension frame. Debugging only.
 - `npx tsx scripts/e2e-phase-a.ts` — read-only smoke (list reservations / profile / favorites).
