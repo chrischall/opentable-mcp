@@ -103,6 +103,20 @@ export class OpenTableClient {
     }
   }
 
+  /**
+   * Invoke a declared GraphQL operation through the transport's `graphql`
+   * capability (fetchproxy: routes through the tab's own Apollo client
+   * rather than the isolated-world fetch() path). Resolves to the
+   * GraphQL response's `data` object. Unlike fetchHtml/fetchJson there's
+   * no HTTP status or sign-in-page concept here — the transport throws
+   * directly on any bridge- or GraphQL-level failure, including the
+   * expected "operation not yet observed on this tab" case when no page
+   * has triggered the operation yet in this session.
+   */
+  async graphqlQuery(name: string, variables: Record<string, unknown>): Promise<unknown> {
+    return this.transport.graphqlQuery({ name, variables });
+  }
+
   private throwIfNotOk(result: FetchResult, method: string, path: string): void {
     if (result.status >= 200 && result.status < 300) return;
     // Include the response body (collapsed + trimmed) — OpenTable's 4xx bodies

@@ -13,9 +13,11 @@ const fixture = (name: string) =>
 
 const mockFetchHtml = vi.fn();
 const mockFetchJson = vi.fn();
+const mockGraphqlQuery = vi.fn();
 const mockClient = {
   fetchHtml: mockFetchHtml,
   fetchJson: mockFetchJson,
+  graphqlQuery: mockGraphqlQuery,
 } as unknown as OpenTableClient;
 
 let harness: Awaited<ReturnType<typeof createTestHarness>>;
@@ -119,40 +121,42 @@ describe('reservation tools', () => {
   });
 
   describe('opentable_find_slots', () => {
-    it('POSTs the persisted-query body and returns formatted slots', async () => {
-      mockFetchJson.mockResolvedValue({
-        data: {
-          availability: [
-            {
-              restaurantId: 42,
-              availabilityDays: [
-                {
-                  slots: [
-                    {
-                      isAvailable: true,
-                      timeOffsetMinutes: 0,
-                      slotAvailabilityToken: 'tok-19',
-                      slotHash: 'h-19',
-                      type: 'Standard',
-                      attributes: ['default'],
-                      pointsValue: 100,
-                      __typename: 'AvailableSlot',
-                    },
-                    {
-                      isAvailable: true,
-                      timeOffsetMinutes: 30,
-                      slotAvailabilityToken: 'tok-1930',
-                      type: 'Standard',
-                      attributes: ['default'],
-                      pointsValue: 100,
-                      __typename: 'AvailableSlot',
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
+    it('calls client.graphqlQuery with the availability op + variables, returns formatted slots', async () => {
+      // client.graphqlQuery resolves to the GraphQL response's `data`
+      // object directly (not wrapped in {data: ...} — that's the raw
+      // fetchJson shape the old raw-fetch path used, before the switch to
+      // fetchproxy's `graphql` capability).
+      mockGraphqlQuery.mockResolvedValue({
+        availability: [
+          {
+            restaurantId: 42,
+            availabilityDays: [
+              {
+                slots: [
+                  {
+                    isAvailable: true,
+                    timeOffsetMinutes: 0,
+                    slotAvailabilityToken: 'tok-19',
+                    slotHash: 'h-19',
+                    type: 'Standard',
+                    attributes: ['default'],
+                    pointsValue: 100,
+                    __typename: 'AvailableSlot',
+                  },
+                  {
+                    isAvailable: true,
+                    timeOffsetMinutes: 30,
+                    slotAvailabilityToken: 'tok-1930',
+                    type: 'Standard',
+                    attributes: ['default'],
+                    pointsValue: 100,
+                    __typename: 'AvailableSlot',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       });
 
       const result = await harness.callTool('opentable_find_slots', {
@@ -162,24 +166,17 @@ describe('reservation tools', () => {
         party_size: 2,
       });
 
-      expect(mockFetchJson).toHaveBeenCalledWith(
-        '/dapi/fe/gql?optype=query&opname=RestaurantsAvailability',
+      expect(mockGraphqlQuery).toHaveBeenCalledWith(
+        'availability',
         expect.objectContaining({
-          method: 'POST',
-          body: expect.objectContaining({
-            operationName: 'RestaurantsAvailability',
-            variables: expect.objectContaining({
-              restaurantIds: [42],
-              date: '2026-05-01',
-              time: '19:00',
-              partySize: 2,
-            }),
-            extensions: expect.objectContaining({
-              persistedQuery: expect.objectContaining({ sha256Hash: expect.any(String) }),
-            }),
-          }),
+          restaurantIds: [42],
+          date: '2026-05-01',
+          time: '19:00',
+          partySize: 2,
         })
       );
+      // No more persisted-query hash or raw fetchJson call for this op.
+      expect(mockFetchJson).not.toHaveBeenCalled();
       const parsed = JSON.parse(
         (result.content[0] as { text: string }).text
       ) as Array<{ time: string; reservation_token: string }>;
@@ -189,15 +186,13 @@ describe('reservation tools', () => {
     });
 
     it('returns [] when the restaurant has no available slots', async () => {
-      mockFetchJson.mockResolvedValue({
-        data: {
-          availability: [
-            {
-              restaurantId: 42,
-              availabilityDays: [{ slots: [{ isAvailable: false, __typename: 'UnavailableSlot' }] }],
-            },
-          ],
-        },
+      mockGraphqlQuery.mockResolvedValue({
+        availability: [
+          {
+            restaurantId: 42,
+            availabilityDays: [{ slots: [{ isAvailable: false, __typename: 'UnavailableSlot' }] }],
+          },
+        ],
       });
       const result = await harness.callTool('opentable_find_slots', {
         restaurant_id: 42,
@@ -1492,21 +1487,19 @@ describe('reservation tools', () => {
 
   describe('database_region plumbing (non-NA restaurants)', () => {
     it('find_slots defaults databaseRegion to NA when omitted', async () => {
-      mockFetchJson.mockResolvedValue({ data: { availability: [] } });
+      mockGraphqlQuery.mockResolvedValue({ availability: [] });
       await harness.callTool('opentable_find_slots', {
         restaurant_id: 42,
         date: '2026-05-01',
         time: '19:00',
         party_size: 2,
       });
-      const init = mockFetchJson.mock.calls[0][1] as {
-        body: { variables: { databaseRegion: string } };
-      };
-      expect(init.body.variables.databaseRegion).toBe('NA');
+      const variables = mockGraphqlQuery.mock.calls[0][1] as { databaseRegion: string };
+      expect(variables.databaseRegion).toBe('NA');
     });
 
     it('find_slots threads a caller-supplied database_region onto the availability variables', async () => {
-      mockFetchJson.mockResolvedValue({ data: { availability: [] } });
+      mockGraphqlQuery.mockResolvedValue({ availability: [] });
       await harness.callTool('opentable_find_slots', {
         restaurant_id: 141537,
         date: '2026-05-01',
@@ -1514,10 +1507,8 @@ describe('reservation tools', () => {
         party_size: 2,
         database_region: 'EU',
       });
-      const init = mockFetchJson.mock.calls[0][1] as {
-        body: { variables: { databaseRegion: string } };
-      };
-      expect(init.body.variables.databaseRegion).toBe('EU');
+      const variables = mockGraphqlQuery.mock.calls[0][1] as { databaseRegion: string };
+      expect(variables.databaseRegion).toBe('EU');
     });
 
     it('book_preview threads database_region onto the slot-lock input', async () => {

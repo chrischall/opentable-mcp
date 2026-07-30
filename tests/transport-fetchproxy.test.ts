@@ -7,6 +7,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 // through correctly and keep the opentable-specific fetch() mapping. We mock the
 // mcp-utils subpath so we can assert exactly what opentable-mcp hands it.
 const ctorCalls: unknown[] = [];
+const graphqlQueryMock = vi.fn().mockResolvedValue({ availability: [] });
 
 vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
   return {
@@ -15,6 +16,7 @@ vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
       return {
         server: {
           request: () => Promise.resolve({ status: 200, body: '', url: '' }),
+          graphqlQuery: graphqlQueryMock,
         },
         start: () => Promise.resolve(),
         close: () => Promise.resolve(),
@@ -26,10 +28,13 @@ vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
 });
 
 // Import AFTER vi.mock so the adapter picks up the fake.
-const { FetchproxyTransport } = await import('../src/transport-fetchproxy.js');
+const { FetchproxyTransport, AVAILABILITY_GRAPHQL_OP_NAME } = await import(
+  '../src/transport-fetchproxy.js'
+);
 
 beforeEach(() => {
   ctorCalls.length = 0;
+  graphqlQueryMock.mockClear();
 });
 
 describe('FetchproxyTransport constructor', () => {
@@ -65,5 +70,37 @@ describe('FetchproxyTransport constructor', () => {
       serverName: 'custom',
       port: 40000,
     });
+  });
+
+  it("declares the 'graphql' capability + graphqlOps for RestaurantsAvailability", () => {
+    // @fetchproxy/server 1.7.0+: routes find_slots through the tab's own
+    // Apollo client instead of the isolated-world fetch() path Akamai
+    // rejects for this endpoint. AVAILABILITY_GRAPHQL_OP_NAME is the
+    // single source of truth reservations.ts also imports, so the two
+    // never drift apart.
+    new FetchproxyTransport({ version: '1.2.3' });
+
+    expect(ctorCalls[0]).toMatchObject({
+      capabilities: ['fetch', 'graphql'],
+      graphqlOps: [
+        { name: AVAILABILITY_GRAPHQL_OP_NAME, operationName: 'RestaurantsAvailability' },
+      ],
+    });
+  });
+});
+
+describe('FetchproxyTransport.graphqlQuery', () => {
+  it('delegates to the underlying server.graphqlQuery with name + variables', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    const result = await transport.graphqlQuery({
+      name: AVAILABILITY_GRAPHQL_OP_NAME,
+      variables: { restaurantIds: [42], partySize: 2 },
+    });
+
+    expect(graphqlQueryMock).toHaveBeenCalledWith({
+      name: AVAILABILITY_GRAPHQL_OP_NAME,
+      variables: { restaurantIds: [42], partySize: 2 },
+    });
+    expect(result).toEqual({ availability: [] });
   });
 });
