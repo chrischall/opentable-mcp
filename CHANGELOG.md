@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.4](https://github.com/chrischall/opentable-mcp/compare/v0.16.3...v0.16.4) (2026-08-06)
+
+
+### Bug Fixes
+
+* **deps:** move to @fetchproxy/server 2.0.0 for the v3 handshake ([#140](https://github.com/chrischall/opentable-mcp/issues/140)) ([928e170](https://github.com/chrischall/opentable-mcp/commit/928e17078e197f4b258911c24e5bc9873b9bd19c))
+
 ## [0.16.3](https://github.com/chrischall/opentable-mcp/compare/v0.16.2...v0.16.3) (2026-07-30)
 
 
