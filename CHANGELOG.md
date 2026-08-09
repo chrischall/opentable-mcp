@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.5](https://github.com/chrischall/opentable-mcp/compare/v0.16.4...v0.16.5) (2026-08-09)
+
+
+### Documentation
+
+* **transport:** make fetchproxy version notes read as provenance ([#143](https://github.com/chrischall/opentable-mcp/issues/143)) ([ead5f2e](https://github.com/chrischall/opentable-mcp/commit/ead5f2e729461c8150f4babe1aa8b4d279ae4143))
+
 ## [0.16.4](https://github.com/chrischall/opentable-mcp/compare/v0.16.3...v0.16.4) (2026-08-06)
 
 
