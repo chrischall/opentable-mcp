@@ -39,8 +39,19 @@ state:
     start mints a fresh identity and re-prompts pairing in the browser; the
     API refuses bridge without it.
 egress:
-  allow:
-    # Only hosts the SERVER process actually fetches. Hosts that appear
-    # solely in a URL this server BUILDS and returns are excluded.
-    - opentable.com
-    - www.opentable.com
+  # Only hosts the SERVER process actually fetches. Hosts that appear
+  # solely in a URL this server BUILDS and returns are excluded.
+  #
+  # Both transports are bridges, so the process dials NO public host:
+  #   - fetchproxy (default, OT_BRIDGE unset): www.opentable.com is dialled
+  #     by the user's signed-in tab; the process only listens on the
+  #     loopback concentrator port (OT_WS_PORT) the runner's agent connects
+  #     to (src/transport-fetchproxy.ts).
+  #   - mcp-chrome (OT_BRIDGE=mcp-chrome): the process talks HTTP to
+  #     mcp-chrome on 127.0.0.1:12306 (src/transport-mcp-chrome.ts), and
+  #     the tab dials opentable.com — loopback, not egress.
+  # There is no direct/bootstrap mode. www.opentable.com appears in src only
+  # as a path base handed to the bridge or as URLs returned to the user
+  # (src/tools/restaurants.ts BASE_URL, src/tools/booking-flow.ts
+  # SCA_REDIRECT_URL).
+  allow: []
