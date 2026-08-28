@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.6](https://github.com/chrischall/opentable-mcp/compare/v0.16.5...v0.16.6) (2026-08-28)
+
+
+### Bug Fixes
+
+* **egress:** declare only the hosts the server process dials in mint.yaml ([#156](https://github.com/chrischall/opentable-mcp/issues/156)) ([4df0633](https://github.com/chrischall/opentable-mcp/commit/4df06336ebb8c8805d2124b3500e44ad6efaa089))
+
 ## [0.16.5](https://github.com/chrischall/opentable-mcp/compare/v0.16.4...v0.16.5) (2026-08-09)
 
 
