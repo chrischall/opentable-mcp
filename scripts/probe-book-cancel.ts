@@ -4,10 +4,11 @@
 // Pick a restaurant that's not going to care about a ~3-second booking.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { probeDate } from './probe-date.js';
 
 const RESTAURANT_ID = Number(process.env.OT_PROBE_RID ?? 1272781); // State of Confusion
 const DINING_AREA_ID = Number(process.env.OT_PROBE_AREA ?? 48750); // Main Dining Room
-const DATE = process.env.OT_PROBE_DATE ?? '2026-05-01';
+const DATE = process.env.OT_PROBE_DATE ?? probeDate();
 const TIME = process.env.OT_PROBE_TIME ?? '19:00';
 
 const c = new Client({ name: 't', version: '0' });

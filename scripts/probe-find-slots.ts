@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { probeDate } from './probe-date.js';
 
 const client = new Client({ name: 't', version: '0' });
 await client.connect(
@@ -8,7 +9,7 @@ await client.connect(
 );
 const r = await client.callTool({
   name: 'opentable_find_slots',
-  arguments: { restaurant_id: 54232, date: '2026-05-01', time: '19:00', party_size: 2 },
+  arguments: { restaurant_id: 54232, date: probeDate(), time: '19:00', party_size: 2 },
 });
 const text = (r.content[0] as { text: string }).text;
 console.log('first 600 chars:');

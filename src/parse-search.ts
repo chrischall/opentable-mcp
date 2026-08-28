@@ -7,6 +7,7 @@
  * should use `opentable_find_slots` for a specific venue.
  */
 import { extractInitialState, ParseError } from './initial-state.js';
+import { absoluteAssetUrl } from './urls.js';
 
 const BASE_URL = 'https://www.opentable.com';
 
@@ -116,7 +117,9 @@ export function formatSearchResult(raw: RawRestaurant): FormattedSearchResult {
     longitude: raw.coordinates?.longitude ?? null,
     top_review: raw.topReview?.highlightedText ?? '',
     url: restaurantUrl(raw.urls?.profileLink?.link),
-    photo_url: raw.photos?.profileV3?.url ?? raw.photos?.profileV3?.legacy?.url ?? '',
+    photo_url: absoluteAssetUrl(
+      raw.photos?.profileV3?.url ?? raw.photos?.profileV3?.legacy?.url
+    ),
   };
 }
 

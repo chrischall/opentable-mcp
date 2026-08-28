@@ -98,7 +98,7 @@ describe('parseRestaurant', () => {
       latest_review: 'Loved it.',
       availability_token: 'tok-avail-1',
       photo_url: 'https://cdn/r.jpg',
-      url: 'https://www.opentable.com/r/42',
+      url: 'https://www.opentable.com/restaurant/profile/42',
     });
   });
 
@@ -232,13 +232,16 @@ describe('parseRestaurant — url construction', () => {
     expect(r.url).toBe('https://www.opentable.com/the-cellar-at-duckworths');
   });
 
-  it('falls back to /r/{numeric-id} when no canonical url is provided (404s on opentable.com, but better than empty)', () => {
+  it('falls back to the numeric-id profile route when no canonical url is provided', () => {
     const html = htmlWith({
       restaurantProfile: {
         restaurant: { restaurantId: 2508, name: 'X' },
       },
     });
     const r = parseRestaurant(html);
-    expect(r.url).toBe('https://www.opentable.com/r/2508');
+    // Was `/r/2508`, which 404s on opentable.com. `/restaurant/profile/{id}`
+    // resolves — verified live 2026-08-27 on two real venues (ids not
+    // recorded here; see the note in src/urls.ts).
+    expect(r.url).toBe('https://www.opentable.com/restaurant/profile/2508');
   });
 });
