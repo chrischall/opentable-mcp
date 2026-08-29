@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/chrischall/opentable-mcp/compare/v0.16.6...v0.17.0) (2026-08-29)
+
+
+### Features
+
+* **deps:** take @fetchproxy/server 2.2.0 so the concentrator can bind its sandbox address ([#158](https://github.com/chrischall/opentable-mcp/issues/158)) ([3c2d6d4](https://github.com/chrischall/opentable-mcp/commit/3c2d6d47cd2c2f4180bed8d0f4df5243767c31a1))
+
 ## [0.16.6](https://github.com/chrischall/opentable-mcp/compare/v0.16.5...v0.16.6) (2026-08-28)
 
 
