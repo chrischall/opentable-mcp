@@ -119,16 +119,33 @@ describe('restaurant tools', () => {
     expect(mockFetchHtml).toHaveBeenCalledWith('/the-cellar-at-duckworths');
   });
 
-  it('rejects numeric restaurant_id with an actionable error and never fetches', async () => {
+  // Was "rejects numeric restaurant_id": the tool used to throw, on the
+  // premise that numeric ids 404. That premise was wrong — /r/{id} 404s but
+  // /restaurant/profile/{id} resolves (verified live 2026-08-27 on two real
+  // venues; ids not recorded, see src/urls.ts). Numeric ids matter because
+  // they are the only venue handle list_reservations / list_favorites return.
+  it('resolves a numeric restaurant_id via the profile route', async () => {
+    mockFetchHtml.mockResolvedValue(htmlWith(restaurantState(99, 'Numeric Venue')));
+
     const result = await harness.callTool('opentable_get_restaurant', {
       restaurant_id: 99,
     });
 
-    expect(mockFetchHtml).not.toHaveBeenCalled();
-    expect(result.isError).toBe(true);
+    expect(mockFetchHtml).toHaveBeenCalledTimes(1);
+    expect(mockFetchHtml).toHaveBeenCalledWith('/restaurant/profile/99');
+    expect(result.isError).toBeFalsy();
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toMatch(/numeric/i);
-    expect(text).toMatch(/slug|url|opentable_search_restaurants/i);
+    expect(JSON.parse(text).url).toBe(
+      'https://www.opentable.com/restaurant/profile/99'
+    );
+  });
+
+  it('never tries the known-404 /r/{numeric-id} shape', async () => {
+    mockFetchHtml.mockResolvedValue(htmlWith(restaurantState(99, 'Numeric Venue')));
+
+    await harness.callTool('opentable_get_restaurant', { restaurant_id: 99 });
+
+    expect(mockFetchHtml).not.toHaveBeenCalledWith('/r/99');
   });
 
   it('surfaces a clear error when both /r/{slug} and /{slug} 404', async () => {

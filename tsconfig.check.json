@@ -1,0 +1,17 @@
+{
+  // Typecheck-only config covering the code `tsconfig.json` cannot.
+  //
+  // The build config sets `rootDir: "src"` and `include: ["src"]` because that
+  // is what esbuild bundles — so `tsc --noEmit` never saw `scripts/` or
+  // `tests/`. The probe scripts are real TypeScript that imports real modules,
+  // and "typechecked by hand" is exactly the thing that stops happening.
+  //
+  // No `rootDir` here and `noEmit`, so widening the surface cannot affect the
+  // build output.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src", "scripts", "tests"]
+}

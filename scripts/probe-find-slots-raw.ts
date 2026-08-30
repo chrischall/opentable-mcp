@@ -17,9 +17,10 @@
 // not, this errors with "operation ... not yet observed on this tab").
 import { FetchproxyTransport } from '../src/transport-fetchproxy.js';
 import { OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../src/client.js';
+import { probeDate } from './probe-date.js';
 
 const RID = Number(process.env.OT_PROBE_RID ?? 2827);
-const DATE = process.env.OT_PROBE_DATE ?? '2026-05-01';
+const DATE = process.env.OT_PROBE_DATE ?? probeDate();
 const TIME = process.env.OT_PROBE_TIME ?? '20:45';
 const PARTY = Number(process.env.OT_PROBE_PARTY ?? 5);
 

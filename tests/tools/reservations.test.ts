@@ -536,6 +536,7 @@ describe('reservation tools', () => {
 
     it('book (token path) uses the token dining area when dining_area_id is omitted', async () => {
       const token = encodeBookingToken({
+        bookingType: 'standard',
         slotLockId: 12345,
         restaurantId: 2827,
         diningAreaId: 48750,
@@ -776,6 +777,7 @@ describe('reservation tools', () => {
 
     it('commits cleanly when called with a valid booking_token (skips re-lock)', async () => {
       const token = encodeBookingToken({
+        bookingType: 'standard',
         slotLockId: 12345,
         restaurantId: 2827,
         diningAreaId: 1,
@@ -854,6 +856,7 @@ describe('reservation tools', () => {
 
     it('rejects a booking_token whose fields do not match the call args', async () => {
       const token = encodeBookingToken({
+        bookingType: 'standard',
         slotLockId: 12345,
         restaurantId: 2827,
         diningAreaId: 1,
@@ -891,6 +894,7 @@ describe('reservation tools', () => {
 
     it('maps a SLOT_LOCK_EXPIRED failure to an actionable message', async () => {
       const token = encodeBookingToken({
+        bookingType: 'standard',
         slotLockId: 12345,
         restaurantId: 2827,
         diningAreaId: 1,

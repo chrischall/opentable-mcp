@@ -10,12 +10,13 @@
 // after slot-lock.
 import { FetchproxyTransport } from '../src/transport-fetchproxy.js';
 import { OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../src/client.js';
+import { probeDate } from './probe-date.js';
 
 const PASQUAL_RID = 278896;
 const PASQUAL_SLUG = 'cafe-pasquals-santa-fe';
 // Two weeks out is a safe slot window — Pasqual's runs Experience
 // flows daily; adjust if their schedule changes.
-const DATE = new Date(Date.now() + 14 * 86400_000).toISOString().slice(0, 10);
+const DATE = probeDate();
 const TIME = '18:00';
 const PARTY = 2;
 

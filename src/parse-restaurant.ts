@@ -6,8 +6,7 @@
  * and must be fetched separately (see `parse-slots.ts` / `find_slots`).
  */
 import { extractInitialState, ParseError } from './initial-state.js';
-
-const BASE_URL = 'https://www.opentable.com';
+import { absoluteAssetUrl, restaurantProfilePath, OPENTABLE_BASE_URL } from './urls.js';
 
 interface RawReview {
   __typename?: string;
@@ -219,15 +218,15 @@ export function parseRestaurant(
     review_count: reviews?.allTimeTextReviewCount ?? null,
     recent_reservation_count: r.statistics?.recentReservationCount ?? 0,
     latest_review: latest?.content ?? '',
-    photo_url: r.photos?.profile?.url ?? '',
+    photo_url: absoluteAssetUrl(r.photos?.profile?.url),
     availability_token: rp.availabilityToken ?? '',
     // URL: the canonical URL we fetched from when we have it (preserves
-    // /r/{slug} vs legacy root /{slug}); fall back to /r/{numeric-id} so the
-    // field at least leads to the right restaurant even though it 404s.
+    // /r/{slug} vs legacy root /{slug}); otherwise the numeric-id profile
+    // route, which resolves (the old /r/{numeric-id} fallback 404'd).
     url: canonicalUrl
       ? canonicalUrl
       : r.restaurantId !== undefined
-        ? `${BASE_URL}/r/${r.restaurantId}`
+        ? `${OPENTABLE_BASE_URL}${restaurantProfilePath(r.restaurantId)}`
         : '',
     bookable,
     listing_type: listingType,
