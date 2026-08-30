@@ -30,10 +30,14 @@ No cookie-pasting. No cycletls. No Playwright. Just your own browser, acting on 
 | `opentable_search_restaurants` | read | `/dapi/fe/gql?opname=Autocomplete` |
 | `opentable_get_restaurant` | read | `/r/{slug}` SSR (`__INITIAL_STATE__`) |
 | `opentable_find_slots` | read | `/dapi/fe/gql?opname=RestaurantsAvailability` |
+| `opentable_book_preview` | read | `/booking/details` SSR + `SlotLock` |
 | `opentable_book` | write | `SlotLock` → `/dapi/booking/make-reservation` |
 | `opentable_cancel` | write | `/dapi/fe/gql?opname=CancelReservation` |
+| `opentable_modify_preview` | read | `/booking/details` SSR (`isModify=true`) + `SlotLock` |
+| `opentable_modify` | write | `/dapi/booking/make-reservation` (`isModify: true`) |
 | `opentable_add_favorite` | write | `/dapi/wishlist/add` |
 | `opentable_remove_favorite` | write | `/dapi/wishlist/remove` |
+| `opentable_healthcheck` | read | `/robots.txt` (bridge probe) |
 
 ## Acknowledgement of Terms
 

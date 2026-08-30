@@ -72,6 +72,19 @@ export class FetchproxyTransport implements OpenTableTransport {
     return this.inner.start();
   }
 
+  /** Bridge liveness, delegated to the mcp-utils adapter (see transport.ts). */
+  bridgeStatus(): unknown {
+    return this.inner.status();
+  }
+
+  /** Probe round-trip, delegated to the mcp-utils adapter (see transport.ts). */
+  runProbe(
+    fetchFn: (path: string) => Promise<unknown>,
+    probePath: string,
+  ): Promise<unknown> {
+    return this.inner.runProbe(fetchFn, probePath);
+  }
+
   close(): Promise<void> {
     return this.inner.close();
   }
