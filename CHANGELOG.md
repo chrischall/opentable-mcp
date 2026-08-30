@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.0](https://github.com/chrischall/opentable-mcp/compare/v0.17.0...v0.18.0) (2026-08-30)
+
+
+### Features
+
+* add opentable_healthcheck ([#162](https://github.com/chrischall/opentable-mcp/issues/162)) ([531fdd1](https://github.com/chrischall/opentable-mcp/commit/531fdd14cde2d232f91939123fb9e00d49ea8e74))
+
+
+### Bug Fixes
+
+* correct restaurant URL routes and harden read-only probes (thanks [@devsoliadata-creator](https://github.com/devsoliadata-creator)) ([#155](https://github.com/chrischall/opentable-mcp/issues/155)) ([43ec6c7](https://github.com/chrischall/opentable-mcp/commit/43ec6c78117ef5ba17d45372076a3f5184262852))
+
+
+### Documentation
+
+* complete the README tool table (book/modify preview rows) ([#165](https://github.com/chrischall/opentable-mcp/issues/165)) ([0f736e7](https://github.com/chrischall/opentable-mcp/commit/0f736e7e7bdf6eda58a1c3c4772a68b0bf237d79)), closes [#163](https://github.com/chrischall/opentable-mcp/issues/163)
+
 ## [0.17.0](https://github.com/chrischall/opentable-mcp/compare/v0.16.6...v0.17.0) (2026-08-29)
 
 
