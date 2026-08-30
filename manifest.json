@@ -86,6 +86,10 @@
     {
       "name": "opentable_remove_favorite",
       "description": "Remove a restaurant from the user's Saved Restaurants."
+    },
+    {
+      "name": "opentable_healthcheck",
+      "description": "Verify the fetchproxy bridge end-to-end: round-trips a small public opentable.com URL and reports bridge role/port/timing plus a hint distinguishing 'bridge never came up' from 'extension not connected' from an OpenTable-side problem."
     }
   ],
   "compatibility": {

@@ -34,6 +34,7 @@ No cookie-pasting. No cycletls. No Playwright. Just your own browser, acting on 
 | `opentable_cancel` | write | `/dapi/fe/gql?opname=CancelReservation` |
 | `opentable_add_favorite` | write | `/dapi/wishlist/add` |
 | `opentable_remove_favorite` | write | `/dapi/wishlist/remove` |
+| `opentable_healthcheck` | read | `/robots.txt` (bridge probe) |
 
 ## Acknowledgement of Terms
 
