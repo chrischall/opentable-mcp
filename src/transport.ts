@@ -63,4 +63,22 @@ export interface OpenTableTransport {
    *  `data` object. Throws if this transport doesn't support the
    *  capability (mcp-chrome) or on any bridge/GraphQL-level failure. */
   graphqlQuery(init: GraphqlQueryInit): Promise<unknown>;
+
+  /**
+   * Bridge liveness for `opentable_healthcheck`, when this transport HAS a
+   * bridge. Optional on purpose: the interface stays transport-agnostic, so a
+   * transport with no bridge (mcp-chrome) simply omits both and the
+   * healthcheck reports that rather than pretending to measure one.
+   *
+   * Deliberately the ONLY window a tool file gets onto the bridge — the
+   * alternative is reaching into `transport-fetchproxy.ts` directly, which the
+   * note at the top of this file rules out.
+   */
+  bridgeStatus?(): unknown;
+
+  /** Round-trip one probe path through the bridge, for the healthcheck. */
+  runProbe?(
+    fetchFn: (path: string) => Promise<unknown>,
+    probePath: string,
+  ): Promise<unknown>;
 }

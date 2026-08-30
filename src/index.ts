@@ -24,6 +24,7 @@ import { McpChromeTransport } from './transport-mcp-chrome.js';
 import { FetchproxyTransport } from './transport-fetchproxy.js';
 import { registerReservationTools } from './tools/reservations.js';
 import { registerUserTools } from './tools/user.js';
+import { registerHealthcheckTools } from './tools/healthcheck.js';
 import { registerFavoriteTools } from './tools/favorites.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerRestaurantTools } from './tools/restaurants.js';
@@ -75,6 +76,7 @@ await runMcp({
     registerFavoriteTools,
     registerSearchTools,
     registerRestaurantTools,
+    (server) => registerHealthcheckTools(server, client, transport),
   ],
   shutdown: { onSignal: () => client.close() },
 });
