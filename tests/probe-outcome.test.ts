@@ -65,7 +65,9 @@ describe('classifyProbeFailure', () => {
     });
 
     it('all three kinds are mutually distinct', () => {
-      const kinds = [NO_TAB, BRIDGE_DOWN, NOT_SIGNED_IN].map(classifyProbeFailure);
+      // Arrow, not a bare reference: `.map` passes the INDEX as the second
+      // argument, which `classifyProbeFailure` takes as its `fallback` kind.
+      const kinds = [NO_TAB, BRIDGE_DOWN, NOT_SIGNED_IN].map((m) => classifyProbeFailure(m));
       expect(new Set(kinds).size).toBe(3);
     });
   });

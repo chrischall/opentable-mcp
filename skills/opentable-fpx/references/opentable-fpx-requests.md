@@ -43,7 +43,8 @@ results), `latitude`, `longitude`, `metroId` (e.g. `8` = SF Bay Area, `31`
 `GET /r/{slug}` — SSR. Data lives at `state.restaurantProfile.restaurant`.
 A subset of (older) listings 404 here and are served at the **root**
 path `/{slug}` instead (e.g. `/the-cellar-at-duckworths`) — try `/r/{slug}`
-first, fall back to `/{slug}` on a 404. **Numeric ids 404 on both** — you
+first, fall back to `/{slug}` on a 404. **Numeric ids route to
+`/restaurant/profile/{id}`** instead of either — you
 need the slug (from §1's `urls.profileLink.link`, or the venue's known
 URL).
 

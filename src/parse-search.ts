@@ -8,8 +8,8 @@
  */
 import { extractInitialState, ParseError } from './initial-state.js';
 import { absoluteAssetUrl } from './urls.js';
+import { opentableUrl } from './urls.js';
 
-const BASE_URL = 'https://www.opentable.com';
 
 interface RawRestaurant {
   restaurantId?: number;
@@ -87,10 +87,18 @@ function joinAddress(a: RawRestaurant['address']): string {
   return parts.join(', ');
 }
 
+/**
+ * Absolute URL for a search result's profile link.
+ *
+ * Delegates to `opentableUrl` rather than rebuilding the shape: this file had
+ * its own `BASE_URL` and a byte-equivalent joiner, which is exactly the
+ * duplication `src/urls.ts` was extracted to end. The empty-input guard stays
+ * here because it is this caller's contract (a result with no profile link
+ * gets `''`), not a property of URL joining.
+ */
 function restaurantUrl(profileLink: string | undefined): string {
   if (!profileLink) return '';
-  if (profileLink.startsWith('http')) return profileLink;
-  return `${BASE_URL}${profileLink.startsWith('/') ? profileLink : `/${profileLink}`}`;
+  return opentableUrl(profileLink);
 }
 
 export function formatSearchResult(raw: RawRestaurant): FormattedSearchResult {

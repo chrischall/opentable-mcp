@@ -16,7 +16,7 @@ await c.connect(new StdioClientTransport({ command: 'node', args: ['dist/bundle.
 
 async function call(name: string, args: Record<string, unknown> = {}) {
   const r = await c.callTool({ name, arguments: args });
-  const text = (r.content[0] as { text: string }).text;
+  const text = (r.content as Array<{ text: string }>)[0]!.text;
   return { isError: !!r.isError, text };
 }
 

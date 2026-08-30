@@ -77,7 +77,7 @@ The server throws `SessionNotAuthenticatedError` (with a clear message) if it de
 | Tool | Description |
 |------|-------------|
 | `opentable_search_restaurants(term?, location?, date?, time?, party_size?, latitude?, longitude?, metro_id?)` | Search by free-text + optional location / date / party size. Returns cuisine, neighborhood, price band, rating, URL slug. No bookable slots — call `find_slots` for those. |
-| `opentable_get_restaurant(restaurant_id)` | Full detail for one restaurant by URL slug (e.g. `"state-of-confusion-charlotte"`). Includes `diningAreas[]` — you need one of their ids to book. **Numeric ids 404 here; always pass the slug.** |
+| `opentable_get_restaurant(restaurant_id)` | Full detail for one restaurant by URL slug (e.g. `"state-of-confusion-charlotte"`) **or numeric id**. Includes `diningAreas[]` — you need one of their ids to book. A numeric id routes to `/restaurant/profile/{id}`; a slug to `/r/{slug}`. Pass whichever you have — `list_reservations` and `list_favorites` return numeric ids. |
 | `opentable_find_slots(restaurant_id, date, time, party_size)` | List bookable slots for a restaurant on a date + party size. Each slot has a short-lived `reservation_token` + `slot_hash` (book within a minute or two of fetching). |
 
 ### User
@@ -189,7 +189,7 @@ opentable_add_favorite(restaurant_id)
 
 - **CC-required bookings must go through preview first.** Restaurants that hold your card for a no-show fee (common at prime-time tables) require `opentable_book_preview` before `opentable_book`. The preview surfaces the cancellation policy and the saved card last-4; the `booking_token` it returns is opaque, stateless, and expires with OpenTable's ~60–90 s slot lock. If the user has no default payment method on opentable.com, preview throws a link to the account settings page. Plain `opentable_book` (no token) refuses CC-required slots with a pointer to preview.
 - **Slot tokens are short-lived.** `reservation_token` + `slot_hash` from `find_slots` typically expire within a minute or two. Call `find_slots` just before `book`, and if the user is deliberating, re-fetch.
-- **`dining_area_id` is mandatory for book.** OpenTable's `/r/<numeric-id>` routes 404 — there's no way to auto-resolve the default dining room. Always call `opentable_get_restaurant(slug)` first and pick a room from `diningAreas[]`.
+- **`dining_area_id` is mandatory for book.** There's no way to auto-resolve the default dining room, so always call `opentable_get_restaurant` first and pick a room from `diningAreas[]`. A numeric id works as well as a slug (it routes to `/restaurant/profile/{id}`), so a venue from `list_reservations` or `list_favorites` can be resolved directly.
 - **`/user/favorites` has a read-after-write lag.** A fresh `add_favorite` may not show up in `list_favorites` for ~10 s. The 204 response from add/remove is authoritative.
 - **Extension must be running.** If the MCP server throws "fetchproxy extension offline — install it and open an opentable.com tab", the user needs to: install the fetchproxy extension (https://github.com/chrischall/fetchproxy), open an opentable.com tab, and sign in. The popup has a green/yellow/red status indicator.
 - **Service worker sleep.** Chrome MV3 SWs sleep after ~30 s idle. Cold wake adds ~2-5 s to the first request. Subsequent calls are fast.

@@ -148,7 +148,7 @@ The `scripts/probe-*.ts` files spin up the MCP server, call one or two tools thr
 ## Known quirks
 
 - **Apollo persisted queries.** Slot search, slot lock, cancel, autocomplete — all use `extensions.persistedQuery.sha256Hash` with hashes captured from opentable.com. If OpenTable re-deploys, the server returns `PersistedQueryNotFound`; see `CLAUDE.md` → "Hot spots" for the re-capture procedure.
-- **`dining_area_id` is a required book arg.** `/r/<numeric-id>` 404s on OpenTable (URLs use slugs), so we can't auto-resolve rooms. Pass the restaurant's URL slug to `opentable_get_restaurant`, read `diningAreas[]`, and feed the id into `opentable_book`.
+- **`dining_area_id` is a required book arg.** We can't auto-resolve rooms, so pass the restaurant's slug **or numeric id** to `opentable_get_restaurant` (slugs route to `/r/{slug}`, numeric ids to `/restaurant/profile/{id}`), read `diningAreas[]`, and feed the id into `opentable_book`.
 - **Service-worker sleep.** MV3 SWs sleep after ~30 s idle. The fetchproxy extension keeps itself warm; on cold wake, the first request may wait up to ~5 s for WS reconnect.
 
 ---

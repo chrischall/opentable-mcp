@@ -151,6 +151,9 @@ export const SENSITIVE_KEYS: readonly string[] = [
   'securitytoken',
   'slothash',
   'slotavailabilitytoken',
+  // parse-restaurant.ts emits `availability_token`; without this the token it
+  // carries survives redaction on the very path this exists to protect.
+  'availabilitytoken',
   'bookingtoken',
   'modifytoken',
   'cookie',
