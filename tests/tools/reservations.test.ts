@@ -1581,6 +1581,23 @@ describe('reservation tools', () => {
       expect(init.body.variables.input.databaseRegion).toBe('EU');
     });
 
+    it('cancel routes through the page (inPage) — the edge 403s this mutation otherwise', async () => {
+      // CancelReservation is a GraphQL mutation on /dapi/fe/gql, the same
+      // shape OpenTable's edge refuses from the extension's isolated world as
+      // the slot-lock. Without inPage every cancel fails with an opaque 403.
+      mockFetchJson.mockResolvedValue({
+        data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
+      });
+      await harness.callTool('opentable_cancel', {
+        confirm: true,
+        restaurant_id: 42,
+        confirmation_number: 12345,
+        security_token: 'tok',
+      });
+      const init = mockFetchJson.mock.calls[0][1] as { inPage?: boolean };
+      expect(init.inPage).toBe(true);
+    });
+
     it('cancel defaults databaseRegion to NA when omitted', async () => {
       mockFetchJson.mockResolvedValue({
         data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },

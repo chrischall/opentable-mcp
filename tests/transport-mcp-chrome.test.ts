@@ -204,4 +204,34 @@ describe('McpChromeTransport', () => {
       t.graphqlQuery({ name: 'availability', variables: {} })
     ).rejects.toThrow(/does not support the 'graphql' capability/);
   });
+
+  it("fetch({inPage}) throws rather than silently sending it from the isolated path", async () => {
+    // Same shape of gap as graphqlQuery above. chrome_network_request is an
+    // isolated-path fetch, which is exactly what OpenTable's edge 403s for
+    // these mutations. Dropping the flag and sending anyway would surface an
+    // opaque 403 and point the caller at bot detection instead of at the
+    // transport they chose.
+    const client = mockClient(rpcOk({ status: 200, body: 'ok' }));
+    const t = new McpChromeTransport({ client });
+
+    await expect(
+      t.fetch({
+        path: '/dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock',
+        method: 'POST',
+        body: '{}',
+        inPage: true,
+      })
+    ).rejects.toThrow(/cannot issue in-page requests/);
+    // Refused before any RPC went out — not attempted and then rejected.
+    expect(client.callTool).not.toHaveBeenCalled();
+  });
+
+  it('fetch() without inPage is unaffected', async () => {
+    const client = mockClient(rpcOk({ status: 200, body: 'ok' }));
+    const t = new McpChromeTransport({ client });
+
+    const r = await t.fetch({ path: '/robots.txt', method: 'GET' });
+    expect(r.status).toBe(200);
+    expect(client.callTool).toHaveBeenCalled();
+  });
 });
