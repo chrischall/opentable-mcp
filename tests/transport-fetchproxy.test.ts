@@ -77,10 +77,18 @@ describe('FetchproxyTransport constructor', () => {
     // rejects for this endpoint. AVAILABILITY_GRAPHQL_OP_NAME is the
     // single source of truth reservations.ts also imports, so the two
     // never drift apart.
+    //
+    // @fetchproxy/server 2.4.0+ adds `fetch_in_page`, declared because
+    // OpenTable's edge 403s a GraphQL *mutation* POST from the isolated world
+    // while accepting the identical request from the page. Only the slot-lock
+    // and cancel calls set `inPage`; see in-page-slot-lock.test.ts.
     new FetchproxyTransport({ version: '1.2.3' });
 
+    // Asserted EXACTLY, not with `arrayContaining`: this is the set the user
+    // approves at pair time, and a capability appearing here without someone
+    // updating this line is precisely the drift worth failing on.
     expect(ctorCalls[0]).toMatchObject({
-      capabilities: ['fetch', 'graphql'],
+      capabilities: ['fetch', 'graphql', 'fetch_in_page'],
       graphqlOps: [
         { name: AVAILABILITY_GRAPHQL_OP_NAME, operationName: 'RestaurantsAvailability' },
       ],

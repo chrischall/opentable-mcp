@@ -84,6 +84,9 @@ export class OpenTableClient {
       method?: 'POST' | 'DELETE';
       headers?: Record<string, string>;
       body?: unknown;
+      /** See `FetchInit.inPage` — set only on the GraphQL mutations that
+       *  OpenTable's edge refuses from the isolated world. */
+      inPage?: boolean;
     }
   ): Promise<T> {
     const serialised: FetchInit = {
@@ -95,6 +98,8 @@ export class OpenTableClient {
         ...(init.headers ?? {}),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      // Absent unless true: the wire validator rejects a non-boolean.
+      ...(init.inPage === true ? { inPage: true } : {}),
     };
     const result = await this.transport.fetch(serialised);
     this.throwIfNotOk(result, serialised.method, path);
