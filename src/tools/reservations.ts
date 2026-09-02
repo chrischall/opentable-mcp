@@ -1060,6 +1060,9 @@ export function registerReservationTools(
           };
         };
       }>(CANCEL_RESERVATION_PATH, {
+        // MAIN world: CancelReservation is a GraphQL mutation, the same
+        // shape the edge refuses from the isolated world as the slot-lock.
+        inPage: true,
         method: 'POST',
         headers: { 'ot-page-type': 'network_confirmation', 'ot-page-group': 'booking' },
         body: {

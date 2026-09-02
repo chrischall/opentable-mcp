@@ -102,6 +102,16 @@ export class McpChromeTransport implements OpenTableTransport {
   }
 
   async fetch(init: FetchInit): Promise<FetchResult> {
+    if (init.inPage === true) {
+      // Same shape of gap as `graphqlQuery` below: chrome_network_request is a
+      // plain fetch from the tab's isolated path, which is exactly what
+      // OpenTable's edge 403s for these mutations. Silently dropping the flag
+      // would send the request anyway and surface an opaque 403, sending the
+      // caller after a bot-detection red herring instead of the transport.
+      throw new Error(
+        "McpChromeTransport cannot issue in-page requests — it has no equivalent to fetchproxy's MAIN-world fetch bridge, and OpenTable's edge rejects this mutation from the isolated path. Switch to the default fetchproxy transport (unset OT_BRIDGE) to book, modify or cancel.",
+      );
+    }
     const requestUrl = init.path.startsWith('http')
       ? init.path
       : `https://www.opentable.com${init.path}`;

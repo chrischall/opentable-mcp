@@ -127,6 +127,10 @@ export async function lockSlot(
       };
     };
   }>(path, {
+    // MAIN world: OpenTable's edge 403s this mutation from the isolated
+    // world and accepts the identical request from the page. This is the
+    // call that makes booking work at all — see FetchInit.inPage.
+    inPage: true,
     method: 'POST',
     headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
     body: {

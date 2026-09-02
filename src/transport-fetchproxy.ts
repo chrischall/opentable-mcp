@@ -61,7 +61,14 @@ export class FetchproxyTransport implements OpenTableTransport {
       // at the edge for this endpoint. The extension resolves the
       // declared `operationName` to the live DocumentNode it already
       // observed on the tab — no persisted-query hash needed here.
-      capabilities: ['fetch', 'graphql'],
+      //
+      // `fetch_in_page` (@fetchproxy/server 2.4.0+) lets an individual request
+      // be issued by the page's MAIN world. Declared because OpenTable's edge
+      // 403s a GraphQL mutation POST from the isolated world while accepting
+      // the identical request from the page — see FetchInit.inPage. Only the
+      // slot-lock and cancel mutations set it; every other call keeps the
+      // isolated world.
+      capabilities: ['fetch', 'graphql', 'fetch_in_page'],
       graphqlOps: [
         { name: AVAILABILITY_GRAPHQL_OP_NAME, operationName: 'RestaurantsAvailability' },
       ],
@@ -100,6 +107,10 @@ export class FetchproxyTransport implements OpenTableTransport {
       subdomain: 'www',
       headers: init.headers,
       body: init.body,
+      // Spread rather than `inPage: init.inPage`: the wire validator takes a
+      // strict boolean and rejects `undefined`, so the key must be absent
+      // unless it is genuinely true.
+      ...(init.inPage === true ? { inPage: true } : {}),
     });
     return { status: response.status, body: response.body, url: response.url };
   }
