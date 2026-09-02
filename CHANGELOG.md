@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/chrischall/opentable-mcp/compare/v0.18.0...v0.18.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* **booking:** route the GraphQL mutations through the page to clear a 403 ([#174](https://github.com/chrischall/opentable-mcp/issues/174)) ([bc4526c](https://github.com/chrischall/opentable-mcp/commit/bc4526cb8fb65f20b10a810287958bd5f4c5d506))
+
 ## [0.18.0](https://github.com/chrischall/opentable-mcp/compare/v0.17.0...v0.18.0) (2026-08-30)
 
 
