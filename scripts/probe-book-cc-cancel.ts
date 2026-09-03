@@ -99,6 +99,7 @@ if (!previewBody.cc_required) {
 
 console.log(`── book (commits a real reservation) ──`);
 const bookResp = await call('opentable_book', {
+  confirm: true,
   restaurant_id: RID,
   date: chosen.date,
   time: chosen.time,
@@ -122,6 +123,7 @@ const booking = JSON.parse(bookResp.text) as {
 
 console.log(`── cancel ${booking.confirmation_number} ──`);
 const cancelResp = await call('opentable_cancel', {
+  confirm: true,
   restaurant_id: booking.restaurant_id,
   confirmation_number: booking.confirmation_number,
   security_token: booking.security_token,
