@@ -71,6 +71,7 @@ if (previewResp.isError) {
 }
 const bookPreview = JSON.parse(previewResp.text);
 const bookResp = await call('opentable_book', {
+  confirm: true,
   restaurant_id: RID,
   date: DATE,
   time: ORIG_TIME,
@@ -112,6 +113,7 @@ if (modifyPreviewResp.isError) {
   const modifyPreview = JSON.parse(modifyPreviewResp.text);
   console.log(`modify preview ok; new policy: ${modifyPreview.cancellation_policy?.type}`);
   const modifyResp = await call('opentable_modify', {
+    confirm: true,
     restaurant_id: RID,
     confirmation_number: booked.confirmation_number,
     security_token: booked.security_token,
@@ -145,6 +147,7 @@ else console.log('  reservation not visible in upcoming list');
 
 console.log(`── 4) cancel ──`);
 const cancelResp = await call('opentable_cancel', {
+  confirm: true,
   restaurant_id: RID,
   confirmation_number: modified.confirmation_number ?? booked.confirmation_number,
   security_token: modified.security_token ?? booked.security_token,

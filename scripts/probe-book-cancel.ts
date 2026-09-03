@@ -47,6 +47,7 @@ const chosen = slots[0];
 
 console.log(`── book slot ${chosen.date} ${chosen.time} ──`);
 const bookResp = await call('opentable_book', {
+  confirm: true,
   restaurant_id: chosen.restaurant_id,
   date: chosen.date,
   time: chosen.time,
@@ -68,6 +69,7 @@ const booking = JSON.parse(bookResp.text) as {
 
 console.log(`── cancel confirmation=${booking.confirmation_number} ──`);
 const cancelResp = await call('opentable_cancel', {
+  confirm: true,
   restaurant_id: booking.restaurant_id,
   confirmation_number: booking.confirmation_number,
   security_token: booking.security_token,

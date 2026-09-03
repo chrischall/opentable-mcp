@@ -99,6 +99,7 @@ console.log(`── book with booking_token ──`);
 let confirmationFromBook: number | null = null;
 try {
   const bookResp = await call('opentable_book', {
+    confirm: true,
     restaurant_id: RID,
     date: chosen.date,
     time: chosen.time,
@@ -138,6 +139,7 @@ const orphan = reservations.find(
 if (orphan) {
   console.log(`── cancel found reservation conf=${orphan.confirmation_number} ──`);
   const cancelResp = await call('opentable_cancel', {
+    confirm: true,
     restaurant_id: orphan.restaurant_id,
     confirmation_number: orphan.confirmation_number,
     security_token: orphan.security_token,
