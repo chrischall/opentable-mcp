@@ -1,14 +1,17 @@
 #!/usr/bin/env tsx
 /**
- * Live check for the `fetch_in_page` slot-lock path — WITHOUT booking.
+ * Live check of the write path — WITHOUT booking.
  *
  * `opentable_book_preview` fetches /booking/details and slot-locks. The
- * slot-lock is the GraphQL mutation OpenTable's edge 403s from the
- * extension's isolated world; it is what `inPage: true` is for. A preview
- * makes NO reservation — the lock expires on its own in ~90s.
+ * slot-lock is the first write of every booking, and the one that 403s when
+ * the fetchproxy relay tab carries no CSRF token (see WRITE_RELAY_TAB_PREFIXES
+ * in src/transport-fetchproxy.ts). A preview makes NO reservation — the lock
+ * expires on its own in ~90s.
  *
- * Usage:  npx tsx scripts/probe-slot-lock-inpage.ts [YYYY-MM-DD] [HH:MM]
- * Needs the fetchproxy extension installed and an opentable.com tab signed in.
+ * Usage:  npx tsx scripts/probe-slot-lock.ts [YYYY-MM-DD] [HH:MM]
+ * Needs the fetchproxy extension installed and a signed-in restaurant page
+ * (/r/…) open — that tab both warms RestaurantsAvailability for find_slots
+ * and relays the slot-lock.
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -64,8 +67,9 @@ if (isErr(preview)) {
   console.error(body.slice(0, 400));
   if (body.includes('403')) {
     console.error(
-      '\n403 means the mutation still went out from the ISOLATED world — ' +
-        'check that the transport declares fetch_in_page and that lockSlot sets inPage:true.',
+      '\n403 means the relay tab had no x-csrf-token to inject. Every prefix in WRITE_RELAY_TAB_PREFIXES ' +
+        '(transport-fetchproxy.ts) matched no tab, or the matched tab predates the current ' +
+        'extension build — open https://www.opentable.com/r/<any-restaurant> in a fresh tab and retry.',
     );
   }
   process.exit(1);
@@ -76,7 +80,7 @@ const preview_ = JSON.parse(body) as {
   credit_card_required?: boolean;
   cancellation_policy?: unknown;
 };
-console.log('\n✅ slot-lock SUCCEEDED through the in-page path');
+console.log('\n✅ slot-lock SUCCEEDED (write path is good)');
 console.log(`   booking_token: ${preview_.booking_token ? 'present' : 'MISSING'}`);
 console.log(`   credit_card_required: ${String(preview_.credit_card_required)}`);
 console.log('\nNo reservation was made; the lock expires on its own.');

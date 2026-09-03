@@ -173,6 +173,16 @@ describe('reservation tools', () => {
           date: '2026-05-01',
           time: '19:00',
           partySize: 2,
+          // Mirrors the restaurant page's own RestaurantsAvailability
+          // variables (captured 2026-09-02). The old hardcoded
+          // restaurantAvailabilityTokens entry made OpenTable mint slot
+          // tokens ({"m":1,"c":4}) that differed from the page's
+          // ({"m":0,"c":6}); an empty list yields the page's tokens.
+          restaurantAvailabilityTokens: [],
+          requireTypes: ['Standard', 'Experience'],
+          privilegedAccess: expect.arrayContaining(['VIP']),
+          forwardMinutes: 325,
+          backwardMinutes: 1110,
         })
       );
       // No more persisted-query hash or raw fetchJson call for this op.
@@ -293,6 +303,27 @@ describe('reservation tools', () => {
         text: expect.stringContaining('£10pp'),
         language: 'en-GB',
       });
+      // The page sends tcAccepted:true on make-reservation whenever its
+      // terms checkbox exists; preview records that on the token.
+      expect(decodeBookingToken(body.booking_token).tcAccepted).toBe(true);
+    });
+
+    it('leaves tcAccepted off the token when the venue has no terms', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-no-cc.json')));
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+      });
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 141537,
+        date: '2026-05-09',
+        time: '19:30',
+        party_size: 2,
+        reservation_token: 'rt',
+        slot_hash: 'sh',
+        dining_area_id: 1,
+      });
+      const body = JSON.parse((result.content[0] as { text: string }).text);
+      expect(decodeBookingToken(body.booking_token)).not.toHaveProperty('tcAccepted');
     });
 
     it('returns terms=null when the venue has no custom policy', async () => {
@@ -1198,6 +1229,17 @@ describe('reservation tools', () => {
         expect(htmlUrl).toContain('securityToken=02xyz');
         expect(htmlUrl).toContain('isModify=true');
         expect(htmlUrl).not.toContain('st=Experience');
+        // Same Standard slot-lock input as the page (slotAvailabilityToken
+        // included), from the isolated world.
+        const lockInit = mockFetchJson.mock.calls[0][1] as {
+          body: { variables: { input: Record<string, unknown> } };
+        };
+        expect(lockInit).not.toHaveProperty('inPage');
+        expect(lockInit.body.variables.input).toMatchObject({
+          slotAvailabilityToken: 'tok',
+          slotHash: 'h',
+          diningAreaId: 1,
+        });
 
         const json = JSON.parse((result.content[0] as { text: string }).text);
         expect(json.booking_type).toBe('instant');
@@ -1205,6 +1247,61 @@ describe('reservation tools', () => {
         const decoded = decodeBookingToken(json.modify_token);
         expect(decoded.bookingType).toBe('standard');
         expect(decoded.existingConfirmationNumber).toBe(11111);
+      });
+    });
+
+    describe('dining_area_id auto-resolution (same helper as book_preview)', () => {
+      it('resolves dining_area_id from /booking/details when omitted', async () => {
+        // no-cc fixture's diningAreasBySeating = [{ diningAreaId: 48750, default }]
+        mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-no-cc.json')));
+        mockFetchJson.mockResolvedValue({
+          data: { lockSlot: { success: true, slotLock: { slotLockId: 7777 } } },
+        });
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 1272781,
+          confirmation_number: 11111,
+          security_token: '02xyz',
+          date: '2026-05-05',
+          time: '20:00',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          // dining_area_id omitted
+        });
+
+        expect(result.isError).toBeFalsy();
+        const url = mockFetchHtml.mock.calls[0][0] as string;
+        expect(url).not.toContain('diningAreaId=');
+        const lockBody = (mockFetchJson.mock.calls[0][1] as {
+          body: { variables: { input: { diningAreaId: number } } };
+        }).body;
+        expect(lockBody.variables.input.diningAreaId).toBe(48750);
+        const json = JSON.parse((result.content[0] as { text: string }).text);
+        expect(json.reservation.dining_area_id).toBe(48750);
+        expect(decodeBookingToken(json.modify_token).diningAreaId).toBe(48750);
+      });
+
+      it('errors clearly when omitted and the page has no dining areas', async () => {
+        const state = fixture('booking-details-state-no-cc.json') as {
+          timeSlot: Record<string, unknown>;
+        };
+        mockFetchHtml.mockResolvedValue(
+          htmlWith({ ...state, timeSlot: { ...state.timeSlot, diningAreasBySeating: [] } })
+        );
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 1272781,
+          confirmation_number: 11111,
+          security_token: '02xyz',
+          date: '2026-05-05',
+          time: '20:00',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+        });
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/dining_area_id/);
+        expect(mockFetchJson).not.toHaveBeenCalled();
       });
     });
 
@@ -1415,6 +1512,95 @@ describe('reservation tools', () => {
       expect(json.booking_type).toBe('experience_mandatory');
     });
 
+    it('uses the token dining area + tcAccepted when dining_area_id is omitted', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith({
+          header: {
+            userProfile: {
+              firstName: 'A',
+              lastName: 'B',
+              email: 'a@b.c',
+              mobilePhoneNumber: { number: '5550000', countryId: 'US' },
+              countryId: 'US',
+            },
+          },
+          diningDashboard: { upcomingReservations: [], pastReservations: [] },
+        })
+      );
+      let makeBody: Record<string, unknown> | null = null;
+      mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
+        if (path === '/dapi/booking/make-reservation') {
+          makeBody = init?.body ?? null;
+          return { confirmationNumber: 47190, reservationId: 1, securityToken: 'sec2', success: true };
+        }
+        throw new Error(`unexpected POST: ${path}`);
+      });
+
+      const token = encodeBookingToken({
+        slotLockId: 139630438, restaurantId: 985138, diningAreaId: 1,
+        partySize: 2, date: '2026-10-13', time: '17:45',
+        reservationToken: 'tok', slotHash: '4444',
+        paymentCard: { id: 'card-1', last4: '2630', expiryMmYy: '1028', provider: 'spreedly' },
+        ccRequired: true,
+        issuedAt: new Date().toISOString(),
+        bookingType: 'standard',
+        tcAccepted: true,
+        existingConfirmationNumber: 47190,
+        existingSecurityToken: 'existing-token-placeholder',
+      });
+
+      const result = await harness.callTool('opentable_modify', {
+        confirm: true,
+        restaurant_id: 985138,
+        confirmation_number: 47190,
+        security_token: 'existing-token-placeholder',
+        date: '2026-10-13',
+        time: '17:45',
+        party_size: 2,
+        reservation_token: 'tok',
+        slot_hash: '4444',
+        modify_token: token,
+        // dining_area_id omitted — the token is authoritative
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(makeBody!.diningAreaId).toBe(1);
+      expect(makeBody!.slotLockId).toBe(139630438);
+      expect(makeBody!.tcAccepted).toBe(true);
+      expect(makeBody!.isModify).toBe(true);
+      expect(makeBody!.confnumber).toBe(47190);
+      expect(mockFetchJson.mock.calls[0][1]).not.toHaveProperty('inPage');
+    });
+
+    it('refuses when a restated dining_area_id diverges from the token', async () => {
+      const token = encodeBookingToken({
+        slotLockId: 1, restaurantId: 985138, diningAreaId: 1,
+        partySize: 2, date: '2026-10-13', time: '17:45',
+        reservationToken: 'tok', slotHash: '4444',
+        paymentCard: null, ccRequired: false,
+        issuedAt: new Date().toISOString(),
+        bookingType: 'standard',
+        existingConfirmationNumber: 47190,
+        existingSecurityToken: 'existing-token-placeholder',
+      });
+      const result = await harness.callTool('opentable_modify', {
+        confirm: true,
+        restaurant_id: 985138,
+        confirmation_number: 47190,
+        security_token: 'existing-token-placeholder',
+        date: '2026-10-13',
+        time: '17:45',
+        party_size: 2,
+        reservation_token: 'tok',
+        slot_hash: '4444',
+        dining_area_id: 99,
+        modify_token: token,
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
     it('refuses without a modify_token', async () => {
       const result = await harness.callTool('opentable_modify', {
         confirm: true,
@@ -1581,10 +1767,11 @@ describe('reservation tools', () => {
       expect(init.body.variables.input.databaseRegion).toBe('EU');
     });
 
-    it('cancel routes through the page (inPage) — the edge 403s this mutation otherwise', async () => {
-      // CancelReservation is a GraphQL mutation on /dapi/fe/gql, the same
-      // shape OpenTable's edge refuses from the extension's isolated world as
-      // the slot-lock. Without inPage every cancel fails with an opaque 403.
+    it('cancel is issued from the isolated world — no inPage flag', async () => {
+      // 0.18.1 flagged CancelReservation `inPage` to dodge a 403 that turned
+      // out to be a relay tab without a CSRF token (see
+      // transport-fetchproxy.test.ts). The flag hands page script the
+      // request, so it stays off.
       mockFetchJson.mockResolvedValue({
         data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
       });
@@ -1594,8 +1781,7 @@ describe('reservation tools', () => {
         confirmation_number: 12345,
         security_token: 'tok',
       });
-      const init = mockFetchJson.mock.calls[0][1] as { inPage?: boolean };
-      expect(init.inPage).toBe(true);
+      expect(mockFetchJson.mock.calls[0][1]).not.toHaveProperty('inPage');
     });
 
     it('cancel defaults databaseRegion to NA when omitted', async () => {

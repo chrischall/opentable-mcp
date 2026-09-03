@@ -23,20 +23,6 @@ export interface FetchInit {
   /** Serialized request body. JSON callers stringify before calling.
    *  Omitted for GETs. */
   body?: string;
-  /**
-   * Issue this ONE request from the page's MAIN world rather than the
-   * extension's isolated world (fetchproxy `fetch_in_page`, 2.4.0+).
-   *
-   * OpenTable's edge returns 403 for a GraphQL *mutation* POST from the
-   * isolated world and 200 for the byte-identical request from the page;
-   * GraphQL queries and REST writes pass from either. Without this, every
-   * booking write (slot-lock, cancel) fails.
-   *
-   * Set it ONLY on those mutations. A flagged request loses the isolated
-   * world's tamper resistance — page script can read and alter it, CSRF
-   * header included — so it is not a default and not a fallback.
-   */
-  inPage?: boolean;
 }
 
 export interface FetchResult {

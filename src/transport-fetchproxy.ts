@@ -1,7 +1,7 @@
 // Adapter that lets the @fetchproxy/server FetchproxyServer satisfy
 // opentable-mcp's OpenTableTransport interface.
 //
-// The floor is declared once, in package.json: `@fetchproxy/server` ^2.0.0.
+// The floor is declared once, in package.json: `@fetchproxy/server` ^2.4.0.
 // Every version note below records WHEN a behaviour arrived upstream, not a
 // constraint this file still negotiates — all of them sit under the floor and
 // are unconditionally satisfied. They are kept because the behaviours are
@@ -22,6 +22,7 @@ import {
   createFetchproxyTransport,
   type FetchproxyTransport as FetchproxyTransportAdapter,
 } from '@chrischall/mcp-utils/fetchproxy';
+import { FetchproxyNoTabError } from '@fetchproxy/server';
 import type { FetchInit, FetchResult, GraphqlQueryInit, OpenTableTransport } from './transport.js';
 import { AVAILABILITY_GRAPHQL_OP_NAME } from './client.js';
 
@@ -32,6 +33,35 @@ export interface FetchproxyTransportOptions {
   /** MCP server version. Should match package.json + the banner in index.ts. */
   version: string;
 }
+
+/**
+ * Relay tabs for write requests, tried in order.
+ *
+ * Every OpenTable write — the slot-lock and cancel GraphQL mutations AND the
+ * REST `/dapi/booking/make-reservation` POST — is refused with an empty 403
+ * unless it carries `x-csrf-token`. The extension injects that header from
+ * the relay tab's `window.__CSRF_TOKEN__`, and only OpenTable's *app* pages
+ * define it: restaurant profiles (`/r/…`), the booking flow (`/booking/…`),
+ * and the account pages (`/user/…`). The homepage and search pages don't.
+ *
+ * fetchproxy's default relay is the FIRST tab on the host in Chrome's tab
+ * order (`chrome.tabs.query`), so a user whose oldest OpenTable tab was the
+ * homepage got every write 403'd — the 0.18.x symptom that 0.18.1 misread
+ * as an isolated-world-vs-page distinction (live comparison 2026-09-02: the
+ * same mutation passes from the isolated world through a CSRF-bearing tab,
+ * and fails from the page's own world without the header). Naming the relay
+ * tab is the fix; `/r/` comes first because `opentable_find_slots` already
+ * needs a restaurant-profile tab, so the booking flow always has one.
+ *
+ * Matched by URL prefix (fetchproxy `viaTab`, 1.12.0+). When no tab matches
+ * any prefix the request falls back to the default relay so wishlist writes
+ * keep working for a user with, say, only a search tab open.
+ */
+export const WRITE_RELAY_TAB_PREFIXES: readonly string[] = [
+  'https://www.opentable.com/r/',
+  'https://www.opentable.com/booking/',
+  'https://www.opentable.com/user/',
+];
 
 export class FetchproxyTransport implements OpenTableTransport {
   // mcp-utils' createFetchproxyTransport owns the FetchproxyServer construction
@@ -62,13 +92,13 @@ export class FetchproxyTransport implements OpenTableTransport {
       // declared `operationName` to the live DocumentNode it already
       // observed on the tab — no persisted-query hash needed here.
       //
-      // `fetch_in_page` (@fetchproxy/server 2.4.0+) lets an individual request
-      // be issued by the page's MAIN world. Declared because OpenTable's edge
-      // 403s a GraphQL mutation POST from the isolated world while accepting
-      // the identical request from the page — see FetchInit.inPage. Only the
-      // slot-lock and cancel mutations set it; every other call keeps the
-      // isolated world.
-      capabilities: ['fetch', 'graphql', 'fetch_in_page'],
+      // `fetch_in_page` is deliberately NOT declared. 0.18.1 declared it on
+      // the theory that OpenTable's edge 403s GraphQL mutations from the
+      // isolated world; the 403 was really a relay tab without a CSRF token
+      // (see WRITE_RELAY_TAB_PREFIXES). Routing a request through the page's
+      // MAIN world hands page script the request, CSRF header included, so
+      // it stays off unless something genuinely needs it.
+      capabilities: ['fetch', 'graphql'],
       graphqlOps: [
         { name: AVAILABILITY_GRAPHQL_OP_NAME, operationName: 'RestaurantsAvailability' },
       ],
@@ -103,21 +133,36 @@ export class FetchproxyTransport implements OpenTableTransport {
     // FetchproxyProtocolError so any caller catching the parent still
     // matches. The opentable contract (throw on protocol failures,
     // return on HTTP-level outcomes) is preserved.
-    const response = await this.inner.server.request(init.method, init.path, {
+    const base = {
       subdomain: 'www',
       headers: init.headers,
       body: init.body,
-      // Spread rather than `inPage: init.inPage`: the wire validator takes a
-      // strict boolean and rejects `undefined`, so the key must be absent
-      // unless it is genuinely true.
-      ...(init.inPage === true ? { inPage: true } : {}),
-    });
-    return { status: response.status, body: response.body, url: response.url };
+    };
+    const issue = async (viaTab?: string): Promise<FetchResult> => {
+      const response = await this.inner.server.request(init.method, init.path, {
+        ...base,
+        ...(viaTab === undefined ? {} : { viaTab }),
+      });
+      return { status: response.status, body: response.body, url: response.url };
+    };
+
+    // SSR GETs need no CSRF token; any signed-in tab will do.
+    if (init.method === 'GET') return issue();
+
+    // Writes: walk the CSRF-bearing app-page prefixes, then fall back.
+    for (const prefix of WRITE_RELAY_TAB_PREFIXES) {
+      try {
+        return await issue(prefix);
+      } catch (e) {
+        if (!(e instanceof FetchproxyNoTabError)) throw e;
+      }
+    }
+    return issue();
   }
 
   async graphqlQuery(init: GraphqlQueryInit): Promise<unknown> {
-    // No explicit tabUrl: opentable-mcp declares a single domain, so the
-    // bridge auto-resolves a tab on it.
+    // No explicit tabUrl: the extension walks the opentable.com tabs itself
+    // until it finds one that has observed the operation.
     return this.inner.server.graphqlQuery({ name: init.name, variables: init.variables });
   }
 }

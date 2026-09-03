@@ -44,15 +44,15 @@ session — their cookies, their TLS, their JS context — never ours.
 - `npx tsx scripts/probe-book-cancel-experience.ts` — **books + cancels a real Experience-mandatory slot** (book_preview → book path; targets Cafe Pasqual's).
 - `npx tsx scripts/probe-modify-experience.ts` — **books → modifies (moves time) → cancels** a real reservation; the live truth-check for the modify path.
 - `npx tsx scripts/probe-find-slots-raw.ts` — dumps the raw (unparsed) `RestaurantsAvailability` response via the `graphql` capability — useful for spotting fields `parse-slots.ts` currently drops. No persisted-query hash involved (see the graphql-capability gotcha in Hot spots/gotchas below).
-- `npx tsx scripts/probe-slot-lock-inpage.ts [YYYY-MM-DD] [HH:MM]` — exercises the
-  slot-lock mutation (the `inPage` path) via `book_preview`. Locks a slot for ~90s and
-  makes NO reservation, so it's the safe way to check the write path end-to-end.
-  Prints an explicit diagnosis on 403.
+- `npx tsx scripts/probe-slot-lock.ts [YYYY-MM-DD] [HH:MM]` — exercises the
+  slot-lock mutation via `book_preview`. Locks a slot for ~90s and makes NO
+  reservation, so it's the safe way to check the write path end-to-end. Prints
+  an explicit diagnosis on 403 (a relay tab without a CSRF token — see gotchas).
 - `npx tsx scripts/probe-list-res.ts` — dump upcoming reservations; useful after a probe to check for dangling ones.
 - `npx tsx scripts/serve-only.ts` — raw WS listener that logs every extension frame. Debugging only.
 - `npx tsx scripts/e2e-phase-a.ts` — read-only smoke (list reservations / profile / favorites).
 
-All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed and a signed-in opentable tab.
+All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed and a signed-in opentable tab — for anything that books, a signed-in **restaurant page** (`/r/…`) tab: it warms `RestaurantsAvailability` for `find_slots` and is the first relay candidate for writes.
 
 ## Architecture
 
@@ -69,7 +69,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed
 
 - **Dependency on `@fetchproxy/server`** — the WebSocket server, frame validation, and browser extension all live in the separate https://github.com/chrischall/fetchproxy repo. Releases there ship `@fetchproxy/server` to npm and `fetchproxy-extension` to the Chrome Web Store / Safari. opentable-mcp pins both as runtime deps (`@fetchproxy/server`, `@fetchproxy/protocol`). The cross-repo split lets resy-mcp, future *.com-mcp servers, etc. share one extension instead of bundling their own.
 - **`src/transport.ts`** — the `OpenTableTransport` interface (`start/close/fetch`) and shared `FetchInit`/`FetchResult` types. Two implementations:
-  - **`src/transport-fetchproxy.ts`** — `FetchproxyTransport`: thin adapter that wraps `@fetchproxy/server`'s `FetchproxyServer`. opentable-mcp passes opentable-relative paths (`/dapi/...`); the adapter prepends `https://www.opentable.com` and pins `tabUrl` to opentable.com so the extension routes fetches through the right tab.
+  - **`src/transport-fetchproxy.ts`** — `FetchproxyTransport`: thin adapter that wraps `@fetchproxy/server`'s `FetchproxyServer`. opentable-mcp passes opentable-relative paths (`/dapi/...`); the adapter prepends `https://www.opentable.com`. GETs relay through whichever opentable.com tab the extension picks; every non-GET walks `WRITE_RELAY_TAB_PREFIXES` (`/r/` → `/booking/` → `/user/`) via fetchproxy's `viaTab`, because only those app pages define the `window.__CSRF_TOKEN__` the write endpoints demand (see gotchas).
   - **`src/transport-mcp-chrome.ts`** — `McpChromeTransport`: opt-in via `OT_BRIDGE=mcp-chrome`. Talks to hangwin/mcp-chrome's HTTP MCP at `127.0.0.1:12306/mcp`. Each fetch maps to a `chrome_network_request` call pinned to `tabUrl: "https://www.opentable.com/"`. Requires the `tabUrl` param landing upstream — see https://github.com/hangwin/mcp-chrome/pull/348.
 - **`src/client.ts`** — `OpenTableClient`: thin facade over `OpenTableTransport`. `fetchHtml(path)` for GETs that return HTML, `fetchJson(path, init)` for JSON POSTs/DELETEs. Maps non-2xx, empty-body (204), and sign-in-page responses into typed errors. Transport-agnostic.
 - **`src/tools/*.ts`** — one file per concern (reservations, restaurants, favorites, search, user). Each exports `registerXxxTools(server, client)`. See "Tool surface" below. `tools/booking-flow.ts` is the exception: not a tool registrar but the shared booking primitives (`lockSlot`, `makeReservation`) behind `opentable_book`/`opentable_book_preview` and `opentable_modify`/`opentable_modify_preview` — it hides the Standard-vs-Experience and new-book-vs-modify body/response divergence. The persisted-query hashes + endpoint paths stay in `tools/reservations.ts` and are passed in.
@@ -148,28 +148,45 @@ Commits land on `main` via PR. release-please (`.github/workflows/release-please
 ## Hot spots / gotchas
 
 - **`/r/<numeric-id>` 404s, but numeric ids ARE resolvable.** OpenTable's `/r/` URLs use slugs (`/r/state-of-confusion-charlotte`); a numeric id 404s there and is routed to `/restaurant/profile/{id}` instead, which serves the same parsed state. This matters because a numeric `restaurant_id` is the ONLY venue handle `opentable_list_reservations` and `opentable_list_favorites` return. URL construction lives in `restaurantCandidatePaths` (`src/urls.ts`) — one definition, regression-tested there.
-- **`dining_area_id` is auto-resolved — booking no longer depends on `get_restaurant`.** `opentable_book` / `opentable_book_preview` take `dining_area_id` as an *optional* arg. When omitted, it's resolved from the `/booking/details` page they already fetch: `timeSlot.diningAreasBySeating[]` carries `{diningAreaId, tableCategory}`, and `resolveDiningAreaId()` (in `parse-booking-details-state.ts`) picks the first entry matching the seating (default `default`), falling back to the first area. So `find_slots → book` works with no separate lookup; pass `dining_area_id` explicitly only to pin a specific room. Why this design: the `RestaurantsAvailability` response (find_slots) carries only the seating *category* (`attributes`, `diningAreasBySeating[].tableCategory`) — **not** the numeric `diningAreaId` (the `SlotDiningArea` objects there expose only `inventoryAccessRuleMap`). The numeric id lives only on `/booking/details`, so that's where we resolve it. Confirmed live 2026-06-03: `/booking/details` returns the full `diningAreasBySeating[]` whether or not `diningAreaId` is in the URL. Note: `opentable_modify` / `opentable_modify_preview` still require an explicit `dining_area_id`.
+- **`dining_area_id` is auto-resolved — booking no longer depends on `get_restaurant`.** `opentable_book` / `opentable_book_preview` take `dining_area_id` as an *optional* arg. When omitted, it's resolved from the `/booking/details` page they already fetch: `timeSlot.diningAreasBySeating[]` carries `{diningAreaId, tableCategory}`, and `resolveDiningAreaId()` (in `parse-booking-details-state.ts`) picks the first entry matching the seating (default `default`), falling back to the first area. So `find_slots → book` works with no separate lookup; pass `dining_area_id` explicitly only to pin a specific room. `opentable_modify_preview` / `opentable_modify` use the same helper (optional arg, token-authoritative on modify). Why this design: the `RestaurantsAvailability` response (find_slots) carries only the seating *category* (`attributes`, `diningAreasBySeating[].tableCategory`) — **not** the numeric `diningAreaId` (the `SlotDiningArea` objects there expose only `inventoryAccessRuleMap`). The numeric id lives only on `/booking/details`, so that's where we resolve it. Confirmed live 2026-06-03: `/booking/details` returns the full `diningAreasBySeating[]` whether or not `diningAreaId` is in the URL (and again 2026-09-02 on the `isModify=true` variant).
 - **`opentable_get_restaurant` does not surface dining areas.** Despite older tool copy, `parse-restaurant.ts` never extracted `diningAreas[]`. Don't rely on it for `dining_area_id` — use the auto-resolution above (or read the ids from a `book_preview` response's `reservation.dining_area_id`).
 - **Legacy detail pages live at root `/{slug}`, not `/r/{slug}`.** A subset of (older) listings — e.g. The Cellar at Duckworth's (`/the-cellar-at-duckworths`) — are served at the root path. `opentable_get_restaurant` accepts a slug, an absolute path, or a full URL: a path/URL is fetched verbatim (pass the search result's `url` for a guaranteed hit), while a bare slug tries `/r/{slug}` then falls back to `/{slug}` on a 404. The output `url` echoes whichever path actually resolved, so it stays clickable. See `resolveCandidatePaths` in `src/tools/restaurants.ts`.
-- **Extension lifecycle is owned by `@fetchproxy/server`.** Self-healing content scripts, MV3 service-worker keepalive, and CSRF token handling all live upstream in the fetchproxy extension. If a user hits "extension offline" or "Could not establish connection", point them at the fetchproxy installation docs — there's nothing for opentable-mcp to fix.
-- **GraphQL *mutations* are refused from the extension's isolated world.**
-  OpenTable's edge returns 403 for a mutation POST issued by the content
-  script and 200 for the byte-identical request issued by the page — same
-  persisted hash, body, CSRF token, cookies, tab and moment. GraphQL
-  *queries* (`Autocomplete`) and REST writes (`/dapi/wishlist/add`) pass
-  from either world, so this is not "writes are blocked": it is specific to
-  `optype=mutation` on `/dapi/fe/gql`. That covers `BookDetailsStandardSlotLock`,
-  its Experience twin, and `CancelReservation` — i.e. every booking write.
-  The fix is fetchproxy's `fetch_in_page` capability (@fetchproxy/server
-  2.4.0+): `FetchInit.inPage` routes one request through the page's MAIN
-  world. Only those mutations set it. `/dapi/booking/make-reservation` is
-  REST and deliberately does NOT — it works from the isolated world, and a
-  flagged request gives up the isolated world's tamper resistance (page
-  script can read and alter it), so the flag goes only where it is required.
-  Verify with `scripts/probe-slot-lock-inpage.ts`.
+- **Extension lifecycle is owned by `@fetchproxy/server`.** Self-healing content scripts, MV3 service-worker keepalive, and CSRF token handling all live upstream in the fetchproxy extension. If a user hits "extension offline" or "Could not establish connection", point them at the fetchproxy installation docs — there's nothing for opentable-mcp to fix. One thing that IS ours: which tab relays a write (see the CSRF gotcha below).
+- **Every write needs `x-csrf-token`, and only OpenTable's app pages can supply it.**
+  The slot-lock and cancel mutations AND the REST `/dapi/booking/make-reservation`
+  POST come back as an empty 403 without the header. The fetchproxy extension
+  injects it from the relay tab's `window.__CSRF_TOKEN__` — which restaurant
+  profiles (`/r/…`), the booking flow (`/booking/…`) and account pages
+  (`/user/…`) define and the homepage / search pages do NOT. fetchproxy's
+  default relay is the *first* opentable.com tab in Chrome's tab order, so a
+  user whose oldest OpenTable tab was the homepage saw every write fail with
+  `403 for POST /dapi/fe/gql?optype=mutation&opname=BookDetailsStandardSlotLock`
+  while every read worked. Fix: `FetchproxyTransport.fetch` relays
+  non-GETs through `WRITE_RELAY_TAB_PREFIXES` in order, falling back to the
+  default relay only on `FetchproxyNoTabError`. Verified live 2026-09-02 with
+  the byte-identical slot-lock: 403 through the default tab, 200 through a
+  `/r/` or `/user/` tab from the **isolated** world, 403 from the page's own
+  MAIN world without the header. So this was never a world distinction —
+  0.18.1's `fetch_in_page` routing (fetchproxy PR #267 / #174 here) was
+  chasing the relay tab, and is gone: an `inPage` request hands page script
+  the request, CSRF header included, and nothing here needs it. Don't
+  reintroduce it to clear a 403; check which tab relayed the request.
+  `scripts/probe-slot-lock.ts` is the one-command check.
+- **The page DOES still fire `BookDetailsStandardSlotLock`.** A fetch/XHR-level
+  capture from the extension's isolated world misses it (the page's Apollo
+  link captured `fetch` at boot, and the resource-timing buffer overflows on
+  these pages), which has led to "OpenTable moved the slot lock server-side"
+  theories. It hasn't: on 2026-09-02 the tab's `__APOLLO_CLIENT__.queryManager.mutationStore`
+  showed the mutation firing on "Complete reservation" with the same
+  persisted hash we pin, `__INITIAL_STATE__.slotLock.slotLockId` was `null`
+  at SSR time, and the resulting `slotLockId` rode on the make-reservation
+  body. The page's Standard input also carries `slotAvailabilityToken`
+  (ours now does too), and make-reservation carries `tcAccepted: true`
+  whenever the page showed a terms checkbox (preview records that on the
+  token as `tcAccepted`).
 - **Persisted-query cache lag on `/user/favorites`.** After `add_favorite` returns 204, the SSR dashboard may not reflect the new entry for ~10s. Document this in the tool description, don't fight the cache.
 - **Sign-in detection.** `OpenTableClient.throwIfSignInPage` checks for `/authenticate/` in the response URL or sign-in markers in a short response body. When it throws, the user must sign into opentable.com in the bridged Chrome tab.
-- **`find_slots` routes through fetchproxy's `graphql` capability, not a raw fetch.** OpenTable's Akamai Bot Manager rejects a raw `RestaurantsAvailability` POST from the isolated-world `fetch()` path at the edge (403/409) — the bot-detection sensor telemetry lives inside the page's own Apollo link chain, not on `window.fetch`. `client.graphqlQuery('availability', variables)` (`client.ts`, delegating to the transport's own `graphqlQuery`) invokes the operation through the bridged tab's *own* `window.__APOLLO_CLIENT__` instead, which carries whatever telemetry the page's link injects. No persisted-query hash is declared for this op — the extension reuses the live `DocumentNode` the tab's Apollo client already observed, so it auto-adapts if OpenTable revises the query. Consequence: the tab must have observed a `RestaurantsAvailability` call at least once (any restaurant page load triggers one) before the *first* `find_slots` call in a session — if not, the bridge returns "operation … not yet observed on this tab", which the tool description surfaces as an actionable retry hint. `AVAILABILITY_GRAPHQL_OP_NAME` (in `client.ts` — the one file tool implementations import from; `transport-fetchproxy.ts` imports it back for its `graphqlOps` declaration) is the single source of truth for the declared op name — `reservations.ts` imports it rather than hardcoding a second copy. `McpChromeTransport` doesn't support this capability at all (no Apollo-bridge equivalent) and throws a clear error instead of silently mis-behaving.
+- **`find_slots` routes through fetchproxy's `graphql` capability, not a raw fetch.** OpenTable's Akamai Bot Manager rejects a raw `RestaurantsAvailability` POST from the isolated-world `fetch()` path at the edge (403/409) — the bot-detection sensor telemetry lives inside the page's own Apollo link chain, not on `window.fetch`. `client.graphqlQuery('availability', variables)` (`client.ts`, delegating to the transport's own `graphqlQuery`) invokes the operation through the bridged tab's *own* `window.__APOLLO_CLIENT__` instead, which carries whatever telemetry the page's link injects. No persisted-query hash is declared for this op — the extension reuses the live `DocumentNode` the tab's Apollo client already observed, so it auto-adapts if OpenTable revises the query. Consequence: the tab must have observed a `RestaurantsAvailability` call at least once (any restaurant page load triggers one) before the *first* `find_slots` call in a session — if not, the bridge returns "operation … not yet observed on this tab", which the tool description surfaces as an actionable retry hint. `AVAILABILITY_GRAPHQL_OP_NAME` (in `client.ts` — the one file tool implementations import from; `transport-fetchproxy.ts` imports it back for its `graphqlOps` declaration) is the single source of truth for the declared op name — `reservations.ts` imports it rather than hardcoding a second copy. `McpChromeTransport` doesn't support this capability at all (no Apollo-bridge equivalent) and throws a clear error instead of silently mis-behaving. The `variables` mirror the restaurant page's own request (captured 2026-09-02) — in particular `restaurantAvailabilityTokens: []`. The old hardcoded token made OpenTable mint `slotAvailabilityToken`s of a different shape (`{"m":1,"c":4}`) from the page's (`{"m":0,"c":6}`); with `[]` they match byte for byte. Warming can't be automated from here: the bridge only proxies an operation the tab has already fired, and no fetchproxy capability navigates a tab, so the "not yet observed" hint stays user-facing.
 - **CC-required slots route through preview.** The slot-lock response doesn't carry the CC-required flag or cancellation policy — those live in the `/booking/details` SSR page's `__INITIAL_STATE__` (`timeSlot.creditCardRequired`, `messages.cancellationPolicyMessage`, `wallet.savedCards`). `opentable_book_preview` fetches that page + slot-locks, and mints a `booking_token` that `opentable_book` consumes. `booking_token` is opaque, stateless base64-JSON — no server-side cache — with a tamper check (restaurant/date/time/party/dining-area must match the caller's own args). OpenTable's ~90s slot-lock TTL is the only expiry; a stale token surfaces as `SLOT_LOCK_EXPIRED` which `opentable_book` maps to an actionable error.
 - **Same-day conflicts.** OpenTable refuses two reservations on the same date. Both `opentable_book` and `opentable_book_preview` parse `/booking/details` for overlapping reservations and fail early with a human-readable error rather than letting `/dapi/booking/make-reservation` return an opaque 409.
 - **3-D Secure (SCA).** If a card's issuer demands a 3DS challenge on book, we can't complete it from outside the browser. `opentable_book` surfaces `partnerScaRedirectUrl` and bails — rare for pre-authenticated saved cards.
