@@ -8,7 +8,10 @@
 //     POST /dapi/fe/gql?opname=BookDetailsExperienceSlotLock (Experience).
 //     Returns the slotLockId. Hides the Standard-vs-Experience input
 //     shape + response-wrapping divergence (`lockSlot` vs
-//     `lockExperienceSlot`).
+//     `lockExperienceSlot`). This is the same mutation the page itself
+//     fires when the user clicks "Complete reservation" (confirmed
+//     2026-09-02 via the tab's Apollo mutationStore: same persisted hash,
+//     and the resulting slotLockId rides on the make-reservation body).
 //
 //   makeReservation(client, args)
 //     POST /dapi/booking/make-reservation. Handles four orthogonal
@@ -44,7 +47,7 @@ export interface SlotLockArgs {
   partySize: number;
   slotHash: string;
   diningAreaId: number;
-  reservationToken: string; // slotAvailabilityToken — only sent for the Experience variant
+  reservationToken: string; // slotAvailabilityToken — sent on both variants
   /** OpenTable's sharded-database region the restaurant lives in. Sent
    *  verbatim on the slot-lock input. North-American venues are `'NA'`;
    *  non-NA (UK/EU/APAC) restaurants live in other shards and slot-lock
@@ -86,6 +89,9 @@ export async function lockSlot(
 
   // ExperienceSlotLockInput and (Standard) SlotLockInput are different GraphQL
   // input types — they don't share field sets. Verified live 2026-05-21.
+  // Both carry slotAvailabilityToken: the page's own Standard slot-lock sends
+  // it (captured 2026-09-02), and the server accepts the input with or
+  // without it, so we mirror the page.
   const input = isExperience
     ? {
         restaurantId: args.restaurantId,
@@ -109,6 +115,7 @@ export async function lockSlot(
         slotHash: args.slotHash,
         reservationType: 'STANDARD',
         diningAreaId: args.diningAreaId,
+        slotAvailabilityToken: args.reservationToken,
       };
 
   const response = await client.fetchJson<{
@@ -127,10 +134,6 @@ export async function lockSlot(
       };
     };
   }>(path, {
-    // MAIN world: OpenTable's edge 403s this mutation from the isolated
-    // world and accepts the identical request from the page. This is the
-    // call that makes booking work at all — see FetchInit.inPage.
-    inPage: true,
     method: 'POST',
     headers: { 'ot-page-type': 'network_details', 'ot-page-group': 'booking' },
     body: {
@@ -175,6 +178,12 @@ export interface MakeReservationArgs {
   experienceId?: number;
   experienceVersion?: number;
   paymentCard: BookingTokenPaymentCard | null;
+  /** True when the /booking/details page carried restaurant terms the
+   *  diner has to accept (`messages.termsAndConditions`). The page sends
+   *  `tcAccepted: true` on make-reservation when its "I agree" checkbox
+   *  exists (captured 2026-09-02); we send it under the same condition and
+   *  omit the key otherwise, exactly as the page does. */
+  tcAccepted?: boolean;
   /** When set, sends the modify identity triple (isModify + securityToken
    *  + confnumber) instead of a fresh booking. */
   modify?: {
@@ -288,6 +297,7 @@ export async function makeReservation(
       katakanaFirstName: '',
       katakanaLastName: '',
       correlationId: randomUUID(),
+      ...(args.tcAccepted === true ? { tcAccepted: true } : {}),
       ...modifyFields,
       ...experienceFields,
       ...ccFields,

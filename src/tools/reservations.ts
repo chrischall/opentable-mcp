@@ -6,10 +6,17 @@
 // redeploys we'll see `PersistedQueryNotFound` and need to re-capture
 // them via the extension's XHR logger.
 //
-// Book flow:
+// Book flow — the same two calls the page makes when the diner clicks
+// "Complete reservation" on /booking/details (confirmed 2026-09-02 from the
+// tab's Apollo mutationStore + a captured make-reservation body):
 //   1. BookDetailsStandardSlotLock — locks the slot for ~90s, returns slotLockId.
 //   2. /dapi/booking/make-reservation — consumes slotLockId + user PII + slot tokens.
 // Cancel is a single mutation keyed on (restaurantId, confirmationNumber, securityToken).
+//
+// Every write needs the x-csrf-token header, which the fetchproxy extension
+// injects from the relay tab's window.__CSRF_TOKEN__. Which tab relays a
+// write is decided in transport-fetchproxy.ts (WRITE_RELAY_TAB_PREFIXES);
+// nothing here needs to know.
 //
 // User PII (name/email/phone) is read from the dining-dashboard SSR
 // on every book call — cheaper than a dedicated profile endpoint, and
@@ -210,7 +217,18 @@ function requireDiningAreaId(
   return resolved;
 }
 
-/** Minimum viable `variables` for the RestaurantsAvailability query. */
+/**
+ * `variables` for the RestaurantsAvailability query — the restaurant page's
+ * own variable set (captured from its Apollo link 2026-09-02), minus the
+ * page-specific `attributionToken` / `correlationId`.
+ *
+ * `restaurantAvailabilityTokens` is deliberately EMPTY. The page sends `[]`
+ * on a fresh search; the old hardcoded `{"v":2,"m":1,…}` entry made
+ * OpenTable mint slot tokens of a different shape (`{"m":1,"c":4}` vs the
+ * page's `{"m":0,"c":6}`), so the token we handed to book/modify was never
+ * the one the page would have used. With `[]` the returned
+ * slotAvailabilityToken matches the page's byte for byte (verified live).
+ */
 function buildAvailabilityVariables(input: {
   restaurant_ids: number[];
   date: string;
@@ -222,22 +240,24 @@ function buildAvailabilityVariables(input: {
     onlyPop: false,
     forwardDays: 0,
     requireTimes: false,
-    requireTypes: [],
-    useCBR: false,
+    requireTypes: ['Standard', 'Experience'],
     privilegedAccess: [
       'UberOneDiningProgram',
       'VisaDiningProgram',
       'VisaEventsProgram',
       'ChaseDiningProgram',
+      'VIP',
     ],
+    includeAvailableSpaces: false,
     restaurantIds: input.restaurant_ids,
-    restaurantAvailabilityTokens: input.restaurant_ids.map(
-      () => 'eyJ2IjoyLCJtIjoxLCJwIjowLCJzIjowLCJuIjowfQ'
-    ),
     date: input.date,
     time: input.time,
     partySize: input.party_size,
     databaseRegion: input.database_region,
+    restaurantAvailabilityTokens: [],
+    loyaltyRedemptionTiers: [],
+    forwardMinutes: 325,
+    backwardMinutes: 1110,
   };
 }
 
@@ -452,6 +472,10 @@ export function registerReservationTools(
               experienceVersion: summary.experience?.version ?? 1,
             }
           : {}),
+        // The page sends tcAccepted:true on make-reservation exactly when
+        // its terms checkbox exists; `terms` is surfaced below so the
+        // caller sees what confirm:true accepts.
+        ...(summary.terms ? { tcAccepted: true } : {}),
       });
 
       const chargesDescription = summary.cc_required
@@ -501,7 +525,7 @@ export function registerReservationTools(
     'opentable_modify_preview',
     {
       description:
-        "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
+        "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. dining_area_id is OPTIONAL — omitted, it's auto-resolved from the booking-details page like book_preview does. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
       annotations: { readOnlyHint: true },
       inputSchema: {
         restaurant_id: PositiveInt,
@@ -512,7 +536,13 @@ export function registerReservationTools(
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
-        dining_area_id: z.number().int(),
+        dining_area_id: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            "Optional dining-area (room) id for the NEW slot. When omitted, auto-resolved to the default dining area from OpenTable's booking-details page — the same resolution opentable_book_preview uses. Pass explicitly only to pin a specific room."
+          ),
         experience_id: z
           .number()
           .int()
@@ -584,13 +614,17 @@ export function registerReservationTools(
         );
       }
 
+      // 2b) Dining area: caller's value, or the page's default (same helper
+      //     as book_preview — the numeric id only exists on this page).
+      const resolvedDiningAreaId = requireDiningAreaId(dining_area_id, summary);
+
       // 3) Slot-lock — same hashes/ops as book_preview.
       const slotLockId = await lockSlot(client, {
         restaurantId: restaurant_id,
         reservationDateTime,
         partySize: party_size,
         slotHash: slot_hash,
-        diningAreaId: dining_area_id,
+        diningAreaId: resolvedDiningAreaId,
         reservationToken: reservation_token,
         databaseRegion,
         experience: isExperience
@@ -639,7 +673,7 @@ export function registerReservationTools(
       const modify_token = encodeBookingToken({
         slotLockId,
         restaurantId: restaurant_id,
-        diningAreaId: dining_area_id,
+        diningAreaId: resolvedDiningAreaId,
         partySize: party_size,
         date,
         time,
@@ -655,6 +689,7 @@ export function registerReservationTools(
               experienceVersion: summary.experience?.version ?? 1,
             }
           : {}),
+        ...(summary.terms ? { tcAccepted: true } : {}),
         existingConfirmationNumber: confirmation_number,
         existingSecurityToken: security_token,
       });
@@ -676,7 +711,13 @@ export function registerReservationTools(
                   party_size: existingPartySize,
                   dining_area_id: existingDiningAreaId,
                 },
-                reservation: { date, time, party_size, restaurant_id, dining_area_id },
+                reservation: {
+                  date,
+                  time,
+                  party_size,
+                  restaurant_id,
+                  dining_area_id: resolvedDiningAreaId,
+                },
                 cancellation_policy: summary.policy,
                 payment_method:
                   summary.cc_required && summary.default_card
@@ -771,6 +812,7 @@ export function registerReservationTools(
       let bookingType: 'standard' | 'experience' = 'standard';
       let experienceId: number | undefined;
       let experienceVersion: number | undefined;
+      let tcAccepted: boolean | undefined;
 
       // Caller-declared Experience: signal via experience_ids when there's no token yet.
       const callerDeclaredExperience =
@@ -809,6 +851,7 @@ export function registerReservationTools(
         bookingType = payload.bookingType;
         experienceId = payload.experienceId;
         experienceVersion = payload.experienceVersion;
+        tcAccepted = payload.tcAccepted;
       } else {
         if (callerDeclaredExperience) {
           throw new Error(
@@ -847,6 +890,7 @@ export function registerReservationTools(
         // Resolve the dining area (caller's value, or the default parsed from
         // this same page) before locking.
         diningAreaId = requireDiningAreaId(dining_area_id, summary);
+        tcAccepted = summary.terms ? true : undefined;
 
         // Standard-no-guarantee path: lock the slot ourselves.
         slotLockId = await lockSlot(client, {
@@ -876,6 +920,7 @@ export function registerReservationTools(
         experienceId,
         experienceVersion,
         paymentCard,
+        tcAccepted,
         endpoint: MAKE_RESERVATION_PATH,
       });
 
@@ -901,7 +946,7 @@ export function registerReservationTools(
     'opentable_modify',
     {
       description:
-        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Without confirm:true this returns a dry-run and makes NO change to the reservation; re-run with confirm:true to submit the modification.",
+        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. dining_area_id is OPTIONAL — the modify_token already carries the area opentable_modify_preview resolved; pass it only to restate it (mismatch is refused). Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Without confirm:true this returns a dry-run and makes NO change to the reservation; re-run with confirm:true to submit the modification.",
       inputSchema: {
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
@@ -911,7 +956,11 @@ export function registerReservationTools(
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
-        dining_area_id: z.number().int(),
+        dining_area_id: z
+          .number()
+          .int()
+          .optional()
+          .describe('Optional. The modify_token carries the dining area preview resolved; when restated here it must match the token.'),
         modify_token: z
           .string()
           .optional()
@@ -950,7 +999,6 @@ export function registerReservationTools(
         });
       }
       const reservationDateTime = `${date}T${time}`;
-      const diningAreaId = dining_area_id;
 
       if (!modify_token) {
         throw new Error(
@@ -971,7 +1019,9 @@ export function registerReservationTools(
         payload.date !== date ||
         payload.time !== time ||
         payload.partySize !== party_size ||
-        payload.diningAreaId !== dining_area_id ||
+        // dining_area_id is optional here — only tamper-check it when the
+        // caller restated one. Omitted means "trust the token's area".
+        (typeof dining_area_id === 'number' && payload.diningAreaId !== dining_area_id) ||
         payload.existingConfirmationNumber !== confirmation_number ||
         payload.existingSecurityToken !== security_token ||
         (typeof callerExperienceId === 'number' && payload.experienceId !== callerExperienceId)
@@ -981,6 +1031,8 @@ export function registerReservationTools(
         );
       }
 
+      // The token is authoritative for the dining area (preview resolved it).
+      const diningAreaId = payload.diningAreaId;
       const slotLockId = payload.slotLockId;
       const paymentCard = payload.paymentCard;
       const ccRequired = payload.ccRequired;
@@ -1003,6 +1055,7 @@ export function registerReservationTools(
         experienceId,
         experienceVersion,
         paymentCard,
+        tcAccepted: payload.tcAccepted,
         modify: {
           confirmationNumber: payload.existingConfirmationNumber!,
           securityToken: payload.existingSecurityToken!,
@@ -1060,9 +1113,6 @@ export function registerReservationTools(
           };
         };
       }>(CANCEL_RESERVATION_PATH, {
-        // MAIN world: CancelReservation is a GraphQL mutation, the same
-        // shape the edge refuses from the isolated world as the slot-lock.
-        inPage: true,
         method: 'POST',
         headers: { 'ot-page-type': 'network_confirmation', 'ot-page-group': 'booking' },
         body: {

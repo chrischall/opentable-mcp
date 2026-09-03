@@ -49,6 +49,12 @@ export interface BookingTokenPayload {
    *  /booking/details page. Required for Experience bookings (the REST
    *  /dapi/booking/make-reservation endpoint 400s without it). */
   experienceVersion?: number;
+  /** Set by preview when the booking-details page carried restaurant
+   *  terms (`terms` in the preview output). Makes opentable_book /
+   *  opentable_modify send `tcAccepted: true` on make-reservation, the
+   *  way the page does when its "I agree" checkbox exists. Absent
+   *  otherwise (old tokens decode with it absent, too). */
+  tcAccepted?: boolean;
   /** Existing reservation's confirmation_number, populated when this
    *  token is a modify token (minted by opentable_modify_preview).
    *  Presence of this field is the modify-vs-book discriminator. Goes

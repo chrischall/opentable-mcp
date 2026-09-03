@@ -9,6 +9,7 @@ import { AVAILABILITY_GRAPHQL_OP_NAME } from '../src/client.js';
 // mcp-utils subpath so we can assert exactly what opentable-mcp hands it.
 const ctorCalls: unknown[] = [];
 const graphqlQueryMock = vi.fn().mockResolvedValue({ availability: [] });
+const requestMock = vi.fn().mockResolvedValue({ status: 200, body: '', url: '' });
 
 vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
   return {
@@ -16,7 +17,7 @@ vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
       ctorCalls.push(opts);
       return {
         server: {
-          request: () => Promise.resolve({ status: 200, body: '', url: '' }),
+          request: requestMock,
           graphqlQuery: graphqlQueryMock,
         },
         start: () => Promise.resolve(),
@@ -29,11 +30,16 @@ vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
 });
 
 // Import AFTER vi.mock so the adapter picks up the fake.
-const { FetchproxyTransport } = await import('../src/transport-fetchproxy.js');
+const { FetchproxyTransport, WRITE_RELAY_TAB_PREFIXES } = await import(
+  '../src/transport-fetchproxy.js'
+);
+const { FetchproxyNoTabError } = await import('@fetchproxy/server');
 
 beforeEach(() => {
   ctorCalls.length = 0;
   graphqlQueryMock.mockClear();
+  requestMock.mockReset();
+  requestMock.mockResolvedValue({ status: 200, body: '', url: '' });
 });
 
 describe('FetchproxyTransport constructor', () => {
@@ -71,27 +77,116 @@ describe('FetchproxyTransport constructor', () => {
     });
   });
 
-  it("declares the 'graphql' capability + graphqlOps for RestaurantsAvailability", () => {
+  it("declares exactly the 'fetch' + 'graphql' capabilities + graphqlOps for RestaurantsAvailability", () => {
     // @fetchproxy/server 1.7.0+: routes find_slots through the tab's own
     // Apollo client instead of the isolated-world fetch() path Akamai
     // rejects for this endpoint. AVAILABILITY_GRAPHQL_OP_NAME is the
     // single source of truth reservations.ts also imports, so the two
     // never drift apart.
     //
-    // @fetchproxy/server 2.4.0+ adds `fetch_in_page`, declared because
-    // OpenTable's edge 403s a GraphQL *mutation* POST from the isolated world
-    // while accepting the identical request from the page. Only the slot-lock
-    // and cancel calls set `inPage`; see in-page-slot-lock.test.ts.
+    // `fetch_in_page` is deliberately ABSENT. 0.18.1 declared it on the
+    // theory that OpenTable's edge 403s GraphQL mutations from the isolated
+    // world; the live comparison on 2026-09-02 showed the 403 came from the
+    // relay TAB (one without `window.__CSRF_TOKEN__`, so no x-csrf-token
+    // header), and the same mutation passes from the isolated world through
+    // a CSRF-bearing tab. Writes now pin the relay tab instead — see the
+    // fetch() tests below — and the MAIN-world routing (which hands page
+    // script the request, CSRF header included) is gone.
     new FetchproxyTransport({ version: '1.2.3' });
 
     // Asserted EXACTLY, not with `arrayContaining`: this is the set the user
     // approves at pair time, and a capability appearing here without someone
     // updating this line is precisely the drift worth failing on.
     expect(ctorCalls[0]).toMatchObject({
-      capabilities: ['fetch', 'graphql', 'fetch_in_page'],
+      capabilities: ['fetch', 'graphql'],
       graphqlOps: [
         { name: AVAILABILITY_GRAPHQL_OP_NAME, operationName: 'RestaurantsAvailability' },
       ],
+    });
+  });
+});
+
+describe('FetchproxyTransport.fetch — write relay tab', () => {
+  // OpenTable's write endpoints (GraphQL mutations AND the REST booking
+  // POST) need the `x-csrf-token` header. The extension injects it from the
+  // relay tab's `window.__CSRF_TOKEN__`, which only OpenTable's app pages
+  // define — the homepage and search pages don't. fetchproxy's default relay
+  // is the FIRST tab on the host in Chrome's tab order, so a user whose
+  // oldest OpenTable tab is the homepage got every write 403'd (the 0.18.x
+  // symptom). Writes therefore name a relay tab explicitly, walking a list
+  // of app-page prefixes and falling back to the default only when none is
+  // open. GETs (SSR pages) need no CSRF and keep the default relay.
+  const relayCalls = () => requestMock.mock.calls.map((c) => (c[2] as { viaTab?: string }).viaTab);
+
+  it('relays a POST through a restaurant-profile tab first', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await transport.fetch({ path: '/dapi/fe/gql?opname=X', method: 'POST', body: '{}' });
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(requestMock.mock.calls[0][0]).toBe('POST');
+    expect(requestMock.mock.calls[0][1]).toBe('/dapi/fe/gql?opname=X');
+    expect(requestMock.mock.calls[0][2]).toMatchObject({
+      subdomain: 'www',
+      body: '{}',
+      viaTab: 'https://www.opentable.com/r/',
+    });
+  });
+
+  it('walks the prefix list when no tab matches, then falls back to the default relay', async () => {
+    requestMock.mockImplementation(async (_m: string, _p: string, opts: { viaTab?: string }) => {
+      if (opts.viaTab !== undefined) throw new FetchproxyNoTabError(`no tab matching ${opts.viaTab}`);
+      return { status: 204, body: '', url: 'https://www.opentable.com/dapi/wishlist/add' };
+    });
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    const result = await transport.fetch({ path: '/dapi/wishlist/add', method: 'POST', body: '{}' });
+
+    expect(result.status).toBe(204);
+    expect(relayCalls()).toEqual([...WRITE_RELAY_TAB_PREFIXES, undefined]);
+  });
+
+  it('stops at the first prefix that has a tab', async () => {
+    requestMock.mockImplementation(async (_m: string, _p: string, opts: { viaTab?: string }) => {
+      if (opts.viaTab === 'https://www.opentable.com/r/') {
+        throw new FetchproxyNoTabError('no tab matching https://www.opentable.com/r/');
+      }
+      return { status: 200, body: '{}', url: 'https://www.opentable.com/x' };
+    });
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await transport.fetch({ path: '/x', method: 'DELETE' });
+
+    expect(relayCalls()).toEqual(['https://www.opentable.com/r/', 'https://www.opentable.com/booking/']);
+  });
+
+  it('does not swallow other bridge errors while walking the list', async () => {
+    requestMock.mockRejectedValue(new Error('extension offline'));
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await expect(transport.fetch({ path: '/x', method: 'POST', body: '{}' })).rejects.toThrow(
+      'extension offline'
+    );
+    expect(requestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves GETs on the default relay tab', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await transport.fetch({ path: '/user/dining-dashboard', method: 'GET' });
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(requestMock.mock.calls[0][2]).not.toHaveProperty('viaTab');
+  });
+
+  it('never sets the in-page flag', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await transport.fetch({ path: '/dapi/fe/gql?optype=mutation', method: 'POST', body: '{}' });
+    expect(requestMock.mock.calls[0][2]).not.toHaveProperty('inPage');
+  });
+
+  it('maps the response to the {status, body, url} triple', async () => {
+    requestMock.mockResolvedValue({ status: 200, body: '<html>', url: 'https://www.opentable.com/r/x' });
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await expect(transport.fetch({ path: '/r/x', method: 'GET' })).resolves.toEqual({
+      status: 200,
+      body: '<html>',
+      url: 'https://www.opentable.com/r/x',
     });
   });
 });
