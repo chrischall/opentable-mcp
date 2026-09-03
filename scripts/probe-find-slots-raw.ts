@@ -17,6 +17,7 @@
 // not, this errors with "operation ... not yet observed on this tab").
 import { FetchproxyTransport } from '../src/transport-fetchproxy.js';
 import { OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../src/client.js';
+import { buildAvailabilityVariables } from '../src/tools/reservations.js';
 import { probeDate } from './probe-date.js';
 
 const RID = Number(process.env.OT_PROBE_RID ?? 2827);
@@ -29,20 +30,17 @@ await transport.start();
 const client = new OpenTableClient({ transport });
 
 try {
-  const resp = await client.graphqlQuery(AVAILABILITY_GRAPHQL_OP_NAME, {
-    onlyPop: false,
-    forwardDays: 0,
-    requireTimes: false,
-    requireTypes: [],
-    useCBR: false,
-    privilegedAccess: ['UberOneDiningProgram', 'VisaDiningProgram', 'VisaEventsProgram', 'ChaseDiningProgram'],
-    restaurantIds: [RID],
-    restaurantAvailabilityTokens: ['eyJ2IjoyLCJtIjoxLCJwIjowLCJzIjowLCJuIjowfQ'],
-    date: DATE,
-    time: TIME,
-    partySize: PARTY,
-    databaseRegion: 'NA',
-  });
+  // Same variables as opentable_find_slots — one definition, no drift.
+  const resp = await client.graphqlQuery(
+    AVAILABILITY_GRAPHQL_OP_NAME,
+    buildAvailabilityVariables({
+      restaurant_ids: [RID],
+      date: DATE,
+      time: TIME,
+      party_size: PARTY,
+      database_region: 'NA',
+    })
+  );
   console.log(JSON.stringify(resp, null, 2));
 } finally {
   await transport.close();
