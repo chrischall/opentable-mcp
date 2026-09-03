@@ -228,8 +228,12 @@ function requireDiningAreaId(
  * page's `{"m":0,"c":6}`), so the token we handed to book/modify was never
  * the one the page would have used. With `[]` the returned
  * slotAvailabilityToken matches the page's byte for byte (verified live).
+ *
+ * Exported so the live probes (`scripts/probe-find-slots-raw.ts`,
+ * `scripts/probe-experience-slot-lock-hash.ts`) send the same variables as
+ * the tool instead of a drifting copy.
  */
-function buildAvailabilityVariables(input: {
+export function buildAvailabilityVariables(input: {
   restaurant_ids: number[];
   date: string;
   time: string;

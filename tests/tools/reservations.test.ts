@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { OpenTableClient } from '../../src/client.js';
-import { registerReservationTools } from '../../src/tools/reservations.js';
+import {
+  registerReservationTools,
+  buildAvailabilityVariables,
+} from '../../src/tools/reservations.js';
 import { createTestHarness, parseToolResult } from '../helpers.js';
 import { decodeBookingToken, encodeBookingToken } from '../../src/booking-token.js';
 
@@ -117,6 +120,42 @@ describe('reservation tools', () => {
       expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(
         []
       );
+    });
+  });
+
+  describe('buildAvailabilityVariables (shared with the probe scripts)', () => {
+    it('produces the restaurant page\'s own RestaurantsAvailability variables', () => {
+      expect(
+        buildAvailabilityVariables({
+          restaurant_ids: [985138],
+          date: '2026-09-24',
+          time: '19:00',
+          party_size: 2,
+          database_region: 'NA',
+        })
+      ).toEqual({
+        onlyPop: false,
+        forwardDays: 0,
+        requireTimes: false,
+        requireTypes: ['Standard', 'Experience'],
+        privilegedAccess: [
+          'UberOneDiningProgram',
+          'VisaDiningProgram',
+          'VisaEventsProgram',
+          'ChaseDiningProgram',
+          'VIP',
+        ],
+        includeAvailableSpaces: false,
+        restaurantIds: [985138],
+        date: '2026-09-24',
+        time: '19:00',
+        partySize: 2,
+        databaseRegion: 'NA',
+        restaurantAvailabilityTokens: [],
+        loyaltyRedemptionTiers: [],
+        forwardMinutes: 325,
+        backwardMinutes: 1110,
+      });
     });
   });
 
