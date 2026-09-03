@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/chrischall/opentable-mcp/compare/v0.18.1...v0.18.2) (2026-09-03)
+
+
+### Bug Fixes
+
+* **booking:** relay writes through a CSRF-bearing tab so book/modify/cancel stop 403ing ([#180](https://github.com/chrischall/opentable-mcp/issues/180)) ([4803bf6](https://github.com/chrischall/opentable-mcp/commit/4803bf6d8dd54ab5581f7a064f3ab65c29a1e1bf))
+
 ## [0.18.1](https://github.com/chrischall/opentable-mcp/compare/v0.18.0...v0.18.1) (2026-09-02)
 
 
