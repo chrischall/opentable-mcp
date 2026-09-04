@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { textResult, PositiveInt } from '@chrischall/mcp-utils';
+import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
+import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseSearch } from '../parse-search.js';
@@ -48,6 +49,7 @@ export function registerSearchTools(
         'Search OpenTable for restaurants. Returns matching restaurants with cuisine, neighborhood, price band, rating, description, and URL. Does NOT include bookable slot tokens — use opentable_find_slots for a specific venue to check availability.',
       annotations: { readOnlyHint: true },
       inputSchema: {
+        view: viewArg(),
         term: z.string().optional().describe('Free-text query (cuisine or restaurant name)'),
         location: z
           .string()
@@ -65,7 +67,7 @@ export function registerSearchTools(
       const path = buildSearchUrl(input);
       const html = await client.fetchHtml(path);
       const result = parseSearch(html);
-      return textResult(result);
+      return viewResponse((input as { view?: string }).view, result);
     }
   );
 }

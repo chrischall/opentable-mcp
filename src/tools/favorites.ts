@@ -4,7 +4,8 @@
 // page is cached — a fresh add may take ~10s to show up there, so we
 // treat the 204 as authoritative and don't round-trip through list to
 // "verify".
-import { textResult, PositiveInt } from '@chrischall/mcp-utils';
+import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
+import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseFavorites } from '../parse-favorites.js';
@@ -25,12 +26,15 @@ export function registerFavoriteTools(
     {
       description:
         "List the user's saved restaurants from OpenTable (Saved Restaurants list). Returns each entry's id, name, cuisine, neighborhood, price band, rating, and OpenTable URL.",
+      inputSchema: {
+        view: viewArg(),
+      },
       annotations: { readOnlyHint: true },
     },
-    async () => {
+    async ({ view }) => {
       const html = await client.fetchHtml(FAVORITES_PATH);
       const favorites = parseFavorites(html);
-      return textResult(favorites);
+      return viewResponse(view, favorites);
     }
   );
 
@@ -48,7 +52,7 @@ export function registerFavoriteTools(
         method: 'POST',
         body: { restaurantId: restaurant_id, wishListName: WISHLIST_NAME },
       });
-      return textResult({ favorited: true, restaurant_id });
+      return minifiedResult({ favorited: true, restaurant_id });
     }
   );
 
@@ -66,7 +70,7 @@ export function registerFavoriteTools(
         method: 'POST',
         body: { restaurantId: restaurant_id, wishListName: WISHLIST_NAME },
       });
-      return textResult({ removed: true, restaurant_id });
+      return minifiedResult({ removed: true, restaurant_id });
     }
   );
 }
