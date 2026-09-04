@@ -76,15 +76,15 @@ The server throws `SessionNotAuthenticatedError` (with a clear message) if it de
 ### Discovery
 | Tool | Description |
 |------|-------------|
-| `opentable_search_restaurants(term?, location?, date?, time?, party_size?, latitude?, longitude?, metro_id?)` | Search by free-text + optional location / date / party size. Returns cuisine, neighborhood, price band, rating, URL slug. No bookable slots — call `find_slots` for those. |
-| `opentable_get_restaurant(restaurant_id)` | Full detail for one restaurant by URL slug (e.g. `"state-of-confusion-charlotte"`) **or numeric id**. Includes `diningAreas[]` — you need one of their ids to book. A numeric id routes to `/restaurant/profile/{id}`; a slug to `/r/{slug}`. Pass whichever you have — `list_reservations` and `list_favorites` return numeric ids. |
-| `opentable_find_slots(restaurant_id, date, time, party_size)` | List bookable slots for a restaurant on a date + party size. Each slot has a short-lived `reservation_token` + `slot_hash` (book within a minute or two of fetching). |
+| `opentable_search_restaurants(term?, location?, date?, time?, party_size?, latitude?, longitude?, metro_id?, view?)` | Search by free-text + optional location / date / party size. Returns cuisine, neighborhood, price band, rating, URL slug. No bookable slots — call `find_slots` for those. |
+| `opentable_get_restaurant(restaurant_id, view?)` | Full detail for one restaurant by URL slug (e.g. `"state-of-confusion-charlotte"`) **or numeric id**. Includes `diningAreas[]` — you need one of their ids to book. A numeric id routes to `/restaurant/profile/{id}`; a slug to `/r/{slug}`. Pass whichever you have — `list_reservations` and `list_favorites` return numeric ids. |
+| `opentable_find_slots(restaurant_id, date, time, party_size, view?)` | List bookable slots for a restaurant on a date + party size. Each slot has a short-lived `reservation_token` + `slot_hash` (book within a minute or two of fetching). |
 
 ### User
 | Tool | Description |
 |------|-------------|
-| `opentable_list_reservations(scope?)` | List reservations. `scope`: `upcoming` (default), `past`, `all`. Each entry has the `confirmation_number` + `security_token` needed to cancel. |
-| `opentable_get_profile` | Authenticated user's profile: name, email, phones, loyalty points, home metro, member-since. No payment data. |
+| `opentable_list_reservations(scope?, view?)` | List reservations. `scope`: `upcoming` (default), `past`, `all`. Each entry has the `confirmation_number` + `security_token` needed to cancel. |
+| `opentable_get_profile(view?)` | Authenticated user's profile: name, email, phones, loyalty points, home metro, member-since. No payment data. |
 
 ### Bookings
 | Tool | Description |
@@ -96,9 +96,49 @@ The server throws `SessionNotAuthenticatedError` (with a clear message) if it de
 ### Favorites
 | Tool | Description |
 |------|-------------|
-| `opentable_list_favorites` | List saved restaurants. |
+| `opentable_list_favorites(view?)` | List saved restaurants. |
 | `opentable_add_favorite(restaurant_id)` | Add a restaurant (numeric id) to Saved Restaurants. |
 | `opentable_remove_favorite(restaurant_id)` | Remove from Saved Restaurants. |
+
+## Response shape (`view`)
+
+The six read tools — `opentable_search_restaurants`, `opentable_get_restaurant`,
+`opentable_find_slots`, `opentable_list_reservations`, `opentable_get_profile`
+and `opentable_list_favorites` — take `view: "compact" | "full"`, and
+**`compact` is the default**. You get the slim rung without asking for it; an
+efficiency a caller has to know about and request is one that usually is not
+requested, and the caller paying for it is the one least able to know it exists.
+
+**Compact here strips image and avatar URLs, and does nothing else.** There is
+deliberately no field projection. This server hands OpenTable's payloads back
+close to verbatim and holds no captured fixture or documented field list for
+them, so nothing here can honestly say which of OpenTable's fields matter and
+which are noise. Stripping media is the one projection that needs no such
+knowledge: it is SUBTRACTIVE, so it cannot lose a field nobody knew about —
+which is exactly what an invented field list would risk, handing back a record
+with holes in it that still reads like a verified answer.
+
+So do not expect a named field set from compact. Expect the same record minus
+the picture URLs a model cannot see or fetch. `view: "full"` returns
+OpenTable's payload untouched.
+
+There is **no `raw` rung**: `full` already IS the untouched upstream payload, so
+a third value could only silently alias it.
+
+The other eight tools take no `view`, each for its own reason:
+
+- **`opentable_book_preview` and `opentable_modify_preview`** are read-only, but
+  their response is assembled here, not fetched: the cancellation policy, the
+  saved card that would be held, and a `booking_token` this server mints for
+  `opentable_book` to consume. Every field is one the next call needs verbatim,
+  and none of it is an upstream payload for a media rule to act on. (They also
+  hold the slot for ~60–90s, so they are not free to re-run.)
+- **`opentable_book`, `opentable_modify`, `opentable_cancel`,
+  `opentable_add_favorite`, `opentable_remove_favorite`** are writes. A write's
+  response is a receipt — a confirmation number, a security token, a status —
+  with nothing to strip and everything to keep.
+- **`opentable_healthcheck`** answers reachability and auth as two booleans and
+  a reason string.
 
 ## Non-instant bookings
 
