@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/chrischall/opentable-mcp/compare/v0.19.0...v0.19.1) (2026-09-04)
+
+
+### Documentation
+
+* **skill:** document the `view` response-shape parameter ([#189](https://github.com/chrischall/opentable-mcp/issues/189)) ([eb8eded](https://github.com/chrischall/opentable-mcp/commit/eb8ededdc174262c75e8a4ca6e3e373c524ed40f))
+
 ## [0.19.0](https://github.com/chrischall/opentable-mcp/compare/v0.18.2...v0.19.0) (2026-09-04)
 
 
