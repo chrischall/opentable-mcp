@@ -63,11 +63,17 @@ export function registerSearchTools(
         metro_id: z.number().int().optional().describe('OpenTable metro id (e.g. 8 = SF Bay Area, 31 = Charlotte).'),
       },
     },
-    async (input) => {
+    // `view` is destructured OFF the input before anything else sees it. It is a
+    // response-shape knob, not a search parameter, and `buildSearchUrl` takes the
+    // rest object — so a future field added to the schema reaches the URL builder
+    // while `view` structurally cannot. (The earlier `input as { view?: string }`
+    // cast left `view` sitting in the object handed to buildSearchUrl; that
+    // builder enumerates its keys so nothing leaked, but the next one might not.)
+    async ({ view, ...input }) => {
       const path = buildSearchUrl(input);
       const html = await client.fetchHtml(path);
       const result = parseSearch(html);
-      return viewResponse((input as { view?: string }).view, result);
+      return viewResponse(view, result);
     }
   );
 }

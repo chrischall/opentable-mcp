@@ -59,5 +59,32 @@ describe('user tools', () => {
       expect(parsed.is_vip).toBe(true);
       expect(parsed.mobile_phone).toBe('+1 5550001234');
     });
+
+    describe('view', () => {
+      function profileHtml(): string {
+        return htmlWith({
+          header: {
+            userProfile: { gpid: 999, firstName: 'Kai', email: 'kai@example.com', points: 1200 },
+          },
+        });
+      }
+
+      // A profile is a record about a person, and compact must not thin it out:
+      // the projection here is subtractive, so with no media present the default
+      // rung and `full` return byte-identical text. Comparing the TEXT rather than
+      // the parse also pins that both rungs minify.
+      it('returns the same single line of JSON on the default rung and on full', async () => {
+        mockFetchHtml.mockResolvedValue(profileHtml());
+        const bare = await harness.callTool('opentable_get_profile');
+        mockFetchHtml.mockResolvedValue(profileHtml());
+        const full = await harness.callTool('opentable_get_profile', { view: 'full' });
+
+        const bareText = (bare.content[0] as { text: string }).text;
+        const fullText = (full.content[0] as { text: string }).text;
+        expect(bareText).toBe(fullText);
+        expect(bareText).not.toMatch(/\n/);
+        expect(JSON.parse(bareText)).toMatchObject({ email: 'kai@example.com', points: 1200 });
+      });
+    });
   });
 });

@@ -106,7 +106,8 @@ No environment variables required. Auth lives in the user's browser via the comp
 ## Conventions
 
 - All tools are `opentable_*`-prefixed.
-- Tool return shape: `{ content: [{ type: 'text', text: JSON.stringify(..., null, 2) }] }`.
+- Tool return shape: `{ content: [{ type: 'text', text: JSON.stringify(...) }] }` — MINIFIED, via `minifiedResult` (writes) or `viewResponse` (reads) from `src/view.ts`. Never `JSON.stringify(..., null, 2)`: indentation is roughly a fifth of a large response and nothing downstream reads it. Whitespace *inside* a value is untouched — `JSON.stringify` drops only the indent, so a description's blank lines survive byte-for-byte.
+- Read tools take a `view` parameter (`viewArg()`), default `compact`. See `src/view.ts` for what compact does here and, more importantly, what it deliberately does not. Write tools do not: a receipt has nothing to strip.
 - Readonly tools set `annotations: { readOnlyHint: true }`.
 - Prefer JSON bodies. The write tools hit OpenTable's internal JSON/GraphQL endpoints; don't use `URLSearchParams` unless an endpoint explicitly requires form-encoding.
 - Write a failing test before implementation (TDD). Tool tests live in `tests/tools/<name>.test.ts` and mock `OpenTableClient.fetchJson` / `fetchHtml`.
