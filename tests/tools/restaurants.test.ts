@@ -28,6 +28,69 @@ describe('restaurant tools', () => {
     );
   });
 
+  describe('view', () => {
+    // A profile carrying both things compact has to get right at once: a media
+    // URL to drop, and a description whose blank lines are content.
+    function profileHtml(description: string): string {
+      return htmlWith({
+        restaurantProfile: {
+          restaurant: {
+            restaurantId: 42,
+            name: 'Testeria',
+            description,
+            photos: { profile: { url: 'https://resizer.otstatic.com/v2/profiles/legacy/42.jpg' } },
+          },
+        },
+      });
+    }
+
+    const DESCRIPTION = 'A trattoria.\n\n  Chef’s tasting nightly.\n\nPatio seating.';
+
+    // Compact-by-default at the tool boundary: no `view` argument at all.
+    it('strips photo_url when no view argument is passed', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml(DESCRIPTION));
+      const result = await harness.callTool('opentable_get_restaurant', {
+        restaurant_id: 'testeria-sf',
+      });
+      const parsed = JSON.parse((result.content[0] as { text: string }).text) as Record<
+        string,
+        unknown
+      >;
+      expect(parsed.name).toBe('Testeria');
+      expect(parsed).not.toHaveProperty('photo_url');
+    });
+
+    it('keeps photo_url under view: "full"', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml(DESCRIPTION));
+      const result = await harness.callTool('opentable_get_restaurant', {
+        restaurant_id: 'testeria-sf',
+        view: 'full',
+      });
+      const parsed = JSON.parse((result.content[0] as { text: string }).text) as {
+        photo_url: string;
+      };
+      expect(parsed.photo_url).toBe('https://resizer.otstatic.com/v2/profiles/legacy/42.jpg');
+    });
+
+    // Minifying drops FORMATTING whitespace only. A restaurant description is the
+    // longest free text this server returns and the place where paragraph breaks
+    // carry meaning, so it is compared byte-for-byte on both rungs — a minifier
+    // that collapsed \s+ inside values would pass every other test in this file.
+    it('leaves the blank lines inside a description byte-identical on both rungs', async () => {
+      for (const args of [{}, { view: 'full' }]) {
+        mockFetchHtml.mockResolvedValue(profileHtml(DESCRIPTION));
+        const result = await harness.callTool('opentable_get_restaurant', {
+          restaurant_id: 'testeria-sf',
+          ...args,
+        });
+        const parsed = JSON.parse((result.content[0] as { text: string }).text) as {
+          description: string;
+        };
+        expect(parsed.description).toBe(DESCRIPTION);
+      }
+    });
+  });
+
   it('fetches /r/{slug} and returns formatted restaurant details', async () => {
     mockFetchHtml.mockResolvedValue(
       htmlWith({

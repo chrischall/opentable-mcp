@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { textResult, PositiveInt } from '@chrischall/mcp-utils';
+import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
+import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OpenTableClient } from '../client.js';
 import { parseSearch } from '../parse-search.js';
@@ -48,6 +49,7 @@ export function registerSearchTools(
         'Search OpenTable for restaurants. Returns matching restaurants with cuisine, neighborhood, price band, rating, description, and URL. Does NOT include bookable slot tokens — use opentable_find_slots for a specific venue to check availability.',
       annotations: { readOnlyHint: true },
       inputSchema: {
+        view: viewArg(),
         term: z.string().optional().describe('Free-text query (cuisine or restaurant name)'),
         location: z
           .string()
@@ -61,11 +63,17 @@ export function registerSearchTools(
         metro_id: z.number().int().optional().describe('OpenTable metro id (e.g. 8 = SF Bay Area, 31 = Charlotte).'),
       },
     },
-    async (input) => {
+    // `view` is destructured OFF the input before anything else sees it. It is a
+    // response-shape knob, not a search parameter, and `buildSearchUrl` takes the
+    // rest object — so a future field added to the schema reaches the URL builder
+    // while `view` structurally cannot. (The earlier `input as { view?: string }`
+    // cast left `view` sitting in the object handed to buildSearchUrl; that
+    // builder enumerates its keys so nothing leaked, but the next one might not.)
+    async ({ view, ...input }) => {
       const path = buildSearchUrl(input);
       const html = await client.fetchHtml(path);
       const result = parseSearch(html);
-      return textResult(result);
+      return viewResponse(view, result);
     }
   );
 }

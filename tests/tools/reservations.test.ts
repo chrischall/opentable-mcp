@@ -121,6 +121,78 @@ describe('reservation tools', () => {
         []
       );
     });
+
+    describe('view', () => {
+      function dashboardHtml(): string {
+        return htmlWith({
+          diningDashboard: {
+            upcomingReservations: [
+              {
+                confirmationNumber: 999,
+                dateTime: '2026-05-01T19:00:00',
+                partySize: 2,
+                reservationState: 'CONFIRMED',
+                restaurantId: 42,
+                restaurantName: 'Testeria',
+                securityToken: 't',
+              },
+            ],
+            pastReservations: [],
+          },
+        });
+      }
+
+      // A reservation record is the one payload in this server where dropping a
+      // field would be actively dangerous — `security_token` is what a later
+      // cancel or modify needs, and it is exactly the kind of opaque string a
+      // guessed field list forgets. Compact is subtractive, so it survives, and
+      // the default rung is asserted to equal `full` here rather than merely to
+      // "contain the important bits".
+      it('keeps every reservation field, security_token included, on the default rung', async () => {
+        mockFetchHtml.mockResolvedValue(dashboardHtml());
+        const bare = await harness.callTool('opentable_list_reservations');
+        mockFetchHtml.mockResolvedValue(dashboardHtml());
+        const full = await harness.callTool('opentable_list_reservations', { view: 'full' });
+
+        const bareText = (bare.content[0] as { text: string }).text;
+        expect(bareText).toBe((full.content[0] as { text: string }).text);
+        expect(bareText).not.toMatch(/\n/);
+        expect(JSON.parse(bareText)[0]).toMatchObject({
+          security_token: 't',
+          restaurant_name: 'Testeria',
+        });
+      });
+
+      // `scope` is an UPSTREAM filter and `view` is a response-shape knob; the
+      // handler destructures both, and passing one must not disturb the other.
+      it('still honours scope when view is also passed', async () => {
+        mockFetchHtml.mockResolvedValue(
+          htmlWith({
+            diningDashboard: {
+              upcomingReservations: [],
+              pastReservations: [
+                {
+                  confirmationNumber: 1,
+                  dateTime: '2025-11-01T20:00:00',
+                  partySize: 4,
+                  reservationState: 'COMPLETED',
+                  restaurantName: 'Old Spot',
+                },
+              ],
+            },
+          })
+        );
+        const result = await harness.callTool('opentable_list_reservations', {
+          scope: 'past',
+          view: 'full',
+        });
+        const parsed = JSON.parse((result.content[0] as { text: string }).text) as Array<{
+          status: string;
+        }>;
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].status).toBe('COMPLETED');
+      });
+    });
   });
 
   describe('buildAvailabilityVariables (shared with the probe scripts)', () => {
@@ -250,6 +322,78 @@ describe('reservation tools', () => {
         party_size: 2,
       });
       expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual([]);
+    });
+
+    describe('view', () => {
+      // `view` is ours, and this tool's upstream call is a GraphQL query whose
+      // variables OpenTable mints slot tokens from. A stray `view` in that
+      // variables object is not cosmetic — it changes the request we send for
+      // availability. The handler destructures every upstream field by name, and
+      // this pins that: the variables must be byte-identical whether or not a
+      // caller named a rung.
+      it('never leaks view into the availability GraphQL variables', async () => {
+        mockGraphqlQuery.mockResolvedValue({
+          availability: [
+            {
+              restaurantId: 42,
+              availabilityDays: [{ slots: [{ isAvailable: false, __typename: 'UnavailableSlot' }] }],
+            },
+          ],
+        });
+        const args = { restaurant_id: 42, date: '2026-05-01', time: '19:00', party_size: 2 };
+
+        await harness.callTool('opentable_find_slots', args);
+        const withoutView = mockGraphqlQuery.mock.calls[0][1];
+
+        mockGraphqlQuery.mockClear();
+        await harness.callTool('opentable_find_slots', { ...args, view: 'full' });
+        const withView = mockGraphqlQuery.mock.calls[0][1];
+
+        expect(withView).toEqual(withoutView);
+        expect(JSON.stringify(withView)).not.toContain('view');
+        expect(JSON.stringify(withView)).not.toContain('full');
+      });
+
+      // Slots are the payload a caller acts on immediately — `reservation_token`
+      // expires quickly and `slot_hash` is required to book — so the default rung
+      // must not thin them. Nothing here is media, so compact returns the lot.
+      it('returns every slot field on the default rung', async () => {
+        mockGraphqlQuery.mockResolvedValue({
+          availability: [
+            {
+              restaurantId: 42,
+              availabilityDays: [
+                {
+                  slots: [
+                    {
+                      isAvailable: true,
+                      dateTime: '2026-05-01T19:00',
+                      slotHash: 'h1',
+                      slotAvailabilityToken: 'tok-1',
+                      attributes: ['default'],
+                      pointsValue: 100,
+                      __typename: 'AvailableSlot',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        });
+        const result = await harness.callTool('opentable_find_slots', {
+          restaurant_id: 42,
+          date: '2026-05-01',
+          time: '19:00',
+          party_size: 2,
+        });
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).not.toMatch(/\n/);
+        expect(JSON.parse(text)[0]).toMatchObject({
+          reservation_token: 'tok-1',
+          slot_hash: 'h1',
+          time: '19:00',
+        });
+      });
     });
   });
 

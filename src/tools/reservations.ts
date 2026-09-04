@@ -22,7 +22,8 @@
 // on every book call — cheaper than a dedicated profile endpoint, and
 // the data we need is always there for authenticated users.
 import { z } from 'zod';
-import { textResult, PositiveInt, schemaConfirm } from '@chrischall/mcp-utils';
+import { PositiveInt, minifiedResult, schemaConfirm } from '@chrischall/mcp-utils';
+import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { type OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
@@ -276,13 +277,14 @@ export function registerReservationTools(
         'List the authenticated user\'s OpenTable reservations. Defaults to upcoming; pass scope="past" or scope="all" to broaden. Each entry includes the security_token needed to cancel or modify.',
       annotations: { readOnlyHint: true },
       inputSchema: {
+        view: viewArg(),
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
       },
     },
-    async ({ scope }) => {
+    async ({ scope, view }) => {
       const html = await client.fetchHtml(DINING_DASHBOARD_PATH);
       const reservations = parseDiningDashboard(html, scope ?? 'upcoming');
-      return textResult(reservations);
+      return viewResponse(view, reservations);
     }
   );
 
@@ -293,6 +295,7 @@ export function registerReservationTools(
         "List available reservation slots at a specific OpenTable restaurant for a date + party size. Returns each slot's reservation_token (use it with opentable_book — tokens expire quickly, book promptly). Slots may be attributes=['default'|'bar'|'highTop'|'outdoor'] and type=Standard|Experience|POP. You can pass a slot's reservation_token + slot_hash straight to opentable_book without a separate opentable_get_restaurant call — book auto-resolves the dining area. (OpenTable's availability response carries only the seating category, not the numeric dining-area id, so that id is resolved at book time from the booking-details page.) If this errors with \"operation ... not yet observed on this tab\", open any OpenTable restaurant page in your browser once (the graphql bridge needs to see the page's own availability query fire first), then retry.",
       annotations: { readOnlyHint: true },
       inputSchema: {
+        view: viewArg(),
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
         time: z.string().describe('HH:MM (24h) — anchor time; slots come back relative to this'),
@@ -300,7 +303,7 @@ export function registerReservationTools(
         database_region: DatabaseRegion,
       },
     },
-    async ({ restaurant_id, date, time, party_size, database_region }) => {
+    async ({ restaurant_id, date, time, party_size, database_region, view }) => {
       // Routes through fetchproxy's `graphql` capability instead of a raw
       // fetch — OpenTable's Akamai rejects the isolated-world fetch() path
       // for this endpoint at the edge. See transport-fetchproxy.ts.
@@ -315,7 +318,7 @@ export function registerReservationTools(
         })
       );
       const slots = parseAvailabilityResponse({ data }, date, time, party_size);
-      return textResult(slots);
+      return viewResponse(view, slots);
     }
   );
 
@@ -486,7 +489,7 @@ export function registerReservationTools(
         ? `Nothing charged now — ${summary.default_card!.brand} •••• ${summary.default_card!.last4} held only. ${summary.policy.description}`
         : 'Nothing charged now — no card required.';
 
-      return textResult(
+      return minifiedResult(
               {
                 booking_token,
                 // `instant` for standard slots, `experience_mandatory` when
@@ -702,7 +705,7 @@ export function registerReservationTools(
         ? `Nothing charged now — ${summary.default_card!.brand} •••• ${summary.default_card!.last4} re-held only. ${summary.policy.description}`
         : 'Nothing charged now — no card required.';
 
-      return textResult(
+      return minifiedResult(
               {
                 modify_token,
                 booking_type: isExperience ? 'experience_mandatory' : 'instant',
@@ -797,7 +800,7 @@ export function registerReservationTools(
       // the exact card + cancellation policy). The unsigned booking_token is not
       // an intent check — this gate is.
       if (confirm !== true) {
-        return textResult({
+        return minifiedResult({
           dryRun: true,
           action: `Book a table for ${party_size} at restaurant ${restaurant_id} on ${date} at ${time}`,
           willSend: { restaurant_id, date, time, party_size },
@@ -928,7 +931,7 @@ export function registerReservationTools(
         endpoint: MAKE_RESERVATION_PATH,
       });
 
-      return textResult(
+      return minifiedResult(
               {
                 confirmation_number: result.confirmationNumber,
                 reservation_id: result.reservationId,
@@ -995,7 +998,7 @@ export function registerReservationTools(
       // Confirm-gate: modifying commits a reservation change (new slot's policy /
       // CC re-hold can differ). Without confirm:true, return a no-network preview.
       if (confirm !== true) {
-        return textResult({
+        return minifiedResult({
           dryRun: true,
           action: `Modify reservation ${confirmation_number} at restaurant ${restaurant_id} to ${party_size} on ${date} at ${time}`,
           willSend: { restaurant_id, confirmation_number, date, time, party_size },
@@ -1067,7 +1070,7 @@ export function registerReservationTools(
         endpoint: MAKE_RESERVATION_PATH,
       });
 
-      return textResult(
+      return minifiedResult(
               {
                 confirmation_number: result.confirmationNumber,
                 reservation_id: result.reservationId,
@@ -1101,7 +1104,7 @@ export function registerReservationTools(
     },
     async ({ restaurant_id, confirmation_number, security_token, database_region, confirm }) => {
       if (confirm !== true) {
-        return textResult({
+        return minifiedResult({
           dryRun: true,
           action: `Cancel reservation ${confirmation_number} at restaurant ${restaurant_id}`,
           willSend: { restaurant_id, confirmation_number },
@@ -1138,7 +1141,7 @@ export function registerReservationTools(
       const result = response?.data?.cancelReservation;
       const state = result?.data?.reservationState ?? '';
       const cancelled = result?.statusCode === 200 && /cancel/i.test(state) && !result?.errors;
-      return textResult({ cancelled, state, raw: response });
+      return minifiedResult({ cancelled, state, raw: response });
     }
   );
 }
