@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.0](https://github.com/chrischall/opentable-mcp/compare/v0.18.2...v0.19.0) (2026-09-04)
+
+
+### Features
+
+* **tools:** compact by default — strip media URLs, and minify every response ([#185](https://github.com/chrischall/opentable-mcp/issues/185)) ([3497d92](https://github.com/chrischall/opentable-mcp/commit/3497d92f2bae120574ae00aa7a29821713eb8744))
+
+
+### Bug Fixes
+
+* **deps:** pick up @chrischall/mcp-utils 0.23.2 ([#188](https://github.com/chrischall/opentable-mcp/issues/188)) ([aaae1be](https://github.com/chrischall/opentable-mcp/commit/aaae1be09a600b947fd9ade31cbf12715e708034))
+
 ## [0.18.2](https://github.com/chrischall/opentable-mcp/compare/v0.18.1...v0.18.2) (2026-09-03)
 
 
