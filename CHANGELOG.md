@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.2](https://github.com/chrischall/opentable-mcp/compare/v0.19.1...v0.19.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **deps:** bump hono from 4.13.0 to 4.13.7 ([#199](https://github.com/chrischall/opentable-mcp/issues/199)) ([7b4d487](https://github.com/chrischall/opentable-mcp/commit/7b4d4870ae089a035b64e96a46a2a9b89da53eae))
+* **deps:** require @fetchproxy/server ^2.7.0, the first that reads FETCHPROXY_IDENTITY_DIR ([#197](https://github.com/chrischall/opentable-mcp/issues/197)) ([100259a](https://github.com/chrischall/opentable-mcp/commit/100259aada055e8e3bb60331067d656d77b5deb7))
+
 ## [0.19.1](https://github.com/chrischall/opentable-mcp/compare/v0.19.0...v0.19.1) (2026-09-04)
 
 
