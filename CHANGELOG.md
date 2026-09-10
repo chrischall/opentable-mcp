@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.19.3](https://github.com/chrischall/opentable-mcp/compare/v0.19.2...v0.19.3) (2026-09-10)
+
+
+### Bug Fixes
+
+* **deps:** @fetchproxy/server 2.10.0 and @chrischall/mcp-utils 0.26.1 ([#202](https://github.com/chrischall/opentable-mcp/issues/202)) ([0cff160](https://github.com/chrischall/opentable-mcp/commit/0cff160c165054a54236950478dccaff667d9962))
+* **deps:** declare the peer floors mcp-utils 0.26.1 requires ([#203](https://github.com/chrischall/opentable-mcp/issues/203)) ([d47f412](https://github.com/chrischall/opentable-mcp/commit/d47f412b915fa6762e17b382008e7dbfbef36a63))
+* **deps:** take @fetchproxy/server 2.9.1 so a pairing prompt survives ([#200](https://github.com/chrischall/opentable-mcp/issues/200)) ([5f53fb3](https://github.com/chrischall/opentable-mcp/commit/5f53fb378445ed5112e769d35a50f69864139a67))
+
 ## [0.19.2](https://github.com/chrischall/opentable-mcp/compare/v0.19.1...v0.19.2) (2026-09-09)
 
 
