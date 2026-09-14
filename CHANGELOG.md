@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.4](https://github.com/chrischall/opentable-mcp/compare/v0.19.3...v0.19.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* **deps:** @fetchproxy/server 2.11.3, so the hosted extension pin persists ([#204](https://github.com/chrischall/opentable-mcp/issues/204)) ([89fd91e](https://github.com/chrischall/opentable-mcp/commit/89fd91e571df3a1fd4b938f9bae85de714b07b9e))
+* **deps:** @fetchproxy/server 3.0.0 — protocol v4 (forward secrecy, AAD over the frame) ([#208](https://github.com/chrischall/opentable-mcp/issues/208)) ([a539948](https://github.com/chrischall/opentable-mcp/commit/a5399489c1e82329dcfcb6c6f55950d7efba9fe7))
+
 ## [0.19.3](https://github.com/chrischall/opentable-mcp/compare/v0.19.2...v0.19.3) (2026-09-10)
 
 
