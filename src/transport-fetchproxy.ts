@@ -1,7 +1,7 @@
 // Adapter that lets the @fetchproxy/server FetchproxyServer satisfy
 // opentable-mcp's OpenTableTransport interface.
 //
-// The floor is declared once, in package.json: `@fetchproxy/server` ^2.4.0.
+// The floor is declared once, in package.json: `@fetchproxy/server` ^3.0.0.
 // Every version note below records WHEN a behaviour arrived upstream, not a
 // constraint this file still negotiates — all of them sit under the floor and
 // are unconditionally satisfied. They are kept because the behaviours are
