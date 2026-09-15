@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.5](https://github.com/chrischall/opentable-mcp/compare/v0.19.4...v0.19.5) (2026-09-15)
+
+
+### Bug Fixes
+
+* **deps:** @fetchproxy/server 3.0.1 — capped peer frames, logged load drops, atomic identity writes ([#212](https://github.com/chrischall/opentable-mcp/issues/212)) ([3eb8b78](https://github.com/chrischall/opentable-mcp/commit/3eb8b78ead9a35230c327e540f753a3978cad3c1))
+
+
+### Documentation
+
+* **transport:** the fetchproxy floor comment names ^3.0.0 ([#210](https://github.com/chrischall/opentable-mcp/issues/210)) ([03848a0](https://github.com/chrischall/opentable-mcp/commit/03848a05d2f17d0e279eae98771619a6edb904bc))
+* **transport:** the fetchproxy floor comment names ^3.0.1 ([#214](https://github.com/chrischall/opentable-mcp/issues/214)) ([83d4eae](https://github.com/chrischall/opentable-mcp/commit/83d4eaebbfbad5dad33fbdc3f20fce7c040a1bad))
+
 ## [0.19.4](https://github.com/chrischall/opentable-mcp/compare/v0.19.3...v0.19.4) (2026-09-14)
 
 
