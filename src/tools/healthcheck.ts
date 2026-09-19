@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { registerBridgeHealthcheckTool } from '@chrischall/mcp-utils/fetchproxy';
 import type { OpenTableClient } from '../client.js';
 import type { OpenTableTransport } from '../transport.js';

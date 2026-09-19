@@ -2,8 +2,8 @@
 // Live probe for modify. Books → modifies (moves time) → cancels.
 // All actions on real OpenTable; the modify probe is the truth-check
 // the unit tests can't be.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const RID = Number(process.env.OT_MODIFY_RID ?? 278896);
 const DINING_AREA_ID = Number(process.env.OT_MODIFY_AREA ?? 21881);

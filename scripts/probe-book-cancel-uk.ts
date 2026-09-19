@@ -9,8 +9,8 @@
 //
 // ⚠️ Books a real reservation. Reads the FULL error/response from our
 // tool so we can pin down what's different about the UK path.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const RID = Number(process.env.OT_PROBE_UK_RID ?? 141537); // Grafton Arms
 const AREA = Number(process.env.OT_PROBE_UK_AREA ?? 1);

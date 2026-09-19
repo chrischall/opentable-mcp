@@ -4,9 +4,10 @@
 // because it's the canonical authenticated landing page; a follow-up
 // list_reservations call can reuse the same HTML via the extension's
 // own caching (though we don't currently cache on the server side).
+import { z } from 'zod';
 import { minifiedResult } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type { OpenTableClient } from '../client.js';
 import { parseUserProfile } from '../parse-user-profile.js';
 
@@ -21,9 +22,9 @@ export function registerUserTools(
     {
       description:
         "Get the authenticated OpenTable user's profile: name, email, phones, loyalty points and tier, home metro, member-since date. Payment and credit-card details are never exposed.",
-      inputSchema: {
+      inputSchema: z.object({
         view: viewArg(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ view }) => {

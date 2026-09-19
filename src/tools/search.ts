@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type { OpenTableClient } from '../client.js';
 import { parseSearch } from '../parse-search.js';
 
@@ -48,7 +48,7 @@ export function registerSearchTools(
       description:
         'Search OpenTable for restaurants. Returns matching restaurants with cuisine, neighborhood, price band, rating, description, and URL. Does NOT include bookable slot tokens — use opentable_find_slots for a specific venue to check availability.',
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         view: viewArg(),
         term: z.string().optional().describe('Free-text query (cuisine or restaurant name)'),
         location: z
@@ -61,7 +61,7 @@ export function registerSearchTools(
         latitude: z.number().optional(),
         longitude: z.number().optional(),
         metro_id: z.number().int().optional().describe('OpenTable metro id (e.g. 8 = SF Bay Area, 31 = Charlotte).'),
-      },
+      }),
     },
     // `view` is destructured OFF the input before anything else sees it. It is a
     // response-shape knob, not a search parameter, and `buildSearchUrl` takes the
