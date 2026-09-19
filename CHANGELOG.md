@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/chrischall/opentable-mcp/compare/v0.19.5...v1.0.0) (2026-09-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mcp:** migrate server to SDK v2 ([#216](https://github.com/chrischall/opentable-mcp/issues/216))
+
+### Features
+
+* **mcp:** migrate server to SDK v2 ([#216](https://github.com/chrischall/opentable-mcp/issues/216)) ([70fe5d7](https://github.com/chrischall/opentable-mcp/commit/70fe5d7bcb90d8736a1b234221a91bbb897588f8))
+
 ## [0.19.5](https://github.com/chrischall/opentable-mcp/compare/v0.19.4...v0.19.5) (2026-09-15)
 
 
