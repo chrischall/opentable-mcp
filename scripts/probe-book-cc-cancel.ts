@@ -17,8 +17,8 @@
 //
 // Exits non-zero if the slot turns out NOT to require a CC — we'd
 // rather halt than silently exercise the non-guarantee path.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const RID = Number(process.env.OT_PROBE_CC_RID ?? '');
 const AREA = Number(process.env.OT_PROBE_CC_AREA ?? '');

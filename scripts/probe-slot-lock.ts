@@ -13,8 +13,8 @@
  * (/r/…) open — that tab both warms RestaurantsAvailability for find_slots
  * and relays the slot-lock.
  */
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const RESTAURANT_ID = 985138; // Sophia's Lounge at The Ivey's Hotel, Charlotte
 const date = process.argv[2] ?? '2026-09-24';

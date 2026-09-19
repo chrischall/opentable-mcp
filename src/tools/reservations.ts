@@ -24,7 +24,7 @@
 import { z } from 'zod';
 import { PositiveInt, minifiedResult, schemaConfirm } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { type OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
@@ -276,10 +276,10 @@ export function registerReservationTools(
       description:
         'List the authenticated user\'s OpenTable reservations. Defaults to upcoming; pass scope="past" or scope="all" to broaden. Each entry includes the security_token needed to cancel or modify.',
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         view: viewArg(),
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
-      },
+      }),
     },
     async ({ scope, view }) => {
       const html = await client.fetchHtml(DINING_DASHBOARD_PATH);
@@ -294,14 +294,14 @@ export function registerReservationTools(
       description:
         "List available reservation slots at a specific OpenTable restaurant for a date + party size. Returns each slot's reservation_token (use it with opentable_book — tokens expire quickly, book promptly). Slots may be attributes=['default'|'bar'|'highTop'|'outdoor'] and type=Standard|Experience|POP. You can pass a slot's reservation_token + slot_hash straight to opentable_book without a separate opentable_get_restaurant call — book auto-resolves the dining area. (OpenTable's availability response carries only the seating category, not the numeric dining-area id, so that id is resolved at book time from the booking-details page.) If this errors with \"operation ... not yet observed on this tab\", open any OpenTable restaurant page in your browser once (the graphql bridge needs to see the page's own availability query fire first), then retry.",
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         view: viewArg(),
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
         time: z.string().describe('HH:MM (24h) — anchor time; slots come back relative to this'),
         party_size: PositiveInt,
         database_region: DatabaseRegion,
-      },
+      }),
     },
     async ({ restaurant_id, date, time, party_size, database_region, view }) => {
       // Routes through fetchproxy's `graphql` capability instead of a raw
@@ -328,7 +328,7 @@ export function registerReservationTools(
       description:
         "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock.",
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
         time: z.string().describe('HH:MM (24h) — must match a slot returned by find_slots'),
@@ -357,7 +357,7 @@ export function registerReservationTools(
             'Pass-through from find_slots.experience_ids. When non-empty, experience_id must also be set.'
           ),
         database_region: DatabaseRegion,
-      },
+      }),
     },
     async ({
       restaurant_id,
@@ -534,7 +534,7 @@ export function registerReservationTools(
       description:
         "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. dining_area_id is OPTIONAL — omitted, it's auto-resolved from the booking-details page like book_preview does. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
@@ -561,7 +561,7 @@ export function registerReservationTools(
           .optional()
           .describe('Pass-through from find_slots.experience_ids. When non-empty, experience_id must also be set.'),
         database_region: DatabaseRegion,
-      },
+      }),
     },
     async ({
       restaurant_id,
@@ -744,7 +744,7 @@ export function registerReservationTools(
     {
       description:
         "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). dining_area_id is OPTIONAL: when omitted it's auto-resolved to the default dining area from OpenTable's booking-details page, so find_slots → book works without a separate opentable_get_restaurant call. For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. Without confirm:true this returns a dry-run and makes NO booking; re-run with confirm:true to commit.",
-      inputSchema: {
+      inputSchema: z.object({
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
         time: z.string().describe('HH:MM (24h) — must match the slot returned by find_slots'),
@@ -778,7 +778,7 @@ export function registerReservationTools(
           ),
         database_region: DatabaseRegion,
         confirm: schemaConfirm,
-      },
+      }),
     },
     async ({
       restaurant_id,
@@ -954,7 +954,7 @@ export function registerReservationTools(
     {
       description:
         "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. dining_area_id is OPTIONAL — the modify_token already carries the area opentable_modify_preview resolved; pass it only to restate it (mismatch is refused). Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Without confirm:true this returns a dry-run and makes NO change to the reservation; re-run with confirm:true to submit the modification.",
-      inputSchema: {
+      inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
@@ -979,7 +979,7 @@ export function registerReservationTools(
           .optional()
           .describe('Optional tamper-check signal. When set, must match the experienceId baked into modify_token.'),
         confirm: schemaConfirm,
-      },
+      }),
     },
     async ({
       restaurant_id,
@@ -1094,13 +1094,13 @@ export function registerReservationTools(
     {
       description:
         'Cancel an OpenTable reservation. Requires restaurant_id, confirmation_number, and security_token — all three come from opentable_list_reservations or opentable_book. Without confirm:true this returns a dry-run and takes NO cancellation action; re-run with confirm:true to cancel the reservation.',
-      inputSchema: {
+      inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
         database_region: DatabaseRegion,
         confirm: schemaConfirm,
-      },
+      }),
     },
     async ({ restaurant_id, confirmation_number, security_token, database_region, confirm }) => {
       if (confirm !== true) {

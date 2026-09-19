@@ -18,8 +18,7 @@
 //
 // Activated via OT_BRIDGE=mcp-chrome (see src/index.ts).
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { FetchInit, FetchResult, GraphqlQueryInit, OpenTableTransport } from './transport.js';
 
 const DEFAULT_MCP_CHROME_URL = 'http://127.0.0.1:12306/mcp';

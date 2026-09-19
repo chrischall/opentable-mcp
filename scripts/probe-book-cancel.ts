@@ -2,8 +2,8 @@
 // Live probe: find_slots → book → cancel round-trip.
 // **This makes a real reservation and immediately cancels it.**
 // Pick a restaurant that's not going to care about a ~3-second booking.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { probeDate } from './probe-date.js';
 
 const RESTAURANT_ID = Number(process.env.OT_PROBE_RID ?? 1272781); // State of Confusion

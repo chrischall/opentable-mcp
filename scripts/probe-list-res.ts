@@ -15,8 +15,8 @@
 //
 // Reservation identifiers (confirmation numbers, security tokens, …) are
 // redacted by default. `PROBE_SHOW_SENSITIVE=1` prints them raw.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   classifyProbeFailure,
   describeProbeFailure,

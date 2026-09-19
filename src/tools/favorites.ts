@@ -4,9 +4,10 @@
 // page is cached — a fresh add may take ~10s to show up there, so we
 // treat the 204 as authoritative and don't round-trip through list to
 // "verify".
+import { z } from 'zod';
 import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type { OpenTableClient } from '../client.js';
 import { parseFavorites } from '../parse-favorites.js';
 
@@ -26,9 +27,9 @@ export function registerFavoriteTools(
     {
       description:
         "List the user's saved restaurants from OpenTable (Saved Restaurants list). Returns each entry's id, name, cuisine, neighborhood, price band, rating, and OpenTable URL.",
-      inputSchema: {
+      inputSchema: z.object({
         view: viewArg(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ view }) => {
@@ -43,9 +44,9 @@ export function registerFavoriteTools(
     {
       description:
         "Add a restaurant to the user's Saved Restaurants list.",
-      inputSchema: {
+      inputSchema: z.object({
         restaurant_id: PositiveInt,
-      },
+      }),
     },
     async ({ restaurant_id }) => {
       await client.fetchJson<null>(WISHLIST_ADD_PATH, {
@@ -61,9 +62,9 @@ export function registerFavoriteTools(
     {
       description:
         "Remove a restaurant from the user's Saved Restaurants list.",
-      inputSchema: {
+      inputSchema: z.object({
         restaurant_id: PositiveInt,
-      },
+      }),
     },
     async ({ restaurant_id }) => {
       await client.fetchJson<null>(WISHLIST_REMOVE_PATH, {
