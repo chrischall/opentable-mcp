@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/chrischall/opentable-mcp/compare/v1.0.0...v1.1.0) (2026-09-19)
+
+
+### Features
+
+* **deps:** take mcp-utils 1.0.0, fixing server/discover ([#222](https://github.com/chrischall/opentable-mcp/issues/222)) ([fc06bc7](https://github.com/chrischall/opentable-mcp/commit/fc06bc7b1d3801dcd1bcef2705cf81137fff3626))
+
+
+### Bug Fixes
+
+* **manifest:** raise the node floor to 20, matching the SDK v2 deps ([#220](https://github.com/chrischall/opentable-mcp/issues/220)) ([426b2d6](https://github.com/chrischall/opentable-mcp/commit/426b2d6b667c1ddb275c1c44d7b42c913917c4b5))
+
 ## [1.0.0](https://github.com/chrischall/opentable-mcp/compare/v0.19.5...v1.0.0) (2026-09-19)
 
 
