@@ -1,6 +1,6 @@
 # AGENTS.md — opentable-mcp
 
-Guidance for Codex working in this repo.
+Guidance for Claude working in this repo.
 
 ## TL;DR
 
@@ -59,7 +59,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed
 ```
 ┌────────────────┐  stdio   ┌──────────────────┐   WS   ┌──────────────────┐    fetch()    ┌─────────────┐
 │ MCP client     │◀────────▶│  dist/bundle.js  │◀──────▶│  fetchproxy      │◀────────────▶│ opentable   │
-│ (Codex, etc.) │          │  (OpenTable MCP) │ :37149 │  extension       │   (real TLS, │ .com (tab)  │
+│ (Claude, etc.) │          │  (OpenTable MCP) │ :37149 │  extension       │   (real TLS, │ .com (tab)  │
 └────────────────┘          └──────────────────┘        │  (separate)      │   cookies)    └─────────────┘
                                     │                   └──────────────────┘
                                     │ depends on
