@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/chrischall/opentable-mcp/compare/v1.1.1...v1.1.2) (2026-09-21)
+
+
+### Documentation
+
+* AGENTS.md should not say it is guidance for Claude ([#229](https://github.com/chrischall/opentable-mcp/issues/229)) ([501cf0e](https://github.com/chrischall/opentable-mcp/commit/501cf0ec5f467759955d585643d8bfecfef69b75))
+
 ## [1.1.1](https://github.com/chrischall/opentable-mcp/compare/v1.1.0...v1.1.1) (2026-09-21)
 
 
