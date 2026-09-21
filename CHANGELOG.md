@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/chrischall/opentable-mcp/compare/v1.1.0...v1.1.1) (2026-09-21)
+
+
+### Documentation
+
+* AGENTS.md pointed at a directory that does not exist ([#226](https://github.com/chrischall/opentable-mcp/issues/226)) ([c47bf87](https://github.com/chrischall/opentable-mcp/commit/c47bf87a6359d7808b28bd2be6c787145e3af8ba))
+
 ## [1.1.0](https://github.com/chrischall/opentable-mcp/compare/v1.0.0...v1.1.0) (2026-09-19)
 
 
