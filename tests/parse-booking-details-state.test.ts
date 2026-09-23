@@ -197,6 +197,27 @@ describe('parseBookingDetailsState — Experience-mandatory page', () => {
     expect(summary.experience?.description).toMatch(/community table/i);
   });
 
+  it('describes the caller-selected experience, not the first bookable one', () => {
+    // The fixture lists experiences 514735 (version 7) and 627696 (no
+    // version). Picking 627696 must surface 627696's record and version,
+    // never 514735's.
+    const summary = parseBookingDetailsState(
+      fixture('booking-details-state-experience.json'),
+      { experienceId: 627696 }
+    );
+    expect(summary.experience?.experience_id).toBe(627696);
+    expect(summary.experience?.name).toBe("Cafe Pasqual's Dinner");
+    expect(summary.experience?.version).toBeNull();
+  });
+
+  it('returns experience: null when the selected experience is not on the page', () => {
+    const summary = parseBookingDetailsState(
+      fixture('booking-details-state-experience.json'),
+      { experienceId: 999999 }
+    );
+    expect(summary.experience).toBeNull();
+  });
+
   it('returns experience: null on Standard-flow booking-details pages', () => {
     // The existing CC fixture is a Standard flow.
     const summary = parseBookingDetailsState(fixture('booking-details-state-cc.json'));

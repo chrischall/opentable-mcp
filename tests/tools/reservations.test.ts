@@ -892,6 +892,64 @@ describe('reservation tools', () => {
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
 
+    it('describes and version-stamps the experience the caller picked, not the first bookable one', async () => {
+      // Fixture lists 514735 (version 7) and 627696 (no version).
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-experience.json'))
+      );
+      mockFetchJson.mockResolvedValue({
+        data: { lockExperienceSlot: { success: true, slotLock: { slotLockId: 9999 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_id: 627696,
+        experience_ids: [514735, 627696],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const json = JSON.parse((result.content[0] as { text: string }).text);
+      expect(json.experience.experience_id).toBe(627696);
+      expect(json.experience.name).toBe("Cafe Pasqual's Dinner");
+      const [, lockInit] = mockFetchJson.mock.calls[0] as [
+        string,
+        { body?: { variables?: { input?: Record<string, unknown> } } }
+      ];
+      expect(lockInit.body?.variables?.input?.experienceId).toBe(627696);
+      // 7 is 514735's version — must never be sent for 627696.
+      expect(lockInit.body?.variables?.input?.experienceVersion).not.toBe(7);
+    });
+
+    it('refuses an experience_id the booking-details page does not list, before slot-lock', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-experience.json'))
+      );
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_id: 999999,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('999999');
+      expect(text).toMatch(/not offered/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
     it('the Standard path still includes booking_type=instant and experience=null', async () => {
       mockFetchHtml.mockResolvedValue(
         htmlWith(fixture('booking-details-state-no-cc.json'))
@@ -1379,6 +1437,27 @@ describe('reservation tools', () => {
         expect(decoded.existingSecurityToken).toBe('01abc');
         expect(decoded.bookingType).toBe('experience');
         expect(decoded.experienceId).toBe(514735);
+      });
+      it('refuses an experience_id the booking-details page does not list, before slot-lock', async () => {
+        mockFetchHtml.mockResolvedValue(htmlWith(modifyState));
+        mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 278896,
+          confirmation_number: 29541,
+          security_token: '01abc',
+          date: '2026-06-25',
+          time: '19:15',
+          party_size: 5,
+          reservation_token: 'tok',
+          slot_hash: '4444',
+          dining_area_id: 21881,
+          experience_id: 999999,
+        });
+
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toContain('999999');
+        expect(mockFetchJson).not.toHaveBeenCalled();
       });
     });
 

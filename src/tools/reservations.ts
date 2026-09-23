@@ -408,7 +408,8 @@ export function registerReservationTools(
         })
       );
       const state = extractInitialState(detailsHtml);
-      const summary = parseBookingDetailsState(state);
+      const summary = parseBookingDetailsState(state, { experienceId: experience_id });
+      if (isExperience) requireSelectedExperience(summary, experience_id!);
 
       // Step 2a — same-day conflict (OpenTable's "double trouble" check).
       // Fail early with a clear error rather than letting make-reservation
@@ -611,7 +612,8 @@ export function registerReservationTools(
         })
       );
       const state = extractInitialState(detailsHtml);
-      const summary = parseBookingDetailsState(state);
+      const summary = parseBookingDetailsState(state, { experienceId: experience_id });
+      if (isExperience) requireSelectedExperience(summary, experience_id!);
 
       // 2) Same-day conflicts — exclude the reservation being moved.
       const conflicts = sameDayConflicts(summary.conflicts, date, confirmation_number);
@@ -1154,6 +1156,20 @@ export function registerReservationTools(
 }
 
 // ─── helpers (module-private) ─────────────────────────────────────
+
+/** Refuse an Experience booking whose experience_id the /booking/details
+ *  page doesn't list — otherwise the preview would describe (and version-
+ *  stamp) something other than what gets booked. */
+function requireSelectedExperience(
+  summary: BookingDetailsSummary,
+  experienceId: number
+): void {
+  if (summary.experience?.experience_id !== experienceId) {
+    throw new Error(
+      `Experience ${experienceId} is not offered on this slot's booking page. Re-run opentable_find_slots and pick an experience_id from that slot's experience_ids.`
+    );
+  }
+}
 
 async function fetchProfile(client: OpenTableClient): Promise<BookProfile> {
   const html = await client.fetchHtml(DINING_DASHBOARD_PATH);
