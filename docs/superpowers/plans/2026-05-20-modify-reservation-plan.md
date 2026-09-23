@@ -36,13 +36,13 @@
 **Files:**
 - Create: `tests/fixtures/booking-details-state-modify.json`
 
-This is hand-run by the controller (you). It does not run subagent code. There IS a live reservation available: confirmation #29541 (Cafe Pasqual's, 2026-06-25 18:00, party 5, Community Table Dining). If that reservation has been cancelled or moved, book a fresh one (or substitute any active opentable reservation).
+This is hand-run by the controller (you). It does not run subagent code. It needs a live, active OpenTable reservation of your own to modify (book one first if needed). Scrub its securityToken, gpid, confirmation number and card digits before committing any capture; `tests/fixture-hygiene.test.ts` enforces this for fixtures.
 
-- [ ] **Step 1: Drive Chrome to the modify URL for #29541**
+- [ ] **Step 1: Drive Chrome to the modify URL for #10001**
 
 In the bridged Chrome tab, navigate to:
 ```
-https://www.opentable.com/booking/details?confirmationNumber=29541&rid=278896&datetime=2026-06-25T19:15&covers=5&partySize=5&seating=default&slotHash=<fresh from find_slots>&slotAvailabilityToken=<fresh>&diningAreaId=21881&experienceIds=514735&selectedExperience=514735&tableCategory=default&st=Experience&isMandatory=true
+https://www.opentable.com/booking/details?confirmationNumber=10001&rid=278896&datetime=2026-06-25T19:15&covers=5&partySize=5&seating=default&slotHash=<fresh from find_slots>&slotAvailabilityToken=<fresh>&diningAreaId=21881&experienceIds=514735&selectedExperience=514735&tableCategory=default&st=Experience&isMandatory=true
 ```
 
 (The hash/token come from a fresh `find_slots` call for a different time — e.g., 19:15. The modify URL uses the NEW slot's params plus the existing reservation's `confirmationNumber`.)
@@ -81,7 +81,7 @@ window.fetch = async function (...args) {
 };
 ```
 
-Then click "Complete reservation" — this MOVES reservation #29541 to 19:15. The hook captures the body. Confirm `isModify: true` and `reservationId` are the only modify-specific additions; if there are others (e.g., a `previousReservationId`, a `modifyReason`), note them — Task 4 will need to include them.
+Then click "Complete reservation" — this MOVES reservation #10001 to 19:15. The hook captures the body. Confirm `isModify: true` and `reservationId` are the only modify-specific additions; if there are others (e.g., a `previousReservationId`, a `modifyReason`), note them — Task 4 will need to include them.
 
 If you don't want to actually modify the live reservation, skip this step. The live probe in Task 5 will surface any missing fields via 400 errors, same iterate-on-error pattern that pinned the Experience body in PR #22.
 
@@ -89,7 +89,7 @@ If you don't want to actually modify the live reservation, skip this step. The l
 
 ```bash
 git add tests/fixtures/booking-details-state-modify.json
-git commit -m "test fixture: capture /booking/details modify state from #29541
+git commit -m "test fixture: capture /booking/details modify state from #10001
 
 Live capture against the Pasqual's reservation booked during the
 capture-phase work. Drives later parser tests for the modify SSR path.
@@ -125,12 +125,12 @@ describe('booking-token — modify-token shape', () => {
       bookingType: 'experience' as const,
       experienceId: 514735, experienceVersion: 7,
       existingReservationId: 2082218741,
-      existingConfirmationNumber: 29541,
-      existingSecurityToken: '01lUHmpLpJ31EwPYPUSGIZTSMb3O41ehMhojol5ybqkWk1',
+      existingConfirmationNumber: 10001,
+      existingSecurityToken: 'st_FIXTURE_REDACTED',
     };
     const after = decodeBookingToken(encodeBookingToken(before));
     expect(after.existingReservationId).toBe(2082218741);
-    expect(after.existingConfirmationNumber).toBe(29541);
+    expect(after.existingConfirmationNumber).toBe(10001);
     expect(after.existingSecurityToken).toBe(before.existingSecurityToken);
   });
 
@@ -361,7 +361,7 @@ describe('opentable_modify_preview', () => {
 
       const result = await harness.callTool('opentable_modify_preview', {
         restaurant_id: 278896,
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         security_token: '01abc',
         date: '2026-06-25',
         time: '19:15',
@@ -374,7 +374,7 @@ describe('opentable_modify_preview', () => {
 
       // URL contains confirmationNumber + Experience params
       const htmlUrl = mockFetchHtml.mock.calls[0][0] as string;
-      expect(htmlUrl).toContain('confirmationNumber=29541');
+      expect(htmlUrl).toContain('confirmationNumber=10001');
       expect(htmlUrl).toContain('selectedExperience=514735');
       expect(htmlUrl).toContain('st=Experience');
 
@@ -383,7 +383,7 @@ describe('opentable_modify_preview', () => {
       const json = JSON.parse((result.content[0] as { text: string }).text);
       expect(json.booking_type).toBe('experience_mandatory');
       expect(json.existing_reservation).toEqual({
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         restaurant_id: 278896,
       });
       expect(json.reservation).toMatchObject({
@@ -397,7 +397,7 @@ describe('opentable_modify_preview', () => {
       // routing info (bookingType=experience, experienceId, experienceVersion).
       const decoded = decodeBookingToken(json.modify_token);
       expect(decoded.existingReservationId).toBeGreaterThan(0);
-      expect(decoded.existingConfirmationNumber).toBe(29541);
+      expect(decoded.existingConfirmationNumber).toBe(10001);
       expect(decoded.existingSecurityToken).toBe('01abc');
       expect(decoded.bookingType).toBe('experience');
       expect(decoded.experienceId).toBe(514735);
@@ -815,7 +815,7 @@ describe('opentable_modify', () => {
     mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
       if (path === '/dapi/booking/make-reservation') {
         makeBody = init?.body ?? null;
-        return { confirmationNumber: 29541, reservationId: 2082218742, securityToken: 'sec2', success: true };
+        return { confirmationNumber: 10001, reservationId: 900000001, securityToken: 'sec2', success: true };
       }
       throw new Error(`unexpected POST: ${path}`);
     });
@@ -824,18 +824,18 @@ describe('opentable_modify', () => {
       slotLockId: 8888, restaurantId: 278896, diningAreaId: 21881,
       partySize: 5, date: '2026-06-25', time: '19:15',
       reservationToken: 'tok', slotHash: '4444',
-      paymentCard: { id: 'card-1', last4: '2630', expiryMmYy: '1028', provider: 'spreedly' },
+      paymentCard: { id: 'card-1', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
       ccRequired: true,
       issuedAt: new Date().toISOString(),
       bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
       existingReservationId: 2082218741,
-      existingConfirmationNumber: 29541,
+      existingConfirmationNumber: 10001,
       existingSecurityToken: '01abc',
     });
 
     const result = await harness.callTool('opentable_modify', {
       restaurant_id: 278896,
-      confirmation_number: 29541,
+      confirmation_number: 10001,
       security_token: '01abc',
       date: '2026-06-25',
       time: '19:15',
@@ -854,7 +854,7 @@ describe('opentable_modify', () => {
     expect(makeBody!.experienceVersion).toBe(7);
     expect(makeBody!.reservationType).toBe('Experience');
     const json = JSON.parse((result.content[0] as { text: string }).text);
-    expect(json.confirmation_number).toBe(29541); // preserved across modify
+    expect(json.confirmation_number).toBe(10001); // preserved across modify
     expect(json.was_modified).toBe(true);
     expect(json.booking_type).toBe('experience_mandatory');
   });
@@ -862,7 +862,7 @@ describe('opentable_modify', () => {
   it('refuses without a modify_token', async () => {
     const result = await harness.callTool('opentable_modify', {
       restaurant_id: 278896,
-      confirmation_number: 29541,
+      confirmation_number: 10001,
       security_token: '01abc',
       date: '2026-06-25',
       time: '19:15',
@@ -889,7 +889,7 @@ describe('opentable_modify', () => {
 
     const result = await harness.callTool('opentable_modify', {
       restaurant_id: 278896,
-      confirmation_number: 29541,
+      confirmation_number: 10001,
       security_token: '01abc',
       date: '2026-06-25',
       time: '19:15',
@@ -912,7 +912,7 @@ describe('opentable_modify', () => {
       issuedAt: new Date().toISOString(),
       bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
       existingReservationId: 2082218741,
-      existingConfirmationNumber: 29541,
+      existingConfirmationNumber: 10001,
       existingSecurityToken: '01abc',
     });
 

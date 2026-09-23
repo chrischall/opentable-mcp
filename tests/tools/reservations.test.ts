@@ -1566,7 +1566,7 @@ describe('reservation tools', () => {
 
         const result = await harness.callTool('opentable_modify_preview', {
           restaurant_id: 278896,
-          confirmation_number: 29541,
+          confirmation_number: 10001,
           security_token: '01abc',
           date: '2026-06-25',
           time: '19:15',
@@ -1579,7 +1579,7 @@ describe('reservation tools', () => {
 
         // URL contains all three modify markers + Experience params
         const htmlUrl = mockFetchHtml.mock.calls[0][0] as string;
-        expect(htmlUrl).toContain('confirmationNumber=29541');
+        expect(htmlUrl).toContain('confirmationNumber=10001');
         expect(htmlUrl).toContain('securityToken=01abc');
         expect(htmlUrl).toContain('isModify=true');
         expect(htmlUrl).toContain('selectedExperience=514735');
@@ -1590,7 +1590,7 @@ describe('reservation tools', () => {
         const json = JSON.parse((result.content[0] as { text: string }).text);
         expect(json.booking_type).toBe('experience_mandatory');
         expect(json.existing_reservation).toEqual({
-          confirmation_number: 29541,
+          confirmation_number: 10001,
           restaurant_id: 278896,
           // Enriched from modifyReservation block in the SSR state — lets
           // the agent phrase "moving your booking from June 25 18:00 → 19:15".
@@ -1607,7 +1607,7 @@ describe('reservation tools', () => {
 
         // Token carries existing-reservation identity + new slot routing info
         const decoded = decodeBookingToken(json.modify_token);
-        expect(decoded.existingConfirmationNumber).toBe(29541);
+        expect(decoded.existingConfirmationNumber).toBe(10001);
         expect(decoded.existingSecurityToken).toBe('01abc');
         expect(decoded.bookingType).toBe('experience');
         expect(decoded.experienceId).toBe(514735);
@@ -1618,7 +1618,7 @@ describe('reservation tools', () => {
 
         const result = await harness.callTool('opentable_modify_preview', {
           restaurant_id: 278896,
-          confirmation_number: 29541,
+          confirmation_number: 10001,
           security_token: '01abc',
           date: '2026-06-25',
           time: '19:15',
@@ -1898,7 +1898,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
         if (path === '/dapi/booking/make-reservation') {
           makeBody = init?.body ?? null;
-          return { confirmationNumber: 29541, reservationId: 2082218742, securityToken: 'sec2', success: true };
+          return { confirmationNumber: 10001, reservationId: 900000001, securityToken: 'sec2', success: true };
         }
         throw new Error(`unexpected POST: ${path}`);
       });
@@ -1907,18 +1907,18 @@ describe('reservation tools', () => {
         slotLockId: 8888, restaurantId: 278896, diningAreaId: 21881,
         partySize: 5, date: '2026-06-25', time: '19:15',
         reservationToken: 'tok', slotHash: '4444',
-        paymentCard: { id: 'card-1', last4: '2630', expiryMmYy: '1028', provider: 'spreedly' },
+        paymentCard: { id: 'card-1', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
         ccRequired: true,
         issuedAt: new Date().toISOString(),
         bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
-        existingConfirmationNumber: 29541,
+        existingConfirmationNumber: 10001,
         existingSecurityToken: '01abc',
       });
 
       const result = await harness.callTool('opentable_modify', {
         confirm: true,
         restaurant_id: 278896,
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         security_token: '01abc',
         date: '2026-06-25',
         time: '19:15',
@@ -1938,12 +1938,12 @@ describe('reservation tools', () => {
       // but never goes on the wire.
       expect(makeBody!.reservationId).toBeUndefined();
       expect(makeBody!.securityToken).toBe('01abc');
-      expect(makeBody!.confnumber).toBe(29541);
+      expect(makeBody!.confnumber).toBe(10001);
       expect(makeBody!.experienceId).toBe(514735);
       expect(makeBody!.experienceVersion).toBe(7);
       expect(makeBody!.reservationType).toBe('Experience');
       const json = JSON.parse((result.content[0] as { text: string }).text);
-      expect(json.confirmation_number).toBe(29541);
+      expect(json.confirmation_number).toBe(10001);
       expect(json.was_modified).toBe(true);
       expect(json.booking_type).toBe('experience_mandatory');
     });
@@ -1976,7 +1976,7 @@ describe('reservation tools', () => {
         slotLockId: 139630438, restaurantId: 985138, diningAreaId: 1,
         partySize: 2, date: '2026-10-13', time: '17:45',
         reservationToken: 'tok', slotHash: '4444',
-        paymentCard: { id: 'card-1', last4: '2630', expiryMmYy: '1028', provider: 'spreedly' },
+        paymentCard: { id: 'card-1', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
         ccRequired: true,
         issuedAt: new Date().toISOString(),
         bookingType: 'standard',
@@ -2041,7 +2041,7 @@ describe('reservation tools', () => {
       const result = await harness.callTool('opentable_modify', {
         confirm: true,
         restaurant_id: 278896,
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         security_token: '01abc',
         date: '2026-06-25',
         time: '19:15',
@@ -2067,7 +2067,7 @@ describe('reservation tools', () => {
       const result = await harness.callTool('opentable_modify', {
         confirm: true,
         restaurant_id: 278896,
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         security_token: '01abc',
         date: '2026-06-25',
         time: '19:15',
@@ -2089,7 +2089,7 @@ describe('reservation tools', () => {
         paymentCard: null, ccRequired: false,
         issuedAt: new Date().toISOString(),
         bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
-        existingConfirmationNumber: 29541,
+        existingConfirmationNumber: 10001,
         existingSecurityToken: '01abc',
       });
 
