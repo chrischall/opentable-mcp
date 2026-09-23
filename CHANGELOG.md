@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.3](https://github.com/chrischall/opentable-mcp/compare/v1.1.2...v1.1.3) (2026-09-23)
+
+
+### Bug Fixes
+
+* **deps:** require zod ^4.6.5 to match @chrischall/mcp-utils 2.4.0 ([#233](https://github.com/chrischall/opentable-mcp/issues/233)) ([1d13629](https://github.com/chrischall/opentable-mcp/commit/1d13629baa703fc5e6c62ce049a1a2280b9d08e3))
+* **deps:** upgrade @chrischall/mcp-utils to 2.4.0 and @fetchproxy/* to 3.2.0 ([#231](https://github.com/chrischall/opentable-mcp/issues/231)) ([b4912b1](https://github.com/chrischall/opentable-mcp/commit/b4912b13ccaca50db9eea5b61a2fbe50a6c73039))
+
 ## [1.1.2](https://github.com/chrischall/opentable-mcp/compare/v1.1.1...v1.1.2) (2026-09-21)
 
 
