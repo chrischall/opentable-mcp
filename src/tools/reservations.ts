@@ -327,7 +327,9 @@ export function registerReservationTools(
     {
       description:
         "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock.",
-      annotations: { readOnlyHint: true },
+      // Not read-only: POSTs a slot-lock mutation that holds restaurant
+      // inventory for ~90s, so clients must not auto-approve it.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
@@ -533,7 +535,9 @@ export function registerReservationTools(
     {
       description:
         "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. dining_area_id is OPTIONAL — omitted, it's auto-resolved from the booking-details page like book_preview does. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
-      annotations: { readOnlyHint: true },
+      // Not read-only: POSTs a slot-lock mutation that holds restaurant
+      // inventory for ~90s, so clients must not auto-approve it.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
@@ -744,6 +748,7 @@ export function registerReservationTools(
     {
       description:
         "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). dining_area_id is OPTIONAL: when omitted it's auto-resolved to the default dining area from OpenTable's booking-details page, so find_slots → book works without a separate opentable_get_restaurant call. For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. Without confirm:true this returns a dry-run and makes NO booking; re-run with confirm:true to commit.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
@@ -954,6 +959,7 @@ export function registerReservationTools(
     {
       description:
         "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. dining_area_id is OPTIONAL — the modify_token already carries the area opentable_modify_preview resolved; pass it only to restate it (mismatch is refused). Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Without confirm:true this returns a dry-run and makes NO change to the reservation; re-run with confirm:true to submit the modification.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
@@ -1094,6 +1100,7 @@ export function registerReservationTools(
     {
       description:
         'Cancel an OpenTable reservation. Requires restaurant_id, confirmation_number, and security_token — all three come from opentable_list_reservations or opentable_book. Without confirm:true this returns a dry-run and takes NO cancellation action; re-run with confirm:true to cancel the reservation.',
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
