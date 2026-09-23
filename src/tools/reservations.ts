@@ -28,7 +28,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { type OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
-import { parseUserProfile } from '../parse-user-profile.js';
+import { parseMobilePhone, parseUserProfile } from '../parse-user-profile.js';
 import {
   parseBookingDetailsState,
   sameDayConflicts,
@@ -1208,14 +1208,15 @@ async function fetchProfile(client: OpenTableClient): Promise<BookProfile> {
       'Could not resolve the signed-in user from the dining dashboard. Re-sign in and retry.'
     );
   }
-  // The profile's `mobile_phone` is pre-formatted with country code. We want
-  // the raw number for the booking payload; go back to the underlying state.
-  const mobile = profile.mobile_phone?.replace(/^\+\d+\s*/, '') ?? '';
+  // `profile.mobile_phone` is a display string ("+<countryId> <number>");
+  // read the raw number from the underlying state instead of un-formatting it.
+  const phone = parseMobilePhone(html);
   return {
     first_name: profile.first_name,
     last_name: profile.last_name,
     email: profile.email,
-    mobile_phone_number: mobile,
+    mobile_phone_number: phone?.number ?? '',
+    ...(phone?.country_id ? { phone_country_id: phone.country_id } : {}),
     country_id: profile.country_id || 'US',
   };
 }

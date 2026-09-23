@@ -1226,6 +1226,80 @@ describe('reservation tools', () => {
       expect(body.cc_required).toBe(true);
     });
 
+    describe('contact phone on the make-reservation wire body', () => {
+      async function bookWithPhone(
+        mobilePhoneNumber: { number: string; countryId?: string },
+        countryId = 'US'
+      ): Promise<Record<string, unknown>> {
+        const token = encodeBookingToken({
+          bookingType: 'standard',
+          slotLockId: 1,
+          restaurantId: 2827,
+          diningAreaId: 1,
+          partySize: 2,
+          date: '2026-05-01',
+          time: '20:45',
+          reservationToken: 'rt',
+          slotHash: 'sh',
+          paymentCard: null,
+          ccRequired: false,
+          issuedAt: '2026-04-21T00:00:00Z',
+        });
+        let sent: Record<string, unknown> | undefined;
+        mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+          if (path.includes('make-reservation')) {
+            sent = init?.body as Record<string, unknown>;
+            return { success: true, reservationId: 1, confirmationNumber: 2, securityToken: 's' };
+          }
+          throw new Error(`unexpected fetchJson path: ${path}`);
+        });
+        mockFetchHtml.mockResolvedValue(
+          htmlWith({
+            header: {
+              userProfile: {
+                firstName: 'Test',
+                lastName: 'User',
+                email: 'test@example.com',
+                mobilePhoneNumber,
+                countryId,
+              },
+            },
+          })
+        );
+        const result = await harness.callTool('opentable_book', {
+          confirm: true,
+          restaurant_id: 2827,
+          date: '2026-05-01',
+          time: '20:45',
+          party_size: 2,
+          reservation_token: 'rt',
+          slot_hash: 'sh',
+          booking_token: token,
+        });
+        expect(result.isError).toBeFalsy();
+        return sent!;
+      }
+
+      it('sends the raw number when the phone countryId is alphabetic (no "+US " prefix)', async () => {
+        const body = await bookWithPhone({ number: '5551234567', countryId: 'US' });
+        expect(body.phoneNumber).toBe('5551234567');
+        expect(body.phoneNumberCountryId).toBe('US');
+      });
+
+      it('sends the raw number when the phone countryId is a dialling code', async () => {
+        const body = await bookWithPhone({ number: '5551234567', countryId: '1' });
+        expect(body.phoneNumber).toBe('5551234567');
+        expect(body.phoneNumberCountryId).toBe('US');
+      });
+
+      it("uses the phone's own country, not the profile's, for phoneNumberCountryId", async () => {
+        const body = await bookWithPhone({ number: '7700900123', countryId: 'GB' }, 'US');
+        expect(body.phoneNumber).toBe('7700900123');
+        expect(body.phoneNumberCountryId).toBe('GB');
+        expect(body.country).toBe('US');
+      });
+    });
+
     it('rejects a booking_token whose fields do not match the call args', async () => {
       const token = encodeBookingToken({
         bookingType: 'standard',

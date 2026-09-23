@@ -59,13 +59,39 @@ function phoneString(p: RawPhoneNumber | undefined): string | null {
   return p.countryId ? `+${p.countryId} ${p.number}` : p.number;
 }
 
-export function parseUserProfile(html: string): FormattedProfile {
+function readUserProfile(html: string): RawUserProfile {
   const state = extractInitialState(html);
   const header = (state.header ?? {}) as { userProfile?: RawUserProfile };
   const up = header.userProfile;
   if (!up) {
     throw new ParseError('header.userProfile not present in __INITIAL_STATE__');
   }
+  return up;
+}
+
+/** The raw mobile number for the make-reservation payload. `mobile_phone`
+ *  on {@link parseUserProfile} is a display string (`+<countryId> <number>`)
+ *  and can't be reliably un-formatted: countryId is sometimes a dialling
+ *  code ("1") and sometimes an ISO country ("US"). `country_id` is set only
+ *  when the phone carries an ISO-3166 alpha-2 code; callers fall back to
+ *  the profile's country otherwise. */
+export interface MobilePhone {
+  number: string;
+  country_id: string | null;
+}
+
+export function parseMobilePhone(html: string): MobilePhone | null {
+  const p = readUserProfile(html).mobilePhoneNumber;
+  if (!p || !p.number) return null;
+  const cc = p.countryId ?? '';
+  return {
+    number: p.number,
+    country_id: /^[A-Za-z]{2}$/.test(cc) ? cc.toUpperCase() : null,
+  };
+}
+
+export function parseUserProfile(html: string): FormattedProfile {
+  const up = readUserProfile(html);
   return {
     gpid: typeof up.gpid === 'number' ? up.gpid : null,
     first_name: up.firstName ?? '',
