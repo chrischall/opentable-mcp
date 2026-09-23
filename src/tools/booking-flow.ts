@@ -161,7 +161,11 @@ export interface BookProfile {
   first_name: string;
   last_name: string;
   email: string;
+  /** Raw mobile number, no country prefix. */
   mobile_phone_number: string;
+  /** ISO country of the mobile number, when OpenTable gives one; else the
+   *  profile's `country_id` is used for phoneNumberCountryId. */
+  phone_country_id?: string;
   country_id: string;
 }
 
@@ -283,7 +287,7 @@ export async function makeReservation(
       lastName: args.profile.last_name,
       email: args.profile.email,
       phoneNumber: args.profile.mobile_phone_number,
-      phoneNumberCountryId: args.profile.country_id || 'US',
+      phoneNumberCountryId: args.profile.phone_country_id || args.profile.country_id || 'US',
       country: args.profile.country_id || 'US',
       reservationAttribute: 'default',
       pointsType: 'Standard',

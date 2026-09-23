@@ -237,7 +237,16 @@ function extractFeeFromText(
   return { amount, perPerson };
 }
 
-export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
+export interface ParseBookingDetailsOptions {
+  /** The experience the caller is booking. When set, `experience` describes
+   *  this record (or is null when the page doesn't list it). */
+  experienceId?: number;
+}
+
+export function parseBookingDetailsState(
+  raw: unknown,
+  opts: ParseBookingDetailsOptions = {}
+): BookingDetailsSummary {
   const r = (raw as RawBookingDetailsState) ?? {};
   const root = r.state ?? r;
   const ts = root.timeSlot ?? {};
@@ -323,31 +332,35 @@ export function parseBookingDetailsState(raw: unknown): BookingDetailsSummary {
     };
   }
 
-  // Experience-flow detection: timeSlot.experiencesBySeating non-empty
-  // AND we can find a bookable experience whose id appears in
-  // diningAreasBySeating[0].bookableExperienceIds. If multiple bookable
-  // experiences exist, we still surface only the first — the tool layer
-  // is responsible for refusing ambiguous cases earlier.
+  // Experience-flow detection. When the caller names the experience it is
+  // booking (`opts.experienceId`), describe THAT record — never another
+  // experience's name/price/version (the version is echoed to slot-lock, so
+  // a mismatch would stamp the wrong experience). Absent from the page's
+  // experience list → null, and the tool layer refuses. Without a selection
+  // we fall back to the first bookable experience in
+  // diningAreasBySeating[0].bookableExperienceIds.
   const expsBySeating = ts.experiencesBySeating ?? [];
   const dasBySeating = ts.diningAreasBySeating ?? [];
   const expRecords = (root.experiences?.experiences) ?? [];
   let experience: BookingExperience | null = null;
-  if (expsBySeating.length > 0 && dasBySeating.length > 0 && expRecords.length > 0) {
-    const bookableIds = dasBySeating[0]?.bookableExperienceIds ?? [];
-    const chosenId = bookableIds[0];
-    if (typeof chosenId === 'number') {
-      const rec = expRecords.find((e) => e.experienceId === chosenId);
-      if (rec && typeof rec.experienceId === 'number' && typeof rec.name === 'string') {
-        experience = {
-          experience_id: rec.experienceId,
-          name: rec.name,
-          type_enum: rec.typeEnum ?? '',
-          description:
-            rec.bookingPolicies?.bookingPolicies?.customPolicies?.message ?? '',
-          price_per_cover: rec.pricePerCover ?? null,
-          version: typeof rec.version === 'number' ? rec.version : null,
-        };
-      }
+  let chosenId: number | undefined;
+  if (typeof opts.experienceId === 'number') {
+    chosenId = opts.experienceId;
+  } else if (expsBySeating.length > 0 && dasBySeating.length > 0) {
+    chosenId = dasBySeating[0]?.bookableExperienceIds?.[0];
+  }
+  if (typeof chosenId === 'number') {
+    const rec = expRecords.find((e) => e.experienceId === chosenId);
+    if (rec && typeof rec.experienceId === 'number' && typeof rec.name === 'string') {
+      experience = {
+        experience_id: rec.experienceId,
+        name: rec.name,
+        type_enum: rec.typeEnum ?? '',
+        description:
+          rec.bookingPolicies?.bookingPolicies?.customPolicies?.message ?? '',
+        price_per_cover: rec.pricePerCover ?? null,
+        version: typeof rec.version === 'number' ? rec.version : null,
+      };
     }
   }
 

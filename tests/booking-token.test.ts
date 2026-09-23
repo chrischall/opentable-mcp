@@ -105,11 +105,11 @@ describe('booking-token — modify-token shape', () => {
       issuedAt: '2026-05-20T00:00:00.000Z',
       bookingType: 'experience' as const,
       experienceId: 514735, experienceVersion: 7,
-      existingConfirmationNumber: 29541,
-      existingSecurityToken: '01lUHmpLpJ31EwPYPUSGIZTSMb3O41ehMhojol5ybqkWk1',
+      existingConfirmationNumber: 10001,
+      existingSecurityToken: 'st_FIXTURE_REDACTED',
     };
     const after = decodeBookingToken(encodeBookingToken(before));
-    expect(after.existingConfirmationNumber).toBe(29541);
+    expect(after.existingConfirmationNumber).toBe(10001);
     expect(after.existingSecurityToken).toBe(before.existingSecurityToken);
   });
 
@@ -122,7 +122,7 @@ describe('booking-token — modify-token shape', () => {
       paymentCard: null, ccRequired: false,
       issuedAt: '2026-05-20T00:00:00.000Z',
       bookingType: 'standard' as const,
-      existingConfirmationNumber: 29541,
+      existingConfirmationNumber: 10001,
     };
     const encoded = Buffer.from(JSON.stringify(malformed), 'utf8').toString('base64');
     expect(() => decodeBookingToken(encoded)).toThrow(/partial-modify tokens are rejected/);

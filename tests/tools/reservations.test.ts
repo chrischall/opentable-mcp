@@ -622,6 +622,106 @@ describe('reservation tools', () => {
     });
   });
 
+  describe('charge-at-booking slots (deposit / prepaid experience) are refused', () => {
+    // The preview models only a card HOLD ("nothing charged now"). A Deposit
+    // policy or a priced Experience charges the card at booking, so rather
+    // than mis-describe it as $0 we refuse before locking the slot.
+    function depositState() {
+      const base = fixture('booking-details-state-cc.json') as {
+        timeSlot: Record<string, unknown>;
+      };
+      return {
+        ...base,
+        timeSlot: { ...base.timeSlot, creditCardPolicyType: 'Deposit' },
+      };
+    }
+    function prepaidExperienceState() {
+      const base = fixture('booking-details-state-experience.json') as {
+        experiences: { experiences: Array<Record<string, unknown>> };
+      };
+      return {
+        ...base,
+        experiences: {
+          ...base.experiences,
+          experiences: base.experiences.experiences.map((e) =>
+            e.experienceId === 514735 ? { ...e, pricePerCover: 125 } : e
+          ),
+        },
+      };
+    }
+    const standardArgs = {
+      restaurant_id: 2827,
+      date: '2026-05-01',
+      time: '20:45',
+      party_size: 5,
+      reservation_token: 'rt',
+      slot_hash: 'sh',
+      dining_area_id: 1,
+    };
+
+    it('book_preview refuses a Deposit slot instead of reporting $0 charged', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(depositState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', standardArgs);
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/deposit/i);
+      expect(text).not.toMatch(/nothing charged/i);
+      expect(text).toContain('https://www.opentable.com/restaurant/profile/2827');
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('modify_preview refuses a Deposit slot', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(depositState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_modify_preview', {
+        ...standardArgs,
+        confirmation_number: 111,
+        security_token: 'st',
+      });
+
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/deposit/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('book (no token) refuses a Deposit slot before locking', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(depositState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book', { ...standardArgs, confirm: true });
+
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/deposit/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('book_preview refuses a prepaid (priced) Experience', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(prepaidExperienceState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_id: 514735,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/prepa/i);
+      expect(text).toContain('125');
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+  });
+
   describe('dining_area_id auto-resolution (decouples booking from get_restaurant)', () => {
     const userState = {
       header: {
@@ -892,6 +992,64 @@ describe('reservation tools', () => {
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
 
+    it('describes and version-stamps the experience the caller picked, not the first bookable one', async () => {
+      // Fixture lists 514735 (version 7) and 627696 (no version).
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-experience.json'))
+      );
+      mockFetchJson.mockResolvedValue({
+        data: { lockExperienceSlot: { success: true, slotLock: { slotLockId: 9999 } } },
+      });
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_id: 627696,
+        experience_ids: [514735, 627696],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const json = JSON.parse((result.content[0] as { text: string }).text);
+      expect(json.experience.experience_id).toBe(627696);
+      expect(json.experience.name).toBe("Cafe Pasqual's Dinner");
+      const [, lockInit] = mockFetchJson.mock.calls[0] as [
+        string,
+        { body?: { variables?: { input?: Record<string, unknown> } } }
+      ];
+      expect(lockInit.body?.variables?.input?.experienceId).toBe(627696);
+      // 7 is 514735's version — must never be sent for 627696.
+      expect(lockInit.body?.variables?.input?.experienceVersion).not.toBe(7);
+    });
+
+    it('refuses an experience_id the booking-details page does not list, before slot-lock', async () => {
+      mockFetchHtml.mockResolvedValue(
+        htmlWith(fixture('booking-details-state-experience.json'))
+      );
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_id: 999999,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('999999');
+      expect(text).toMatch(/not offered/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
     it('the Standard path still includes booking_type=instant and experience=null', async () => {
       mockFetchHtml.mockResolvedValue(
         htmlWith(fixture('booking-details-state-no-cc.json'))
@@ -1066,6 +1224,80 @@ describe('reservation tools', () => {
       const body = JSON.parse((result.content[0] as { text: string }).text);
       expect(body.confirmation_number).toBe(8675309);
       expect(body.cc_required).toBe(true);
+    });
+
+    describe('contact phone on the make-reservation wire body', () => {
+      async function bookWithPhone(
+        mobilePhoneNumber: { number: string; countryId?: string },
+        countryId = 'US'
+      ): Promise<Record<string, unknown>> {
+        const token = encodeBookingToken({
+          bookingType: 'standard',
+          slotLockId: 1,
+          restaurantId: 2827,
+          diningAreaId: 1,
+          partySize: 2,
+          date: '2026-05-01',
+          time: '20:45',
+          reservationToken: 'rt',
+          slotHash: 'sh',
+          paymentCard: null,
+          ccRequired: false,
+          issuedAt: '2026-04-21T00:00:00Z',
+        });
+        let sent: Record<string, unknown> | undefined;
+        mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
+          if (path.includes('make-reservation')) {
+            sent = init?.body as Record<string, unknown>;
+            return { success: true, reservationId: 1, confirmationNumber: 2, securityToken: 's' };
+          }
+          throw new Error(`unexpected fetchJson path: ${path}`);
+        });
+        mockFetchHtml.mockResolvedValue(
+          htmlWith({
+            header: {
+              userProfile: {
+                firstName: 'Test',
+                lastName: 'User',
+                email: 'test@example.com',
+                mobilePhoneNumber,
+                countryId,
+              },
+            },
+          })
+        );
+        const result = await harness.callTool('opentable_book', {
+          confirm: true,
+          restaurant_id: 2827,
+          date: '2026-05-01',
+          time: '20:45',
+          party_size: 2,
+          reservation_token: 'rt',
+          slot_hash: 'sh',
+          booking_token: token,
+        });
+        expect(result.isError).toBeFalsy();
+        return sent!;
+      }
+
+      it('sends the raw number when the phone countryId is alphabetic (no "+US " prefix)', async () => {
+        const body = await bookWithPhone({ number: '5551234567', countryId: 'US' });
+        expect(body.phoneNumber).toBe('5551234567');
+        expect(body.phoneNumberCountryId).toBe('US');
+      });
+
+      it('sends the raw number when the phone countryId is a dialling code', async () => {
+        const body = await bookWithPhone({ number: '5551234567', countryId: '1' });
+        expect(body.phoneNumber).toBe('5551234567');
+        expect(body.phoneNumberCountryId).toBe('US');
+      });
+
+      it("uses the phone's own country, not the profile's, for phoneNumberCountryId", async () => {
+        const body = await bookWithPhone({ number: '7700900123', countryId: 'GB' }, 'US');
+        expect(body.phoneNumber).toBe('7700900123');
+        expect(body.phoneNumberCountryId).toBe('GB');
+        expect(body.country).toBe('US');
+      });
     });
 
     it('rejects a booking_token whose fields do not match the call args', async () => {
@@ -1334,7 +1566,7 @@ describe('reservation tools', () => {
 
         const result = await harness.callTool('opentable_modify_preview', {
           restaurant_id: 278896,
-          confirmation_number: 29541,
+          confirmation_number: 10001,
           security_token: '01abc',
           date: '2026-06-25',
           time: '19:15',
@@ -1347,7 +1579,7 @@ describe('reservation tools', () => {
 
         // URL contains all three modify markers + Experience params
         const htmlUrl = mockFetchHtml.mock.calls[0][0] as string;
-        expect(htmlUrl).toContain('confirmationNumber=29541');
+        expect(htmlUrl).toContain('confirmationNumber=10001');
         expect(htmlUrl).toContain('securityToken=01abc');
         expect(htmlUrl).toContain('isModify=true');
         expect(htmlUrl).toContain('selectedExperience=514735');
@@ -1358,7 +1590,7 @@ describe('reservation tools', () => {
         const json = JSON.parse((result.content[0] as { text: string }).text);
         expect(json.booking_type).toBe('experience_mandatory');
         expect(json.existing_reservation).toEqual({
-          confirmation_number: 29541,
+          confirmation_number: 10001,
           restaurant_id: 278896,
           // Enriched from modifyReservation block in the SSR state — lets
           // the agent phrase "moving your booking from June 25 18:00 → 19:15".
@@ -1375,10 +1607,31 @@ describe('reservation tools', () => {
 
         // Token carries existing-reservation identity + new slot routing info
         const decoded = decodeBookingToken(json.modify_token);
-        expect(decoded.existingConfirmationNumber).toBe(29541);
+        expect(decoded.existingConfirmationNumber).toBe(10001);
         expect(decoded.existingSecurityToken).toBe('01abc');
         expect(decoded.bookingType).toBe('experience');
         expect(decoded.experienceId).toBe(514735);
+      });
+      it('refuses an experience_id the booking-details page does not list, before slot-lock', async () => {
+        mockFetchHtml.mockResolvedValue(htmlWith(modifyState));
+        mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+        const result = await harness.callTool('opentable_modify_preview', {
+          restaurant_id: 278896,
+          confirmation_number: 10001,
+          security_token: '01abc',
+          date: '2026-06-25',
+          time: '19:15',
+          party_size: 5,
+          reservation_token: 'tok',
+          slot_hash: '4444',
+          dining_area_id: 21881,
+          experience_id: 999999,
+        });
+
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toContain('999999');
+        expect(mockFetchJson).not.toHaveBeenCalled();
       });
     });
 
@@ -1645,7 +1898,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
         if (path === '/dapi/booking/make-reservation') {
           makeBody = init?.body ?? null;
-          return { confirmationNumber: 29541, reservationId: 2082218742, securityToken: 'sec2', success: true };
+          return { confirmationNumber: 10001, reservationId: 900000001, securityToken: 'sec2', success: true };
         }
         throw new Error(`unexpected POST: ${path}`);
       });
@@ -1654,18 +1907,18 @@ describe('reservation tools', () => {
         slotLockId: 8888, restaurantId: 278896, diningAreaId: 21881,
         partySize: 5, date: '2026-06-25', time: '19:15',
         reservationToken: 'tok', slotHash: '4444',
-        paymentCard: { id: 'card-1', last4: '2630', expiryMmYy: '1028', provider: 'spreedly' },
+        paymentCard: { id: 'card-1', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
         ccRequired: true,
         issuedAt: new Date().toISOString(),
         bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
-        existingConfirmationNumber: 29541,
+        existingConfirmationNumber: 10001,
         existingSecurityToken: '01abc',
       });
 
       const result = await harness.callTool('opentable_modify', {
         confirm: true,
         restaurant_id: 278896,
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         security_token: '01abc',
         date: '2026-06-25',
         time: '19:15',
@@ -1685,12 +1938,12 @@ describe('reservation tools', () => {
       // but never goes on the wire.
       expect(makeBody!.reservationId).toBeUndefined();
       expect(makeBody!.securityToken).toBe('01abc');
-      expect(makeBody!.confnumber).toBe(29541);
+      expect(makeBody!.confnumber).toBe(10001);
       expect(makeBody!.experienceId).toBe(514735);
       expect(makeBody!.experienceVersion).toBe(7);
       expect(makeBody!.reservationType).toBe('Experience');
       const json = JSON.parse((result.content[0] as { text: string }).text);
-      expect(json.confirmation_number).toBe(29541);
+      expect(json.confirmation_number).toBe(10001);
       expect(json.was_modified).toBe(true);
       expect(json.booking_type).toBe('experience_mandatory');
     });
@@ -1723,7 +1976,7 @@ describe('reservation tools', () => {
         slotLockId: 139630438, restaurantId: 985138, diningAreaId: 1,
         partySize: 2, date: '2026-10-13', time: '17:45',
         reservationToken: 'tok', slotHash: '4444',
-        paymentCard: { id: 'card-1', last4: '2630', expiryMmYy: '1028', provider: 'spreedly' },
+        paymentCard: { id: 'card-1', last4: '4242', expiryMmYy: '1028', provider: 'spreedly' },
         ccRequired: true,
         issuedAt: new Date().toISOString(),
         bookingType: 'standard',
@@ -1788,7 +2041,7 @@ describe('reservation tools', () => {
       const result = await harness.callTool('opentable_modify', {
         confirm: true,
         restaurant_id: 278896,
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         security_token: '01abc',
         date: '2026-06-25',
         time: '19:15',
@@ -1814,7 +2067,7 @@ describe('reservation tools', () => {
       const result = await harness.callTool('opentable_modify', {
         confirm: true,
         restaurant_id: 278896,
-        confirmation_number: 29541,
+        confirmation_number: 10001,
         security_token: '01abc',
         date: '2026-06-25',
         time: '19:15',
@@ -1836,7 +2089,7 @@ describe('reservation tools', () => {
         paymentCard: null, ccRequired: false,
         issuedAt: new Date().toISOString(),
         bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
-        existingConfirmationNumber: 29541,
+        existingConfirmationNumber: 10001,
         existingSecurityToken: '01abc',
       });
 

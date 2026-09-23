@@ -28,7 +28,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { type OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../client.js';
 import { parseDiningDashboard } from '../parse-dining-dashboard.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
-import { parseUserProfile } from '../parse-user-profile.js';
+import { parseMobilePhone, parseUserProfile } from '../parse-user-profile.js';
 import {
   parseBookingDetailsState,
   sameDayConflicts,
@@ -36,6 +36,7 @@ import {
   type BookingDetailsSummary,
 } from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
+import { opentableUrl, restaurantProfilePath } from '../urls.js';
 import { encodeBookingToken, decodeBookingToken } from '../booking-token.js';
 import {
   lockSlot,
@@ -326,8 +327,10 @@ export function registerReservationTools(
     'opentable_book_preview',
     {
       description:
-        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock.",
-      annotations: { readOnlyHint: true },
+        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock. Slots that charge the card at booking (a Deposit policy, or a prepaid/priced Experience) are refused with a link to book on opentable.com directly.",
+      // Not read-only: POSTs a slot-lock mutation that holds restaurant
+      // inventory for ~90s, so clients must not auto-approve it.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
@@ -406,7 +409,9 @@ export function registerReservationTools(
         })
       );
       const state = extractInitialState(detailsHtml);
-      const summary = parseBookingDetailsState(state);
+      const summary = parseBookingDetailsState(state, { experienceId: experience_id });
+      if (isExperience) requireSelectedExperience(summary, experience_id!);
+      refuseChargeAtBooking(summary, restaurant_id);
 
       // Step 2a — same-day conflict (OpenTable's "double trouble" check).
       // Fail early with a clear error rather than letting make-reservation
@@ -533,7 +538,9 @@ export function registerReservationTools(
     {
       description:
         "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. dining_area_id is OPTIONAL — omitted, it's auto-resolved from the booking-details page like book_preview does. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
-      annotations: { readOnlyHint: true },
+      // Not read-only: POSTs a slot-lock mutation that holds restaurant
+      // inventory for ~90s, so clients must not auto-approve it.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
@@ -607,7 +614,9 @@ export function registerReservationTools(
         })
       );
       const state = extractInitialState(detailsHtml);
-      const summary = parseBookingDetailsState(state);
+      const summary = parseBookingDetailsState(state, { experienceId: experience_id });
+      if (isExperience) requireSelectedExperience(summary, experience_id!);
+      refuseChargeAtBooking(summary, restaurant_id);
 
       // 2) Same-day conflicts — exclude the reservation being moved.
       const conflicts = sameDayConflicts(summary.conflicts, date, confirmation_number);
@@ -744,6 +753,7 @@ export function registerReservationTools(
     {
       description:
         "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). dining_area_id is OPTIONAL: when omitted it's auto-resolved to the default dining area from OpenTable's booking-details page, so find_slots → book works without a separate opentable_get_restaurant call. For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. Without confirm:true this returns a dry-run and makes NO booking; re-run with confirm:true to commit.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         date: z.string().describe('YYYY-MM-DD'),
@@ -888,6 +898,8 @@ export function registerReservationTools(
           throw sameDayConflictError(conflicts, date);
         }
 
+        refuseChargeAtBooking(summary, restaurant_id);
+
         if (summary.cc_required) {
           throw new Error(
             'This slot requires a credit-card guarantee. Call opentable_book_preview first to review the cancellation policy, then pass the returned booking_token back to opentable_book.'
@@ -954,6 +966,7 @@ export function registerReservationTools(
     {
       description:
         "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. dining_area_id is OPTIONAL — the modify_token already carries the area opentable_modify_preview resolved; pass it only to restate it (mismatch is refused). Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Without confirm:true this returns a dry-run and makes NO change to the reservation; re-run with confirm:true to submit the modification.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
@@ -1094,6 +1107,7 @@ export function registerReservationTools(
     {
       description:
         'Cancel an OpenTable reservation. Requires restaurant_id, confirmation_number, and security_token — all three come from opentable_list_reservations or opentable_book. Without confirm:true this returns a dry-run and takes NO cancellation action; re-run with confirm:true to cancel the reservation.',
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
@@ -1148,6 +1162,44 @@ export function registerReservationTools(
 
 // ─── helpers (module-private) ─────────────────────────────────────
 
+/** The preview models only a card HOLD — `charges_at_booking` is always $0.
+ *  A Deposit policy or a priced (prepaid) Experience charges the card at
+ *  booking, so refuse those before locking rather than tell the user
+ *  nothing will be charged. Lift this once deposits/prepayment are modelled
+ *  (docs/superpowers/roadmap.md → v2). */
+function refuseChargeAtBooking(
+  summary: BookingDetailsSummary,
+  restaurantId: number
+): void {
+  const url = opentableUrl(restaurantProfilePath(restaurantId));
+  if (summary.policy_type === 'deposit') {
+    throw new Error(
+      `This slot charges a deposit to your card at booking, which this server can't preview or book yet. Book it on OpenTable directly: ${url}` +
+        (summary.policy.raw_text ? ` Restaurant policy: ${summary.policy.raw_text}` : '')
+    );
+  }
+  const price = summary.experience?.price_per_cover;
+  if (typeof price === 'number' && price > 0) {
+    throw new Error(
+      `The "${summary.experience!.name}" experience is prepaid ($${price} per person, charged at booking), which this server can't preview or book yet. Book it on OpenTable directly: ${url}`
+    );
+  }
+}
+
+/** Refuse an Experience booking whose experience_id the /booking/details
+ *  page doesn't list — otherwise the preview would describe (and version-
+ *  stamp) something other than what gets booked. */
+function requireSelectedExperience(
+  summary: BookingDetailsSummary,
+  experienceId: number
+): void {
+  if (summary.experience?.experience_id !== experienceId) {
+    throw new Error(
+      `Experience ${experienceId} is not offered on this slot's booking page. Re-run opentable_find_slots and pick an experience_id from that slot's experience_ids.`
+    );
+  }
+}
+
 async function fetchProfile(client: OpenTableClient): Promise<BookProfile> {
   const html = await client.fetchHtml(DINING_DASHBOARD_PATH);
   const profile = parseUserProfile(html);
@@ -1156,14 +1208,15 @@ async function fetchProfile(client: OpenTableClient): Promise<BookProfile> {
       'Could not resolve the signed-in user from the dining dashboard. Re-sign in and retry.'
     );
   }
-  // The profile's `mobile_phone` is pre-formatted with country code. We want
-  // the raw number for the booking payload; go back to the underlying state.
-  const mobile = profile.mobile_phone?.replace(/^\+\d+\s*/, '') ?? '';
+  // `profile.mobile_phone` is a display string ("+<countryId> <number>");
+  // read the raw number from the underlying state instead of un-formatting it.
+  const phone = parseMobilePhone(html);
   return {
     first_name: profile.first_name,
     last_name: profile.last_name,
     email: profile.email,
-    mobile_phone_number: mobile,
+    mobile_phone_number: phone?.number ?? '',
+    ...(phone?.country_id ? { phone_country_id: phone.country_id } : {}),
     country_id: profile.country_id || 'US',
   };
 }

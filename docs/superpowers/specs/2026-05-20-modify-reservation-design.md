@@ -54,7 +54,7 @@ Returns the same shape as `opentable_book_preview` plus an `existing_reservation
   "booking_type": "experience_mandatory" | "instant",
   "experience": BookingExperience | null,
   "existing_reservation": {           // ← new
-    "confirmation_number": 29541,
+    "confirmation_number": 10001,
     "date": "2026-06-25",
     "time": "18:00",
     "party_size": 5,
@@ -114,8 +114,8 @@ Returns the same shape as `opentable_book`'s result. The `confirmation_number` i
 
 ```jsonc
 {
-  "confirmation_number": 29541,        // unchanged
-  "reservation_id": 2082218742,        // may be new
+  "confirmation_number": 10001,        // unchanged
+  "reservation_id": 900000001,        // may be new
   "security_token": "01…",             // may be new
   "restaurant_id": 278896,
   "date": "2026-06-25",

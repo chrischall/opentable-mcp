@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseUserProfile } from '../src/parse-user-profile.js';
+import { parseMobilePhone, parseUserProfile } from '../src/parse-user-profile.js';
 import { ParseError } from '../src/initial-state.js';
 
 function htmlWith(state: unknown): string {
@@ -85,5 +85,29 @@ describe('parseUserProfile', () => {
       },
     });
     expect(parseUserProfile(html).metro).toBe('New York');
+  });
+});
+
+describe('parseMobilePhone', () => {
+  const withPhone = (mobilePhoneNumber: unknown) =>
+    htmlWith({ header: { userProfile: { firstName: 'A', mobilePhoneNumber } } });
+
+  it('returns the raw number with an ISO country when countryId is alphabetic', () => {
+    expect(parseMobilePhone(withPhone({ number: '5551234567', countryId: 'us' }))).toEqual({
+      number: '5551234567',
+      country_id: 'US',
+    });
+  });
+
+  it('returns the raw number with no country when countryId is a dialling code', () => {
+    expect(parseMobilePhone(withPhone({ number: '5551234567', countryId: '1' }))).toEqual({
+      number: '5551234567',
+      country_id: null,
+    });
+  });
+
+  it('returns null when there is no mobile number', () => {
+    expect(parseMobilePhone(withPhone({ number: '' }))).toBeNull();
+    expect(parseMobilePhone(withPhone(undefined))).toBeNull();
   });
 });
