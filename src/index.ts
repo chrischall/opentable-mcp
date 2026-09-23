@@ -29,7 +29,7 @@ import { registerFavoriteTools } from './tools/favorites.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerRestaurantTools } from './tools/restaurants.js';
 
-const VERSION = '1.1.3'; // x-release-please-version
+const VERSION = '1.1.4'; // x-release-please-version
 
 type BridgeKind = 'websocket' | 'mcp-chrome';
 

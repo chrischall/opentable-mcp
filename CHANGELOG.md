@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.4](https://github.com/chrischall/opentable-mcp/compare/v1.1.3...v1.1.4) (2026-09-23)
+
+
+### Bug Fixes
+
+* **booking:** refuse deposit/prepaid slots, honour chosen experience, fix phone prefix and preview annotations ([#234](https://github.com/chrischall/opentable-mcp/issues/234)) ([14592bf](https://github.com/chrischall/opentable-mcp/commit/14592bfcf51ddb723db4e8b26d5ee1732ea26d1d))
+
 ## [1.1.3](https://github.com/chrischall/opentable-mcp/compare/v1.1.2...v1.1.3) (2026-09-23)
 
 
