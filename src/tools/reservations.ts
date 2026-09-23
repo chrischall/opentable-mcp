@@ -36,6 +36,7 @@ import {
   type BookingDetailsSummary,
 } from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
+import { opentableUrl, restaurantProfilePath } from '../urls.js';
 import { encodeBookingToken, decodeBookingToken } from '../booking-token.js';
 import {
   lockSlot,
@@ -326,7 +327,7 @@ export function registerReservationTools(
     'opentable_book_preview',
     {
       description:
-        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock.",
+        "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock. Slots that charge the card at booking (a Deposit policy, or a prepaid/priced Experience) are refused with a link to book on opentable.com directly.",
       // Not read-only: POSTs a slot-lock mutation that holds restaurant
       // inventory for ~90s, so clients must not auto-approve it.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -410,6 +411,7 @@ export function registerReservationTools(
       const state = extractInitialState(detailsHtml);
       const summary = parseBookingDetailsState(state, { experienceId: experience_id });
       if (isExperience) requireSelectedExperience(summary, experience_id!);
+      refuseChargeAtBooking(summary, restaurant_id);
 
       // Step 2a — same-day conflict (OpenTable's "double trouble" check).
       // Fail early with a clear error rather than letting make-reservation
@@ -614,6 +616,7 @@ export function registerReservationTools(
       const state = extractInitialState(detailsHtml);
       const summary = parseBookingDetailsState(state, { experienceId: experience_id });
       if (isExperience) requireSelectedExperience(summary, experience_id!);
+      refuseChargeAtBooking(summary, restaurant_id);
 
       // 2) Same-day conflicts — exclude the reservation being moved.
       const conflicts = sameDayConflicts(summary.conflicts, date, confirmation_number);
@@ -895,6 +898,8 @@ export function registerReservationTools(
           throw sameDayConflictError(conflicts, date);
         }
 
+        refuseChargeAtBooking(summary, restaurant_id);
+
         if (summary.cc_required) {
           throw new Error(
             'This slot requires a credit-card guarantee. Call opentable_book_preview first to review the cancellation policy, then pass the returned booking_token back to opentable_book.'
@@ -1156,6 +1161,30 @@ export function registerReservationTools(
 }
 
 // ─── helpers (module-private) ─────────────────────────────────────
+
+/** The preview models only a card HOLD — `charges_at_booking` is always $0.
+ *  A Deposit policy or a priced (prepaid) Experience charges the card at
+ *  booking, so refuse those before locking rather than tell the user
+ *  nothing will be charged. Lift this once deposits/prepayment are modelled
+ *  (docs/superpowers/roadmap.md → v2). */
+function refuseChargeAtBooking(
+  summary: BookingDetailsSummary,
+  restaurantId: number
+): void {
+  const url = opentableUrl(restaurantProfilePath(restaurantId));
+  if (summary.policy_type === 'deposit') {
+    throw new Error(
+      `This slot charges a deposit to your card at booking, which this server can't preview or book yet. Book it on OpenTable directly: ${url}` +
+        (summary.policy.raw_text ? ` Restaurant policy: ${summary.policy.raw_text}` : '')
+    );
+  }
+  const price = summary.experience?.price_per_cover;
+  if (typeof price === 'number' && price > 0) {
+    throw new Error(
+      `The "${summary.experience!.name}" experience is prepaid ($${price} per person, charged at booking), which this server can't preview or book yet. Book it on OpenTable directly: ${url}`
+    );
+  }
+}
 
 /** Refuse an Experience booking whose experience_id the /booking/details
  *  page doesn't list — otherwise the preview would describe (and version-

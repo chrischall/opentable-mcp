@@ -622,6 +622,106 @@ describe('reservation tools', () => {
     });
   });
 
+  describe('charge-at-booking slots (deposit / prepaid experience) are refused', () => {
+    // The preview models only a card HOLD ("nothing charged now"). A Deposit
+    // policy or a priced Experience charges the card at booking, so rather
+    // than mis-describe it as $0 we refuse before locking the slot.
+    function depositState() {
+      const base = fixture('booking-details-state-cc.json') as {
+        timeSlot: Record<string, unknown>;
+      };
+      return {
+        ...base,
+        timeSlot: { ...base.timeSlot, creditCardPolicyType: 'Deposit' },
+      };
+    }
+    function prepaidExperienceState() {
+      const base = fixture('booking-details-state-experience.json') as {
+        experiences: { experiences: Array<Record<string, unknown>> };
+      };
+      return {
+        ...base,
+        experiences: {
+          ...base.experiences,
+          experiences: base.experiences.experiences.map((e) =>
+            e.experienceId === 514735 ? { ...e, pricePerCover: 125 } : e
+          ),
+        },
+      };
+    }
+    const standardArgs = {
+      restaurant_id: 2827,
+      date: '2026-05-01',
+      time: '20:45',
+      party_size: 5,
+      reservation_token: 'rt',
+      slot_hash: 'sh',
+      dining_area_id: 1,
+    };
+
+    it('book_preview refuses a Deposit slot instead of reporting $0 charged', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(depositState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', standardArgs);
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/deposit/i);
+      expect(text).not.toMatch(/nothing charged/i);
+      expect(text).toContain('https://www.opentable.com/restaurant/profile/2827');
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('modify_preview refuses a Deposit slot', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(depositState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_modify_preview', {
+        ...standardArgs,
+        confirmation_number: 111,
+        security_token: 'st',
+      });
+
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/deposit/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('book (no token) refuses a Deposit slot before locking', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(depositState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book', { ...standardArgs, confirm: true });
+
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/deposit/i);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('book_preview refuses a prepaid (priced) Experience', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(prepaidExperienceState()));
+      mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
+
+      const result = await harness.callTool('opentable_book_preview', {
+        restaurant_id: 278896,
+        date: '2026-06-25',
+        time: '18:00',
+        party_size: 5,
+        reservation_token: 'tok',
+        slot_hash: '431673495',
+        dining_area_id: 21881,
+        experience_id: 514735,
+      });
+
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/prepa/i);
+      expect(text).toContain('125');
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+  });
+
   describe('dining_area_id auto-resolution (decouples booking from get_restaurant)', () => {
     const userState = {
       header: {
