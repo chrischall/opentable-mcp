@@ -202,7 +202,33 @@ describe('FetchproxyTransport.graphqlQuery', () => {
     expect(graphqlQueryMock).toHaveBeenCalledWith({
       name: AVAILABILITY_GRAPHQL_OP_NAME,
       variables: { restaurantIds: [42], partySize: 2 },
+      retryOnTimeout: true,
     });
     expect(result).toEqual({ availability: [] });
+  });
+
+  it('marks the RestaurantsAvailability query retry-safe (fetchproxy 3.2 no longer retries graphqlQuery by default)', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await transport.graphqlQuery({ name: AVAILABILITY_GRAPHQL_OP_NAME, variables: {} });
+
+    expect(graphqlQueryMock.mock.calls[0]![0]).toMatchObject({ retryOnTimeout: true });
+  });
+
+  it('does NOT mark an operation outside the read-only allowlist retry-safe', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await transport.graphqlQuery({ name: 'someFutureMutation', variables: {} });
+
+    expect(graphqlQueryMock.mock.calls[0]![0]).not.toHaveProperty('retryOnTimeout');
+  });
+});
+
+describe('FetchproxyTransport.fetch retryOnTimeout', () => {
+  it('never opts a POST write (slot-lock / make-reservation / cancel / wishlist) into retryOnTimeout', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    await transport.fetch({ path: '/dapi/booking/make-reservation', method: 'POST', body: '{}' });
+
+    for (const call of requestMock.mock.calls) {
+      expect(call[2]).not.toHaveProperty('retryOnTimeout');
+    }
   });
 });
