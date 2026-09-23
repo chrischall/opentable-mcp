@@ -1,7 +1,7 @@
 // Adapter that lets the @fetchproxy/server FetchproxyServer satisfy
 // opentable-mcp's OpenTableTransport interface.
 //
-// The floor is declared once, in package.json: `@fetchproxy/server` ^3.0.1.
+// The floor is declared once, in package.json: `@fetchproxy/server` ^3.2.0.
 // Every version note below records WHEN a behaviour arrived upstream, not a
 // constraint this file still negotiates — all of them sit under the floor and
 // are unconditionally satisfied. They are kept because the behaviours are
@@ -62,6 +62,18 @@ export const WRITE_RELAY_TAB_PREFIXES: readonly string[] = [
   'https://www.opentable.com/booking/',
   'https://www.opentable.com/user/',
 ];
+
+/**
+ * Declared GraphQL operations that are provably read-only QUERIES, and so safe
+ * to send again after a transport timeout. @fetchproxy/server 3.2.0 stopped
+ * retrying `graphqlQuery` by default (the server only holds an operation's
+ * name, so it cannot tell a query from a mutation); a cold-start timeout on
+ * availability would otherwise surface as a hard error. Only add an operation
+ * here after reading its document — never a mutation (fleet-audit#312).
+ */
+const RETRY_SAFE_GRAPHQL_OPS: ReadonlySet<string> = new Set([
+  AVAILABILITY_GRAPHQL_OP_NAME, // RestaurantsAvailability — a `query`
+]);
 
 export class FetchproxyTransport implements OpenTableTransport {
   // mcp-utils' createFetchproxyTransport owns the FetchproxyServer construction
@@ -146,6 +158,10 @@ export class FetchproxyTransport implements OpenTableTransport {
       return { status: response.status, body: response.body, url: response.url };
     };
 
+    // Every non-GET here is a write (slot-lock, make-reservation, cancel,
+    // wishlist add/remove), so none opts into `retryOnTimeout`: since
+    // @fetchproxy/server 3.2.0 a timed-out POST is not re-sent, which is what
+    // keeps a cold-start timeout from double-booking. GETs retry by default.
     // SSR GETs need no CSRF token; any signed-in tab will do.
     if (init.method === 'GET') return issue();
 
@@ -163,6 +179,10 @@ export class FetchproxyTransport implements OpenTableTransport {
   async graphqlQuery(init: GraphqlQueryInit): Promise<unknown> {
     // No explicit tabUrl: the extension walks the opentable.com tabs itself
     // until it finds one that has observed the operation.
-    return this.inner.server.graphqlQuery({ name: init.name, variables: init.variables });
+    return this.inner.server.graphqlQuery({
+      name: init.name,
+      variables: init.variables,
+      ...(RETRY_SAFE_GRAPHQL_OPS.has(init.name) ? { retryOnTimeout: true } : {}),
+    });
   }
 }
