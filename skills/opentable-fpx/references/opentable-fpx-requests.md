@@ -15,8 +15,8 @@ Two response families:
 
 Every write here (favorites add/remove, slot-lock, make-reservation,
 cancel) is a REAL action against the signed-in account — there is no
-confirm-gate or dry-run like the MCP's `confirm: true` tools have. Preview
-before you commit.
+confirm-gate or preview-then-`confirmToken` step like the MCP's write tools
+have. Preview before you commit.
 
 ---
 

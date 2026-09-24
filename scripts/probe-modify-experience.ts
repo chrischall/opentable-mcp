@@ -26,6 +26,17 @@ async function call(name: string, args: Record<string, unknown> = {}) {
   return { isError: !!r.isError, text: (r.content as Array<{ text: string }>)[0]!.text };
 }
 
+// Writes are confirm-gated: this client offers no elicitation, so the first
+// call returns a preview + confirmToken and changes nothing. Running a live
+// probe IS the operator's approval, so repeat the call with the token.
+async function callConfirmed(name: string, args: Record<string, unknown>) {
+  const preview = await call(name, args);
+  if (preview.isError) return preview;
+  const { status, confirmToken } = JSON.parse(preview.text) as { status?: string; confirmToken?: string };
+  if (status !== 'confirmation-required' || !confirmToken) return preview;
+  return call(name, { ...args, confirmToken });
+}
+
 async function findSlot(time: string) {
   const r = await call('opentable_find_slots', {
     restaurant_id: RID,
@@ -70,8 +81,7 @@ if (previewResp.isError) {
   process.exit(1);
 }
 const bookPreview = JSON.parse(previewResp.text);
-const bookResp = await call('opentable_book', {
-  confirm: true,
+const bookResp = await callConfirmed('opentable_book', {
   restaurant_id: RID,
   date: DATE,
   time: ORIG_TIME,
@@ -112,8 +122,7 @@ if (modifyPreviewResp.isError) {
 } else {
   const modifyPreview = JSON.parse(modifyPreviewResp.text);
   console.log(`modify preview ok; new policy: ${modifyPreview.cancellation_policy?.type}`);
-  const modifyResp = await call('opentable_modify', {
-    confirm: true,
+  const modifyResp = await callConfirmed('opentable_modify', {
     restaurant_id: RID,
     confirmation_number: booked.confirmation_number,
     security_token: booked.security_token,
@@ -146,8 +155,7 @@ if (found) console.log(`  found conf=${found.confirmation_number} at ${found.dat
 else console.log('  reservation not visible in upcoming list');
 
 console.log(`── 4) cancel ──`);
-const cancelResp = await call('opentable_cancel', {
-  confirm: true,
+const cancelResp = await callConfirmed('opentable_cancel', {
   restaurant_id: RID,
   confirmation_number: modified.confirmation_number ?? booked.confirmation_number,
   security_token: modified.security_token ?? booked.security_token,
