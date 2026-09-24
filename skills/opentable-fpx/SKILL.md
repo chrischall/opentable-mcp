@@ -100,8 +100,9 @@ opentable.com in the bridged tab and retry.
 
 - **Booking, modifying, and cancelling are real actions with no
   confirm-gate here.** The MCP's `opentable_book`/`opentable_modify`/
-  `opentable_cancel` tools require `confirm: true` and a mandatory preview
-  step; raw `fpx` calls have none of that — a `make-reservation` POST
+  `opentable_cancel` tools ask the user to confirm first (a prompt, or a
+  preview + single-use `confirmToken`) plus a mandatory preview step; raw
+  `fpx` calls have none of that — a `make-reservation` POST
   commits immediately. Fetch `/booking/details` and read the cancellation
   policy first (§5 of the reference) before calling it.
 - Same-day double-booking, CC-required slots, 3-D Secure, Experience-

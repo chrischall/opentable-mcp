@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -33,6 +33,28 @@ function htmlWith(state: unknown): string {
   return `<!DOCTYPE html><html><head></head><body><script>{"__INITIAL_STATE__":${JSON.stringify(
     state
   )}}</script></body></html>`;
+}
+
+type GateResult = {
+  status?: string;
+  confirmToken?: string;
+  error?: string;
+  reason?: string;
+  dispatched?: boolean;
+  preview?: Record<string, unknown>;
+};
+
+/**
+ * The two-step confirm-token flow a client without elicitation (the default
+ * harness) goes through: phase 1 returns a preview + confirmToken and does
+ * nothing; phase 2 repeats the call with that token and performs the write.
+ */
+async function callConfirmed(name: string, args: Record<string, unknown>) {
+  const phaseOne = parseToolResult(await harness.callTool(name, args)) as GateResult;
+  if (phaseOne.status !== 'confirmation-required' || !phaseOne.confirmToken) {
+    throw new Error(`expected a confirmation-required preview from ${name}, got ${JSON.stringify(phaseOne)}`);
+  }
+  return harness.callTool(name, { ...args, confirmToken: phaseOne.confirmToken });
 }
 
 describe('reservation tools', () => {
@@ -692,7 +714,7 @@ describe('reservation tools', () => {
       mockFetchHtml.mockResolvedValue(htmlWith(depositState()));
       mockFetchJson.mockRejectedValue(new Error('slot-lock should not be called'));
 
-      const result = await harness.callTool('opentable_book', { ...standardArgs, confirm: true });
+      const result = await callConfirmed('opentable_book', { ...standardArgs });
 
       expect(result.isError).toBe(true);
       expect((result.content[0] as { text: string }).text).toMatch(/deposit/i);
@@ -832,8 +854,7 @@ describe('reservation tools', () => {
         throw new Error(`unexpected fetchJson path: ${path}`);
       });
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 1272781,
         date: '2026-05-01',
         time: '19:00',
@@ -879,8 +900,7 @@ describe('reservation tools', () => {
         throw new Error(`unexpected fetchJson path: ${path}`);
       });
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -1097,8 +1117,7 @@ describe('reservation tools', () => {
         htmlWith(fixture('booking-details-state-cc.json'))
       );
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -1129,8 +1148,7 @@ describe('reservation tools', () => {
       mockFetchHtml.mockResolvedValue(htmlWith(conflictState));
       mockFetchJson.mockRejectedValue(new Error('should not be called'));
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 1272781,
         date: '2026-05-01',
         time: '19:00',
@@ -1208,8 +1226,7 @@ describe('reservation tools', () => {
         })
       );
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -1266,8 +1283,7 @@ describe('reservation tools', () => {
             },
           })
         );
-        const result = await harness.callTool('opentable_book', {
-          confirm: true,
+        const result = await callConfirmed('opentable_book', {
           restaurant_id: 2827,
           date: '2026-05-01',
           time: '20:45',
@@ -1320,8 +1336,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockRejectedValue(new Error('should not be called'));
       mockFetchHtml.mockRejectedValue(new Error('should not be called'));
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -1377,8 +1392,7 @@ describe('reservation tools', () => {
         errorMessage: 'slot lock expired',
       });
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 2827,
         date: '2026-05-01',
         time: '20:45',
@@ -1447,8 +1461,7 @@ describe('reservation tools', () => {
         throw new Error(`unexpected POST: ${path}`);
       });
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 278896,
         date: '2026-06-25',
         time: '18:00',
@@ -1482,8 +1495,7 @@ describe('reservation tools', () => {
       mockFetchHtml.mockRejectedValue(new Error('should not be called'));
       mockFetchJson.mockRejectedValue(new Error('should not be called'));
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 278896,
         date: '2026-06-25',
         time: '18:00',
@@ -1521,8 +1533,7 @@ describe('reservation tools', () => {
         experienceId: 514735,
       });
 
-      const result = await harness.callTool('opentable_book', {
-        confirm: true,
+      const result = await callConfirmed('opentable_book', {
         restaurant_id: 278896,
         date: '2026-06-25',
         time: '18:00',
@@ -1915,8 +1926,7 @@ describe('reservation tools', () => {
         existingSecurityToken: '01abc',
       });
 
-      const result = await harness.callTool('opentable_modify', {
-        confirm: true,
+      const result = await callConfirmed('opentable_modify', {
         restaurant_id: 278896,
         confirmation_number: 10001,
         security_token: '01abc',
@@ -1985,8 +1995,7 @@ describe('reservation tools', () => {
         existingSecurityToken: 'existing-token-placeholder',
       });
 
-      const result = await harness.callTool('opentable_modify', {
-        confirm: true,
+      const result = await callConfirmed('opentable_modify', {
         restaurant_id: 985138,
         confirmation_number: 47190,
         security_token: 'existing-token-placeholder',
@@ -2019,8 +2028,7 @@ describe('reservation tools', () => {
         existingConfirmationNumber: 47190,
         existingSecurityToken: 'existing-token-placeholder',
       });
-      const result = await harness.callTool('opentable_modify', {
-        confirm: true,
+      const result = await callConfirmed('opentable_modify', {
         restaurant_id: 985138,
         confirmation_number: 47190,
         security_token: 'existing-token-placeholder',
@@ -2038,8 +2046,7 @@ describe('reservation tools', () => {
     });
 
     it('refuses without a modify_token', async () => {
-      const result = await harness.callTool('opentable_modify', {
-        confirm: true,
+      const result = await callConfirmed('opentable_modify', {
         restaurant_id: 278896,
         confirmation_number: 10001,
         security_token: '01abc',
@@ -2064,8 +2071,7 @@ describe('reservation tools', () => {
         bookingType: 'experience', experienceId: 514735, experienceVersion: 7,
       });
 
-      const result = await harness.callTool('opentable_modify', {
-        confirm: true,
+      const result = await callConfirmed('opentable_modify', {
         restaurant_id: 278896,
         confirmation_number: 10001,
         security_token: '01abc',
@@ -2093,8 +2099,7 @@ describe('reservation tools', () => {
         existingSecurityToken: '01abc',
       });
 
-      const result = await harness.callTool('opentable_modify', {
-        confirm: true,
+      const result = await callConfirmed('opentable_modify', {
         restaurant_id: 278896,
         confirmation_number: 99999, // ← drifted
         security_token: '01abc',
@@ -2190,8 +2195,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockResolvedValue({
         data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
       });
-      await harness.callTool('opentable_cancel', {
-        confirm: true,
+      await callConfirmed('opentable_cancel', {
         restaurant_id: 141537,
         confirmation_number: 12345,
         security_token: 'tok',
@@ -2211,8 +2215,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockResolvedValue({
         data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
       });
-      await harness.callTool('opentable_cancel', {
-        confirm: true,
+      await callConfirmed('opentable_cancel', {
         restaurant_id: 42,
         confirmation_number: 12345,
         security_token: 'tok',
@@ -2224,8 +2227,7 @@ describe('reservation tools', () => {
       mockFetchJson.mockResolvedValue({
         data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
       });
-      await harness.callTool('opentable_cancel', {
-        confirm: true,
+      await callConfirmed('opentable_cancel', {
         restaurant_id: 42,
         confirmation_number: 12345,
         security_token: 'tok',
@@ -2273,8 +2275,7 @@ describe('reservation tools', () => {
         throw new Error(`unexpected fetchJson path: ${path}`);
       });
 
-      await harness.callTool('opentable_book', {
-        confirm: true,
+      await callConfirmed('opentable_book', {
         restaurant_id: 141537,
         date: '2026-05-01',
         time: '21:00',
@@ -2317,31 +2318,195 @@ describe('reservation tools', () => {
   });
 
   describe('confirm-gate (book / modify / cancel)', () => {
-    it('opentable_book without confirm returns a dry-run preview and makes NO network call', async () => {
+    const bookArgs = {
+      restaurant_id: 2827, date: '2026-05-01', time: '20:45', party_size: 5,
+      reservation_token: 'rt', slot_hash: 'sh',
+    };
+    const bookToken = () => encodeBookingToken({
+      bookingType: 'standard', slotLockId: 12345, restaurantId: 2827, diningAreaId: 1,
+      partySize: 5, date: '2026-05-01', time: '20:45', reservationToken: 'rt', slotHash: 'sh',
+      paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+    });
+    const modifyArgs = (modify_token: string) => ({
+      restaurant_id: 278896, confirmation_number: 10001, security_token: '01abc',
+      date: '2026-06-25', time: '19:15', party_size: 5,
+      reservation_token: 'tok', slot_hash: '4444', modify_token,
+    });
+    const modifyToken = () => encodeBookingToken({
+      slotLockId: 8888, restaurantId: 278896, diningAreaId: 21881,
+      partySize: 5, date: '2026-06-25', time: '19:15',
+      reservationToken: 'tok', slotHash: '4444', paymentCard: null, ccRequired: false,
+      issuedAt: new Date().toISOString(), bookingType: 'standard',
+      existingConfirmationNumber: 10001, existingSecurityToken: '01abc',
+    });
+    const cancelArgs = { restaurant_id: 123, confirmation_number: 555, security_token: 'st' };
+    const profileHtml = htmlWith({
+      header: {
+        userProfile: {
+          firstName: 'A', lastName: 'B', email: 'a@b.c',
+          mobilePhoneNumber: { number: '5550000', countryId: 'US' }, countryId: 'US',
+        },
+      },
+      diningDashboard: { upcomingReservations: [], pastReservations: [] },
+    });
+    const makeReservationOk = () =>
+      mockFetchJson.mockImplementation(async (path: string) => {
+        if (path === '/dapi/booking/make-reservation') {
+          return { confirmationNumber: 10001, reservationId: 1, securityToken: 'sec2', success: true };
+        }
+        throw new Error(`unexpected POST: ${path}`);
+      });
+    const cancelOk = () =>
+      mockFetchJson.mockResolvedValue({
+        data: { cancelReservation: { statusCode: 200, data: { reservationState: 'CANCELLED' } } },
+      });
+    const makeCalls = () =>
+      mockFetchJson.mock.calls.filter(([path]) => path === '/dapi/booking/make-reservation').length;
+
+    const savedEnv = { ...process.env };
+    afterEach(() => {
+      for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
+      Object.assign(process.env, savedEnv);
+    });
+
+    it('opentable_book phase 1 returns a confirmation-required preview and makes NO network call', async () => {
       const result = parseToolResult(await harness.callTool('opentable_book', {
         restaurant_id: 123, date: '2026-08-01', time: '19:30', party_size: 2,
         reservation_token: 'rt', slot_hash: 'sh',
-      })) as { dryRun?: boolean };
-      expect(result.dryRun).toBe(true);
+      })) as GateResult;
+      expect(result.status).toBe('confirmation-required');
+      expect(result.dispatched).toBe(false);
+      expect(result.confirmToken).toEqual(expect.any(String));
+      expect(result.preview).toMatchObject({
+        action: 'Book a table for 2 at restaurant 123 on 2026-08-01 at 19:30',
+        willSend: { restaurant_id: 123, date: '2026-08-01', time: '19:30', party_size: 2 },
+        note: expect.stringMatching(/cancellation policy/),
+      });
       expect(mockFetchHtml).not.toHaveBeenCalled();
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
 
-    it('opentable_cancel without confirm returns a dry-run preview and makes NO network call', async () => {
-      const result = parseToolResult(await harness.callTool('opentable_cancel', {
-        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
-      })) as { dryRun?: boolean };
-      expect(result.dryRun).toBe(true);
-      expect(mockFetchJson).not.toHaveBeenCalled();
+    it('opentable_book phase 2 with the confirmToken books exactly once', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml);
+      makeReservationOk();
+      const result = await callConfirmed('opentable_book', { ...bookArgs, booking_token: bookToken() });
+      expect(result.isError).toBeFalsy();
+      expect(makeCalls()).toBe(1);
     });
 
-    it('opentable_modify without confirm returns a dry-run preview and makes NO network call', async () => {
+    it('opentable_modify phase 1 returns a confirmation-required preview and makes NO network call', async () => {
       const result = parseToolResult(await harness.callTool('opentable_modify', {
         restaurant_id: 123, confirmation_number: 555, security_token: 'st',
         date: '2026-08-02', time: '20:00', party_size: 2,
         reservation_token: 'rt', slot_hash: 'sh', dining_area_id: 1, modify_token: 'mt',
-      })) as { dryRun?: boolean };
-      expect(result.dryRun).toBe(true);
+      })) as GateResult;
+      expect(result.status).toBe('confirmation-required');
+      expect(result.preview).toMatchObject({
+        action: 'Modify reservation 555 at restaurant 123 to 2 on 2026-08-02 at 20:00',
+        willSend: { restaurant_id: 123, confirmation_number: 555, date: '2026-08-02', time: '20:00', party_size: 2 },
+        note: expect.stringMatching(/re-hold/),
+      });
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_modify phase 2 with the confirmToken modifies exactly once', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml);
+      makeReservationOk();
+      const result = await callConfirmed('opentable_modify', modifyArgs(modifyToken()));
+      expect(result.isError).toBeFalsy();
+      expect(makeCalls()).toBe(1);
+    });
+
+    it('opentable_cancel phase 1 returns a confirmation-required preview and makes NO network call', async () => {
+      const result = parseToolResult(await harness.callTool('opentable_cancel', cancelArgs)) as GateResult;
+      expect(result.status).toBe('confirmation-required');
+      expect(result.preview).toMatchObject({
+        action: 'Cancel reservation 555 at restaurant 123',
+        willSend: { restaurant_id: 123, confirmation_number: 555 },
+        note: expect.stringMatching(/fee/),
+      });
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_cancel phase 2 with the confirmToken cancels exactly once', async () => {
+      cancelOk();
+      const result = await callConfirmed('opentable_cancel', cancelArgs);
+      expect(result.isError).toBeFalsy();
+      expect((parseToolResult(result) as { cancelled: boolean }).cancelled).toBe(true);
+      expect(mockFetchJson).toHaveBeenCalledTimes(1);
+    });
+
+    it('a guard that refused with confirm still refuses after the token (book: Experience slot without booking_token)', async () => {
+      const result = await callConfirmed('opentable_book', { ...bookArgs, experience_ids: [7] });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/Experience-mandatory/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('replaying a used confirmToken is refused as TOKEN_REUSED and does not cancel again', async () => {
+      cancelOk();
+      const phaseOne = parseToolResult(await harness.callTool('opentable_cancel', cancelArgs)) as GateResult;
+      const withToken = { ...cancelArgs, confirmToken: phaseOne.confirmToken };
+      expect((await harness.callTool('opentable_cancel', withToken)).isError).toBeFalsy();
+      expect(mockFetchJson).toHaveBeenCalledTimes(1);
+
+      const replay = await harness.callTool('opentable_cancel', withToken);
+      expect(replay.isError).toBe(true);
+      expect((parseToolResult(replay) as GateResult).error).toBe('TOKEN_REUSED');
+      expect(mockFetchJson).toHaveBeenCalledTimes(1);
+    });
+
+    it('changing an argument between the phases is refused as DRAFT_CHANGED and does not write', async () => {
+      const phaseOne = parseToolResult(await harness.callTool('opentable_book', {
+        ...bookArgs, booking_token: bookToken(),
+      })) as GateResult;
+      const result = await harness.callTool('opentable_book', {
+        ...bookArgs, party_size: 6, booking_token: bookToken(), confirmToken: phaseOne.confirmToken,
+      });
+      expect(result.isError).toBe(true);
+      const body = parseToolResult(result) as GateResult;
+      expect(body.error).toBe('DRAFT_CHANGED');
+      expect(body.dispatched).toBe(false);
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('a client that accepts the elicitation prompt modifies without a token', async () => {
+      const elicited = await createTestHarness(
+        (server) => registerReservationTools(server, mockClient),
+        { elicitation: async () => ({ action: 'accept', content: { confirmed: true } }) },
+      );
+      try {
+        mockFetchHtml.mockResolvedValue(profileHtml);
+        makeReservationOk();
+        const result = await elicited.callTool('opentable_modify', modifyArgs(modifyToken()));
+        expect(result.isError).toBeFalsy();
+        expect(makeCalls()).toBe(1);
+      } finally {
+        await elicited.close();
+      }
+    });
+
+    it('a client that declines the elicitation prompt does not cancel', async () => {
+      const elicited = await createTestHarness(
+        (server) => registerReservationTools(server, mockClient),
+        { elicitation: async () => ({ action: 'decline' }) },
+      );
+      try {
+        cancelOk();
+        const result = await elicited.callTool('opentable_cancel', cancelArgs);
+        expect(JSON.stringify(result)).not.toMatch(/CANCELLED/);
+        expect(mockFetchJson).not.toHaveBeenCalled();
+      } finally {
+        await elicited.close();
+      }
+    });
+
+    it('MCP_CONFIRM_MODE=refuse refuses on a client without elicitation and does not book', async () => {
+      process.env.MCP_CONFIRM_MODE = 'refuse';
+      const result = await harness.callTool('opentable_book', { ...bookArgs, booking_token: bookToken() });
+      expect((parseToolResult(result) as GateResult).reason).toBe('confirmation-unsupported');
       expect(mockFetchHtml).not.toHaveBeenCalled();
       expect(mockFetchJson).not.toHaveBeenCalled();
     });

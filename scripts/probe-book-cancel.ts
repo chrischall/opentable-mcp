@@ -20,6 +20,17 @@ async function call(name: string, args: Record<string, unknown> = {}) {
   return { isError: !!r.isError, text };
 }
 
+// Writes are confirm-gated: this client offers no elicitation, so the first
+// call returns a preview + confirmToken and changes nothing. Running a live
+// probe IS the operator's approval, so repeat the call with the token.
+async function callConfirmed(name: string, args: Record<string, unknown>) {
+  const preview = await call(name, args);
+  if (preview.isError) return preview;
+  const { status, confirmToken } = JSON.parse(preview.text) as { status?: string; confirmToken?: string };
+  if (status !== 'confirmation-required' || !confirmToken) return preview;
+  return call(name, { ...args, confirmToken });
+}
+
 console.log(`── find_slots restaurant=${RESTAURANT_ID} date=${DATE} time=${TIME} ──`);
 const slotsRaw = await call('opentable_find_slots', {
   restaurant_id: RESTAURANT_ID,
@@ -46,8 +57,7 @@ if (!slots[0]) {
 const chosen = slots[0];
 
 console.log(`── book slot ${chosen.date} ${chosen.time} ──`);
-const bookResp = await call('opentable_book', {
-  confirm: true,
+const bookResp = await callConfirmed('opentable_book', {
   restaurant_id: chosen.restaurant_id,
   date: chosen.date,
   time: chosen.time,
@@ -68,8 +78,7 @@ const booking = JSON.parse(bookResp.text) as {
 };
 
 console.log(`── cancel confirmation=${booking.confirmation_number} ──`);
-const cancelResp = await call('opentable_cancel', {
-  confirm: true,
+const cancelResp = await callConfirmed('opentable_cancel', {
   restaurant_id: booking.restaurant_id,
   confirmation_number: booking.confirmation_number,
   security_token: booking.security_token,

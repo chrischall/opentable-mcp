@@ -117,6 +117,16 @@ In that mode you don't need the fetchproxy extension. Every OpenTable request be
 
 Other env vars: `OT_WS_PORT` (default 37149) overrides the fetchproxy WebSocket port; `OT_MCP_CHROME_URL` (default `http://127.0.0.1:12306/mcp`) overrides the mcp-chrome endpoint.
 
+## Confirmations
+
+`opentable_book`, `opentable_modify` and `opentable_cancel` ask you before they act. A client that can show a confirmation prompt (Claude Code) shows one. On a client that cannot (claude.ai, Claude Desktop), the first call books, changes or cancels nothing: it returns a preview of exactly what would happen plus a `confirmToken`. Only a repeat call with the same arguments and that token proceeds, once — change any argument in between and it is refused (`DRAFT_CHANGED`) with a fresh preview.
+
+| variable | default | |
+|---|---|---|
+| `MCP_CONFIRM_MODE` | `ask-user` | What a write does on a client that cannot show a confirmation prompt (claude.ai, Claude Desktop). `ask-user`: two steps — the first call does nothing and returns a preview plus a token, and the model must get your approval in chat before calling again with it. `auto`: the same two steps, but the model may use the token after reviewing the preview itself. `refuse`: writes are refused on such clients. A client that can show prompts (Claude Code) always gets the real prompt. An unrecognised value is treated as `refuse`. |
+| `MCP_CONFIRM_TTL_SECONDS` | `600` | How long a token stays valid. |
+| `MCP_CONFIRM_SECRET` | random per process | Signing key; set it only if tokens must survive a server restart. |
+
 ## Run (local stdio)
 
 ```bash

@@ -140,6 +140,20 @@ The other eight tools take no `view`, each for its own reason:
 - **`opentable_healthcheck`** answers reachability and auth as two booleans and
   a reason string.
 
+## Confirming writes
+
+`opentable_book`, `opentable_modify` and `opentable_cancel` ask the user to
+confirm before they act. Where the client can show a confirmation prompt, it
+does. Otherwise the first call does nothing and returns
+`status: "confirmation-required"`, a `preview` (the action, what will be sent,
+and a note on cancellation policy / card holds) and a `confirmToken`. Show that
+preview to the user, and only after they approve in chat, call the same tool
+again with the SAME arguments plus `confirmToken`. A token acts once, expires
+(default 10 min), and is refused with `DRAFT_CHANGED` if any argument changed —
+that response carries a fresh preview and token to re-confirm. This is separate
+from `opentable_book_preview` / `opentable_modify_preview`, which still come
+first where the flow requires them.
+
 ## Non-instant bookings
 
 OpenTable restaurants fall into three categories. Check
