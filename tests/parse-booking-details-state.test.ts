@@ -30,6 +30,16 @@ describe('parseBookingDetailsState', () => {
     expect(r.default_card!.id).toBe('card_REDACTED_DEFAULT');
   });
 
+  it('surfaces the restaurant name so confirm prompts can name the venue', () => {
+    expect(parseBookingDetailsState(fixture('booking-details-state-cc.json')).restaurant_name).toBe(
+      'Rowes Wharf Sea Grille'
+    );
+    // The Experience capture carries no restaurant.name — null, not ''.
+    expect(
+      parseBookingDetailsState(fixture('booking-details-state-experience.json')).restaurant_name
+    ).toBeNull();
+  });
+
   it('returns cc_required=false and policy.type=none for a standard slot', () => {
     const state = fixture('booking-details-state-no-cc.json');
     const r = parseBookingDetailsState(state);
