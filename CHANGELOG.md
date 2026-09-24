@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/chrischall/opentable-mcp/compare/v1.2.0...v1.2.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 17.4.2 to 18.0.2 in the production-majors group ([#240](https://github.com/chrischall/opentable-mcp/issues/240)) ([83753be](https://github.com/chrischall/opentable-mcp/commit/83753be74afc252ac1d8c6ca7537d1d46348c883))
+* **reservations:** name the restaurant, card and policy in book/modify/cancel confirmations ([#242](https://github.com/chrischall/opentable-mcp/issues/242)) ([3e15611](https://github.com/chrischall/opentable-mcp/commit/3e15611bd5fb3134045d57bb5e160eb0dee2b6f3))
+
 ## [1.2.0](https://github.com/chrischall/opentable-mcp/compare/v1.1.4...v1.2.0) (2026-09-24)
 
 
