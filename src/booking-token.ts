@@ -22,6 +22,26 @@ export interface BookingTokenPaymentCard {
   provider: string;
 }
 
+/** Human-readable context captured by the preview tool so the confirm gate
+ *  on opentable_book / opentable_modify can show the user WHAT they are
+ *  approving (venue, card, policy) without another network call. Display
+ *  only — never sent on the make-reservation wire. */
+export interface BookingTokenDisplay {
+  restaurantName?: string;
+  /** Brand of the card that will be held (e.g. "Mastercard"). The last4
+   *  lives in paymentCard. */
+  cardBrand?: string;
+  /** Cancellation / no-show policy text from the booking-details page. */
+  policy?: string;
+  /** Name of the Experience being booked, for Experience tokens. */
+  experienceName?: string;
+  /** Modify tokens only: the reservation's current slot, from the
+   *  booking-details page's modifyReservation block. */
+  existingDate?: string;
+  existingTime?: string;
+  existingPartySize?: number;
+}
+
 export type BookingTokenType = 'standard' | 'experience';
 
 export interface BookingTokenPayload {
@@ -65,6 +85,9 @@ export interface BookingTokenPayload {
    *  wire as `securityToken`. Required together with
    *  existingConfirmationNumber; partial-modify tokens fail decode. */
   existingSecurityToken?: string;
+  /** Confirm-prompt context (venue name, card brand, policy). Absent on
+   *  tokens minted before it was added. */
+  display?: BookingTokenDisplay;
 }
 
 const REQUIRED_KEYS: Array<keyof BookingTokenPayload> = [

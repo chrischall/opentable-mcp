@@ -78,6 +78,10 @@ export interface BookingExperience {
 }
 
 export interface BookingDetailsSummary {
+  /** The venue's display name (`restaurant.name`), so confirm prompts can
+   *  name the restaurant instead of a bare numeric id. `null` when the page
+   *  doesn't carry it. */
+  restaurant_name: string | null;
   cc_required: boolean;
   policy_type: CardPolicyType;
   policy: CancellationPolicy;
@@ -188,6 +192,7 @@ interface RawFeatures {
 }
 
 interface RawRestaurant {
+  name?: string;
   features?: RawFeatures;
 }
 
@@ -373,7 +378,10 @@ export function parseBookingDetailsState(
       table_category: d.tableCategory ?? '',
     }));
 
+  const restaurantName = root.restaurant?.name;
   return {
+    restaurant_name:
+      typeof restaurantName === 'string' && restaurantName.trim() !== '' ? restaurantName : null,
     cc_required: ccRequired,
     policy_type: policyType,
     policy,

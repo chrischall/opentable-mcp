@@ -48,9 +48,15 @@ type GateResult = {
  * The two-step confirm-token flow a client without elicitation (the default
  * harness) goes through: phase 1 returns a preview + confirmToken and does
  * nothing; phase 2 repeats the call with that token and performs the write.
+ * A tool that refuses in phase 1 (a guard that fires before the prompt) has
+ * its refusal returned as-is.
  */
 async function callConfirmed(name: string, args: Record<string, unknown>) {
-  const phaseOne = parseToolResult(await harness.callTool(name, args)) as GateResult;
+  const first = await harness.callTool(name, args);
+  // Guards (tampered token, CC-required slot without a token, same-day
+  // conflict, …) refuse BEFORE the user is asked — nothing to confirm.
+  if (first.isError) return first;
+  const phaseOne = parseToolResult(first) as GateResult;
   if (phaseOne.status !== 'confirmation-required' || !phaseOne.confirmToken) {
     throw new Error(`expected a confirmation-required preview from ${name}, got ${JSON.stringify(phaseOne)}`);
   }
@@ -833,7 +839,10 @@ describe('reservation tools', () => {
     });
 
     it('book (no token, no CC) resolves dining_area_id from /booking/details when omitted', async () => {
+      // Phase 1 reads /booking/details to build the prompt; phase 2 re-reads
+      // it, then reads the profile.
       mockFetchHtml
+        .mockResolvedValueOnce(htmlWith(fixture('booking-details-state-no-cc.json')))
         .mockResolvedValueOnce(htmlWith(fixture('booking-details-state-no-cc.json')))
         .mockResolvedValueOnce(htmlWith(userState));
       mockFetchJson.mockImplementation(async (path: string, init?: { body?: Record<string, unknown> }) => {
@@ -2255,6 +2264,7 @@ describe('reservation tools', () => {
       };
       mockFetchHtml
         .mockResolvedValueOnce(htmlWith(fixture('booking-details-state-no-cc.json')))
+        .mockResolvedValueOnce(htmlWith(fixture('booking-details-state-no-cc.json')))
         .mockResolvedValueOnce(htmlWith(bookUserState));
       let slotLockBody: { variables: { input: { databaseRegion: string } } } | undefined;
       mockFetchJson.mockImplementation(async (path: string, init?: { body?: unknown }) => {
@@ -2326,6 +2336,7 @@ describe('reservation tools', () => {
       bookingType: 'standard', slotLockId: 12345, restaurantId: 2827, diningAreaId: 1,
       partySize: 5, date: '2026-05-01', time: '20:45', reservationToken: 'rt', slotHash: 'sh',
       paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+      display: { restaurantName: 'Rowes Wharf Sea Grille' },
     });
     const modifyArgs = (modify_token: string) => ({
       restaurant_id: 278896, confirmation_number: 10001, security_token: '01abc',
@@ -2338,6 +2349,9 @@ describe('reservation tools', () => {
       reservationToken: 'tok', slotHash: '4444', paymentCard: null, ccRequired: false,
       issuedAt: new Date().toISOString(), bookingType: 'standard',
       existingConfirmationNumber: 10001, existingSecurityToken: '01abc',
+      display: {
+        restaurantName: 'Testeria', existingDate: '2026-06-25', existingTime: '18:00', existingPartySize: 4,
+      },
     });
     const cancelArgs = { restaurant_id: 123, confirmation_number: 555, security_token: 'st' };
     const profileHtml = htmlWith({
@@ -2369,20 +2383,34 @@ describe('reservation tools', () => {
       Object.assign(process.env, savedEnv);
     });
 
-    it('opentable_book phase 1 returns a confirmation-required preview and makes NO network call', async () => {
+    it('opentable_book phase 1 (token path) returns a confirmation-required preview and makes NO network call', async () => {
+      const result = parseToolResult(await harness.callTool('opentable_book', {
+        ...bookArgs, booking_token: bookToken(),
+      })) as GateResult;
+      expect(result.status).toBe('confirmation-required');
+      expect(result.dispatched).toBe(false);
+      expect(result.confirmToken).toEqual(expect.any(String));
+      expect(result.preview).toMatchObject({
+        action: 'Book a table for 5 at Rowes Wharf Sea Grille on 2026-05-01 at 20:45 — no card required',
+        willSend: {
+          restaurant: 'Rowes Wharf Sea Grille', restaurant_id: 2827,
+          date: '2026-05-01', time: '20:45', party_size: 5,
+        },
+        note: expect.stringMatching(/cancellation policy/),
+      });
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book phase 1 (no token) reads the booking page but writes nothing', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-no-cc.json')));
       const result = parseToolResult(await harness.callTool('opentable_book', {
         restaurant_id: 123, date: '2026-08-01', time: '19:30', party_size: 2,
         reservation_token: 'rt', slot_hash: 'sh',
       })) as GateResult;
       expect(result.status).toBe('confirmation-required');
       expect(result.dispatched).toBe(false);
-      expect(result.confirmToken).toEqual(expect.any(String));
-      expect(result.preview).toMatchObject({
-        action: 'Book a table for 2 at restaurant 123 on 2026-08-01 at 19:30',
-        willSend: { restaurant_id: 123, date: '2026-08-01', time: '19:30', party_size: 2 },
-        note: expect.stringMatching(/cancellation policy/),
-      });
-      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchHtml).toHaveBeenCalledTimes(1);
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
 
@@ -2395,15 +2423,16 @@ describe('reservation tools', () => {
     });
 
     it('opentable_modify phase 1 returns a confirmation-required preview and makes NO network call', async () => {
-      const result = parseToolResult(await harness.callTool('opentable_modify', {
-        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
-        date: '2026-08-02', time: '20:00', party_size: 2,
-        reservation_token: 'rt', slot_hash: 'sh', dining_area_id: 1, modify_token: 'mt',
-      })) as GateResult;
+      const result = parseToolResult(
+        await harness.callTool('opentable_modify', modifyArgs(modifyToken()))
+      ) as GateResult;
       expect(result.status).toBe('confirmation-required');
       expect(result.preview).toMatchObject({
-        action: 'Modify reservation 555 at restaurant 123 to 2 on 2026-08-02 at 20:00',
-        willSend: { restaurant_id: 123, confirmation_number: 555, date: '2026-08-02', time: '20:00', party_size: 2 },
+        action: 'Change reservation 10001 at Testeria from 2026-06-25 at 18:00 (party of 4) to 2026-06-25 at 19:15 (party of 5) — no card required',
+        willSend: {
+          restaurant: 'Testeria', restaurant_id: 278896, confirmation_number: 10001,
+          date: '2026-06-25', time: '19:15', party_size: 5,
+        },
         note: expect.stringMatching(/re-hold/),
       });
       expect(mockFetchHtml).not.toHaveBeenCalled();
@@ -2418,7 +2447,10 @@ describe('reservation tools', () => {
       expect(makeCalls()).toBe(1);
     });
 
-    it('opentable_cancel phase 1 returns a confirmation-required preview and makes NO network call', async () => {
+    it('opentable_cancel phase 1 returns a confirmation-required preview and writes nothing', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith({
+        diningDashboard: { upcomingReservations: [], pastReservations: [] },
+      }));
       const result = parseToolResult(await harness.callTool('opentable_cancel', cancelArgs)) as GateResult;
       expect(result.status).toBe('confirmation-required');
       expect(result.preview).toMatchObject({
@@ -2437,8 +2469,8 @@ describe('reservation tools', () => {
       expect(mockFetchJson).toHaveBeenCalledTimes(1);
     });
 
-    it('a guard that refused with confirm still refuses after the token (book: Experience slot without booking_token)', async () => {
-      const result = await callConfirmed('opentable_book', { ...bookArgs, experience_ids: [7] });
+    it('a guard refuses before asking (book: Experience slot without booking_token)', async () => {
+      const result = await harness.callTool('opentable_book', { ...bookArgs, experience_ids: [7] });
       expect(result.isError).toBe(true);
       expect((result.content[0] as { text: string }).text).toMatch(/Experience-mandatory/);
       expect(mockFetchJson).not.toHaveBeenCalled();
@@ -2461,8 +2493,10 @@ describe('reservation tools', () => {
       const phaseOne = parseToolResult(await harness.callTool('opentable_book', {
         ...bookArgs, booking_token: bookToken(),
       })) as GateResult;
+      // reservation_token isn't tamper-checked against the booking_token, so
+      // only the confirmToken binding catches this change.
       const result = await harness.callTool('opentable_book', {
-        ...bookArgs, party_size: 6, booking_token: bookToken(), confirmToken: phaseOne.confirmToken,
+        ...bookArgs, reservation_token: 'rt-changed', booking_token: bookToken(), confirmToken: phaseOne.confirmToken,
       });
       expect(result.isError).toBe(true);
       const body = parseToolResult(result) as GateResult;
@@ -2508,6 +2542,231 @@ describe('reservation tools', () => {
       const result = await harness.callTool('opentable_book', { ...bookArgs, booking_token: bookToken() });
       expect((parseToolResult(result) as GateResult).reason).toBe('confirmation-unsupported');
       expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('confirm prompts name the venue, card and policy (SEC-1)', () => {
+    const ccState = fixture('booking-details-state-cc.json');
+    const noCcState = fixture('booking-details-state-no-cc.json');
+    const lockOk = () =>
+      mockFetchJson.mockResolvedValue({
+        data: { lockSlot: { success: true, slotLock: { slotLockId: 902203460 } } },
+      });
+    const previewArgs = {
+      restaurant_id: 2827, date: '2026-05-01', time: '20:45', party_size: 5,
+      reservation_token: 'rt_xxx', slot_hash: '1663920856', dining_area_id: 1,
+    };
+    const gateOf = async (name: string, args: Record<string, unknown>) =>
+      parseToolResult(await harness.callTool(name, args)) as GateResult;
+    const dashboard = (rows: Array<Record<string, unknown>>) =>
+      htmlWith({ diningDashboard: { upcomingReservations: rows, pastReservations: [] } });
+
+    it('opentable_book_preview mints a token that carries the venue name, card brand and policy text', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(ccState));
+      lockOk();
+      const body = parseToolResult(
+        await harness.callTool('opentable_book_preview', previewArgs)
+      ) as { booking_token: string; restaurant_name: string | null };
+      expect(body.restaurant_name).toBe('Rowes Wharf Sea Grille');
+      const decoded = decodeBookingToken(body.booking_token);
+      expect(decoded.display).toMatchObject({
+        restaurantName: 'Rowes Wharf Sea Grille',
+        cardBrand: 'Mastercard',
+        policy: expect.stringMatching(/\$50 per person/),
+      });
+      // The wire-shaped card reference is unchanged (no brand leaks into the POST).
+      expect(decoded.paymentCard).not.toHaveProperty('brand');
+    });
+
+    it('opentable_book with a preview token shows venue, card and policy in the gate — no network', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(ccState));
+      lockOk();
+      const { booking_token } = parseToolResult(
+        await harness.callTool('opentable_book_preview', previewArgs)
+      ) as { booking_token: string };
+      vi.clearAllMocks();
+
+      const gate = await gateOf('opentable_book', { ...previewArgs, booking_token });
+      expect(gate.status).toBe('confirmation-required');
+      expect(gate.preview!.action).toBe(
+        'Book a table for 5 at Rowes Wharf Sea Grille on 2026-05-01 at 20:45 — holds Mastercard •••• 4242'
+      );
+      expect(gate.preview!.willSend).toMatchObject({
+        restaurant: 'Rowes Wharf Sea Grille',
+        restaurant_id: 2827,
+        card_hold: 'Mastercard •••• 4242',
+        cc_required: true,
+        cancellation_policy: expect.stringMatching(/\$50 per person/),
+      });
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book refuses a token issued for a different restaurant before asking', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(ccState));
+      lockOk();
+      const { booking_token } = parseToolResult(
+        await harness.callTool('opentable_book_preview', previewArgs)
+      ) as { booking_token: string };
+      vi.clearAllMocks();
+      const result = await harness.callTool('opentable_book', {
+        ...previewArgs, restaurant_id: 9999, booking_token,
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book with a token that lacks the venue name looks the name up (GET only)', async () => {
+      const legacy = encodeBookingToken({
+        bookingType: 'standard', slotLockId: 1, restaurantId: 2827, diningAreaId: 1,
+        partySize: 5, date: '2026-05-01', time: '20:45', reservationToken: 'rt', slotHash: 'sh',
+        paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+      });
+      mockFetchHtml.mockResolvedValue(
+        htmlWith({ restaurantProfile: { restaurant: { restaurantId: 2827, name: 'Looked Up Grill' } } })
+      );
+      const gate = await gateOf('opentable_book', {
+        restaurant_id: 2827, date: '2026-05-01', time: '20:45', party_size: 5,
+        reservation_token: 'rt', slot_hash: 'sh', booking_token: legacy,
+      });
+      expect(gate.preview!.action).toBe(
+        'Book a table for 5 at Looked Up Grill on 2026-05-01 at 20:45 — no card required'
+      );
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book says so when the venue name cannot be resolved', async () => {
+      const legacy = encodeBookingToken({
+        bookingType: 'standard', slotLockId: 1, restaurantId: 2827, diningAreaId: 1,
+        partySize: 5, date: '2026-05-01', time: '20:45', reservationToken: 'rt', slotHash: 'sh',
+        paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+      });
+      mockFetchHtml.mockRejectedValue(new Error('offline'));
+      const gate = await gateOf('opentable_book', {
+        restaurant_id: 2827, date: '2026-05-01', time: '20:45', party_size: 5,
+        reservation_token: 'rt', slot_hash: 'sh', booking_token: legacy,
+      });
+      expect(gate.status).toBe('confirmation-required');
+      expect(gate.preview!.action).toMatch(/restaurant 2827 \(name unavailable\)/);
+    });
+
+    it('opentable_book without a token reads the booking page (GET only) and names the venue', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(noCcState));
+      const gate = await gateOf('opentable_book', {
+        restaurant_id: 1272781, date: '2026-05-01', time: '19:00', party_size: 2,
+        reservation_token: 'rt', slot_hash: 'sh',
+      });
+      expect(gate.status).toBe('confirmation-required');
+      expect(gate.preview!.action).toBe(
+        'Book a table for 2 at State of Confusion on 2026-05-01 at 19:00 — no card required'
+      );
+      expect(mockFetchHtml).toHaveBeenCalledWith(expect.stringMatching(/^\/booking\/details\?/));
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book without a token refuses a CC-required slot before asking', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(ccState));
+      const result = await harness.callTool('opentable_book', {
+        restaurant_id: 2827, date: '2026-05-01', time: '20:45', party_size: 5,
+        reservation_token: 'rt', slot_hash: 'sh',
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/opentable_book_preview/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_modify names the venue, the existing slot and the new slot in the gate', async () => {
+      const modifyState = {
+        ...(noCcState as object),
+        modifyReservation: fixture('modify-reservation-block.json'),
+      };
+      mockFetchHtml.mockResolvedValue(htmlWith(modifyState));
+      lockOk();
+      const modifyArgs = {
+        restaurant_id: 1272781, confirmation_number: 10001, security_token: '01abc',
+        date: '2026-06-25', time: '19:15', party_size: 4,
+        reservation_token: 'tok', slot_hash: '4444', dining_area_id: 1,
+      };
+      const { modify_token } = parseToolResult(
+        await harness.callTool('opentable_modify_preview', modifyArgs)
+      ) as { modify_token: string };
+      vi.clearAllMocks();
+
+      const gate = await gateOf('opentable_modify', { ...modifyArgs, modify_token });
+      expect(gate.preview!.action).toBe(
+        'Change reservation 10001 at State of Confusion from 2026-06-25 at 18:00 (party of 5) to 2026-06-25 at 19:15 (party of 4) — no card required'
+      );
+      expect(gate.preview!.willSend).toMatchObject({
+        restaurant: 'State of Confusion',
+        existing: { date: '2026-06-25', time: '18:00', party_size: 5 },
+      });
+      expect(mockFetchHtml).not.toHaveBeenCalled();
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_modify without a modify_token is refused before asking', async () => {
+      const result = await harness.callTool('opentable_modify', {
+        restaurant_id: 1, confirmation_number: 2, security_token: 's',
+        date: '2026-06-25', time: '19:15', party_size: 4, reservation_token: 't', slot_hash: 'h',
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/requires a modify_token/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_cancel looks the reservation up and names the venue, date, time and party', async () => {
+      mockFetchHtml.mockResolvedValue(dashboard([
+        { confirmationNumber: 555, restaurantId: 123, restaurantName: 'Testeria',
+          dateTime: '2026-08-01T19:30:00', partySize: 2, reservationState: 'Pending', securityToken: 'st' },
+      ]));
+      const gate = await gateOf('opentable_cancel', {
+        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
+      });
+      expect(gate.preview!.action).toBe(
+        'Cancel reservation 555 at Testeria on 2026-08-01 at 19:30 (party of 2)'
+      );
+      expect(gate.preview!.willSend).toMatchObject({
+        restaurant: 'Testeria', date: '2026-08-01', time: '19:30', party_size: 2,
+      });
+      expect(mockFetchHtml).toHaveBeenCalledWith('/user/dining-dashboard');
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_cancel warns when the reservation is not on the dining dashboard', async () => {
+      mockFetchHtml.mockResolvedValue(dashboard([]));
+      const gate = await gateOf('opentable_cancel', {
+        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
+      });
+      expect(gate.status).toBe('confirmation-required');
+      expect(gate.preview!.action).toMatch(/restaurant 123/);
+      expect(gate.preview!.warning).toMatch(/not found on your OpenTable dining dashboard/);
+    });
+
+    it('opentable_cancel refuses when the confirmation number belongs to a different restaurant', async () => {
+      mockFetchHtml.mockResolvedValue(dashboard([
+        { confirmationNumber: 555, restaurantId: 999, restaurantName: 'Elsewhere',
+          dateTime: '2026-08-01T19:30:00', partySize: 2, securityToken: 'st' },
+      ]));
+      const result = await harness.callTool('opentable_cancel', {
+        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/Elsewhere/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_cancel refuses the token when the reservation changed between the phases', async () => {
+      const row = { confirmationNumber: 555, restaurantId: 123, restaurantName: 'Testeria',
+        dateTime: '2026-08-01T19:30:00', partySize: 2, securityToken: 'st' };
+      mockFetchHtml.mockResolvedValue(dashboard([row]));
+      const args = { restaurant_id: 123, confirmation_number: 555, security_token: 'st' };
+      const phaseOne = await gateOf('opentable_cancel', args);
+      mockFetchHtml.mockResolvedValue(dashboard([{ ...row, dateTime: '2026-08-02T21:00:00' }]));
+      const result = await harness.callTool('opentable_cancel', { ...args, confirmToken: phaseOne.confirmToken });
+      expect(result.isError).toBe(true);
+      expect((parseToolResult(result) as GateResult).error).toBe('DRAFT_CHANGED');
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
   });

@@ -32,7 +32,8 @@ import {
 import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import { type OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../client.js';
-import { parseDiningDashboard } from '../parse-dining-dashboard.js';
+import { parseDiningDashboard, type FormattedReservation } from '../parse-dining-dashboard.js';
+import { parseRestaurant } from '../parse-restaurant.js';
 import { parseAvailabilityResponse } from '../parse-slots.js';
 import { parseMobilePhone, parseUserProfile } from '../parse-user-profile.js';
 import {
@@ -42,8 +43,13 @@ import {
   type BookingDetailsSummary,
 } from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
-import { opentableUrl, restaurantProfilePath } from '../urls.js';
-import { encodeBookingToken, decodeBookingToken } from '../booking-token.js';
+import { opentableUrl, restaurantCandidatePaths, restaurantProfilePath } from '../urls.js';
+import {
+  encodeBookingToken,
+  decodeBookingToken,
+  type BookingTokenDisplay,
+  type BookingTokenPayload,
+} from '../booking-token.js';
 import {
   lockSlot,
   makeReservation,
@@ -494,6 +500,7 @@ export function registerReservationTools(
         // its terms checkbox exists; `terms` is surfaced below so the
         // caller sees what confirming opentable_book accepts.
         ...(summary.terms ? { tcAccepted: true } : {}),
+             display: tokenDisplay(summary),
       });
 
       const chargesDescription = summary.cc_required
@@ -508,6 +515,7 @@ export function registerReservationTools(
                 // for the agent so it can present the right confirmation
                 // copy before calling opentable_book.
                 booking_type: isExperience ? 'experience_mandatory' : 'instant',
+                restaurant_name: summary.restaurant_name,
                 // Populated only for Experience-mandatory bookings. Carries
                 // the bookable experience surfaced from the booking-details
                 // page's __INITIAL_STATE__ (name, type, description, price).
@@ -714,6 +722,12 @@ export function registerReservationTools(
         ...(summary.terms ? { tcAccepted: true } : {}),
         existingConfirmationNumber: confirmation_number,
         existingSecurityToken: security_token,
+        display: {
+          ...tokenDisplay(summary),
+          ...(existingDate ? { existingDate } : {}),
+          ...(existingTime ? { existingTime } : {}),
+          ...(typeof existingPartySize === 'number' ? { existingPartySize } : {}),
+        },
       });
 
       const chargesDescription = summary.cc_required
@@ -724,6 +738,7 @@ export function registerReservationTools(
               {
                 modify_token,
                 booking_type: isExperience ? 'experience_mandatory' : 'instant',
+                restaurant_name: summary.restaurant_name,
                 experience: summary.experience,
                 existing_reservation: {
                   confirmation_number,
@@ -758,7 +773,7 @@ export function registerReservationTools(
     'opentable_book',
     {
       description:
-        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). dining_area_id is OPTIONAL: when omitted it's auto-resolved to the default dining area from OpenTable's booking-details page, so find_slots → book works without a separate opentable_get_restaurant call. For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds (see MCP_CONFIRM_MODE).",
+        "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). dining_area_id is OPTIONAL: when omitted it's auto-resolved to the default dining area from OpenTable's booking-details page, so find_slots → book works without a separate opentable_get_restaurant call. For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds; the prompt names the restaurant, the card that will be held and the cancellation policy (see MCP_CONFIRM_MODE).",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
@@ -810,51 +825,23 @@ export function registerReservationTools(
       database_region,
       confirmToken,
     }, ctx) => {
-      // Confirm-gate: booking commits a reservation and holds/charges the saved
-      // card per the restaurant's policy. Before any network call, ask the user
-      // (elicitation) or hand back a no-network preview + confirmToken bound to
-      // every argument (use opentable_book_preview for the exact card +
-      // cancellation policy). The unsigned booking_token is not an intent
-      // check — this gate is.
-      const willSend = { restaurant_id, date, time, party_size };
-      const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
-        action: 'opentable.book',
-        message: 'Review and confirm this booking:',
-        details: willSend,
-        tool: 'opentable_book',
-        confirmToken,
-        subject: () => ({
-          target: String(restaurant_id),
-          payload: {
-            restaurant_id, date, time, party_size, reservation_token, slot_hash,
-            dining_area_id, booking_token, experience_ids,
-            experience_id: callerExperienceId, database_region,
-          },
-          preview: {
-            action: `Book a table for ${party_size} at restaurant ${restaurant_id} on ${date} at ${time}`,
-            willSend,
-            note: 'This commits a reservation and holds/charges your saved card per the restaurant\'s cancellation policy. Call opentable_book_preview first to see the exact card and policy.',
-          },
-        }),
-      }));
-      if (gate) return gate;
       const reservationDateTime = `${date}T${time}`;
       const databaseRegion = database_region ?? DEFAULT_DATABASE_REGION;
-      // Resolved below: from the token (token path) or the booking-details
-      // page (no-token path). dining_area_id is optional on this tool.
-      let diningAreaId: number;
-
-      let slotLockId: number;
-      let paymentCard: { id: string; last4: string; expiryMmYy: string; provider: string } | null = null;
-      let ccRequired = false;
-      let bookingType: 'standard' | 'experience' = 'standard';
-      let experienceId: number | undefined;
-      let experienceVersion: number | undefined;
-      let tcAccepted: boolean | undefined;
 
       // Caller-declared Experience: signal via experience_ids when there's no token yet.
       const callerDeclaredExperience =
         Array.isArray(experience_ids) && experience_ids.length > 0;
+
+      // Resolve WHAT is being booked before asking the user, so the confirm
+      // prompt names the venue, the card that will be held and the policy —
+      // not just a numeric restaurant_id. Everything here is read-only: the
+      // token path decodes the preview's token (no network unless an old
+      // token lacks the venue name), the no-token path GETs /booking/details.
+      // Refusals (tampered token, CC-required slot without a token, same-day
+      // conflict, charge-at-booking) fire here, before the user is asked.
+      let tokenPayload: BookingTokenPayload | undefined;
+      let pageSummary: BookingDetailsSummary | undefined;
+      let confirm: ConfirmContext;
 
       if (booking_token) {
         // Token path — preview did the heavy lifting; we trust the payload
@@ -881,15 +868,8 @@ export function registerReservationTools(
             'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, dining area, or experience_id). Call opentable_book_preview again with the current args.'
           );
         }
-        // The token is authoritative for the dining area (preview resolved it).
-        diningAreaId = payload.diningAreaId;
-        slotLockId = payload.slotLockId;
-        paymentCard = payload.paymentCard;
-        ccRequired = payload.ccRequired;
-        bookingType = payload.bookingType;
-        experienceId = payload.experienceId;
-        experienceVersion = payload.experienceVersion;
-        tcAccepted = payload.tcAccepted;
+        tokenPayload = payload;
+        confirm = await confirmContextFromToken(client, payload);
       } else {
         if (callerDeclaredExperience) {
           throw new Error(
@@ -898,7 +878,7 @@ export function registerReservationTools(
         }
 
         // No token — run the SSR-page CC-required check first, so we
-        // can refuse before locking the slot for nothing.
+        // can refuse before asking (and before locking the slot for nothing).
         const detailsHtml = await client.fetchHtml(
           bookingDetailsPath({
             restaurant_id,
@@ -926,7 +906,63 @@ export function registerReservationTools(
             'This slot requires a credit-card guarantee. Call opentable_book_preview first to review the cancellation policy, then pass the returned booking_token back to opentable_book.'
           );
         }
+        pageSummary = summary;
+        confirm = confirmContextFromSummary(summary);
+      }
 
+      // Confirm-gate: booking commits a reservation and holds the saved card
+      // per the restaurant's policy. Ask the user (elicitation) or hand back a
+      // preview + confirmToken bound to every argument and to what the
+      // prompt showed. The unsigned booking_token is not an intent check —
+      // this gate is.
+      const willSend = confirmDetails(confirm, { restaurant_id, date, time, party_size });
+      const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
+        action: 'opentable.book',
+        message: 'Review and confirm this booking:',
+        details: willSend,
+        tool: 'opentable_book',
+        confirmToken,
+        subject: () => ({
+          target: String(restaurant_id),
+          payload: {
+            restaurant_id, date, time, party_size, reservation_token, slot_hash,
+            dining_area_id, booking_token, experience_ids,
+            experience_id: callerExperienceId, database_region,
+            shown: willSend,
+          },
+          preview: {
+            action: `Book a table for ${party_size} at ${venueLabel(confirm, restaurant_id)} on ${date} at ${time} — ${cardClause(confirm)}`,
+            willSend,
+            note: 'This commits a reservation and holds your saved card (if one is required) per the restaurant\'s cancellation policy shown above.',
+          },
+        }),
+      }));
+      if (gate) return gate;
+
+      // Resolved below: from the token (token path) or the booking-details
+      // page (no-token path). dining_area_id is optional on this tool.
+      let diningAreaId: number;
+
+      let slotLockId: number;
+      let paymentCard: { id: string; last4: string; expiryMmYy: string; provider: string } | null = null;
+      let ccRequired = false;
+      let bookingType: 'standard' | 'experience' = 'standard';
+      let experienceId: number | undefined;
+      let experienceVersion: number | undefined;
+      let tcAccepted: boolean | undefined;
+
+      if (tokenPayload) {
+        // The token is authoritative for the dining area (preview resolved it).
+        diningAreaId = tokenPayload.diningAreaId;
+        slotLockId = tokenPayload.slotLockId;
+        paymentCard = tokenPayload.paymentCard;
+        ccRequired = tokenPayload.ccRequired;
+        bookingType = tokenPayload.bookingType;
+        experienceId = tokenPayload.experienceId;
+        experienceVersion = tokenPayload.experienceVersion;
+        tcAccepted = tokenPayload.tcAccepted;
+      } else {
+        const summary = pageSummary!;
         // Resolve the dining area (caller's value, or the default parsed from
         // this same page) before locking.
         diningAreaId = requireDiningAreaId(dining_area_id, summary);
@@ -986,7 +1022,7 @@ export function registerReservationTools(
     'opentable_modify',
     {
       description:
-        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. dining_area_id is OPTIONAL — the modify_token already carries the area opentable_modify_preview resolved; pass it only to restate it (mismatch is refused). Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds (see MCP_CONFIRM_MODE).",
+        "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. dining_area_id is OPTIONAL — the modify_token already carries the area opentable_modify_preview resolved; pass it only to restate it (mismatch is refused). Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds; the prompt names the restaurant, the current and new slot, and the card re-hold (see MCP_CONFIRM_MODE).",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
@@ -1029,33 +1065,11 @@ export function registerReservationTools(
       experience_id: callerExperienceId,
       confirmToken,
     }, ctx) => {
-      // Confirm-gate: modifying commits a reservation change (new slot's policy /
-      // CC re-hold can differ). Before any network call, ask the user
-      // (elicitation) or hand back a no-network preview + confirmToken.
-      const willSend = { restaurant_id, confirmation_number, date, time, party_size };
-      const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
-        action: 'opentable.modify',
-        message: 'Review and confirm this reservation change:',
-        details: willSend,
-        tool: 'opentable_modify',
-        confirmToken,
-        subject: () => ({
-          target: String(confirmation_number),
-          payload: {
-            restaurant_id, confirmation_number, security_token, date, time, party_size,
-            reservation_token, slot_hash, dining_area_id, modify_token,
-            experience_id: callerExperienceId,
-          },
-          preview: {
-            action: `Modify reservation ${confirmation_number} at restaurant ${restaurant_id} to ${party_size} on ${date} at ${time}`,
-            willSend,
-            note: 'The new slot\'s cancellation policy and card re-hold can differ from the original. Call opentable_modify_preview first to see them.',
-          },
-        }),
-      }));
-      if (gate) return gate;
       const reservationDateTime = `${date}T${time}`;
 
+      // Validate and read the modify_token BEFORE asking, so the confirm
+      // prompt names the venue, the reservation's current slot, the new
+      // slot and the card that will be re-held.
       if (!modify_token) {
         throw new Error(
           'opentable_modify requires a modify_token from opentable_modify_preview. The new slot\'s policy and CC re-hold details can differ from the original — preview is mandatory.'
@@ -1086,6 +1100,36 @@ export function registerReservationTools(
           'modify_token was issued for a different reservation (party_size, date/time, dining area, experience_id, or the existing reservation identifier has changed since opentable_modify_preview). Call opentable_modify_preview again with the current args.'
         );
       }
+
+      const confirm = await confirmContextFromToken(client, payload);
+      const existing = existingSlotFromToken(payload);
+      const willSend = {
+        ...confirmDetails(confirm, { restaurant_id, date, time, party_size }),
+        confirmation_number,
+        existing,
+      };
+      const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
+        action: 'opentable.modify',
+        message: 'Review and confirm this reservation change:',
+        details: willSend,
+        tool: 'opentable_modify',
+        confirmToken,
+        subject: () => ({
+          target: String(confirmation_number),
+          payload: {
+            restaurant_id, confirmation_number, security_token, date, time, party_size,
+            reservation_token, slot_hash, dining_area_id, modify_token,
+            experience_id: callerExperienceId,
+            shown: willSend,
+          },
+          preview: {
+            action: `Change reservation ${confirmation_number} at ${venueLabel(confirm, restaurant_id)} from ${describeExisting(existing)} to ${date} at ${time} (party of ${party_size}) — ${cardClause(confirm)}`,
+            willSend,
+            note: 'The new slot\'s cancellation policy and card re-hold shown above can differ from the original booking\'s.',
+          },
+        }),
+      }));
+      if (gate) return gate;
 
       // The token is authoritative for the dining area (preview resolved it).
       const diningAreaId = payload.diningAreaId;
@@ -1142,7 +1186,7 @@ export function registerReservationTools(
     'opentable_cancel',
     {
       description:
-        'Cancel an OpenTable reservation. Requires restaurant_id, confirmation_number, and security_token — all three come from opentable_list_reservations or opentable_book. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds (see MCP_CONFIRM_MODE).',
+        'Cancel an OpenTable reservation. Requires restaurant_id, confirmation_number, and security_token — all three come from opentable_list_reservations or opentable_book. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds; the prompt names the restaurant, date, time and party size from your dining dashboard (see MCP_CONFIRM_MODE). Refused when the confirmation_number belongs to a different restaurant.',
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
@@ -1153,19 +1197,45 @@ export function registerReservationTools(
       }),
     },
     async ({ restaurant_id, confirmation_number, security_token, database_region, confirmToken }, ctx) => {
-      const willSend = { restaurant_id, confirmation_number };
+      // Look the reservation up on the dining dashboard so the prompt names
+      // the venue, date, time and party — the user approves a reservation
+      // they can recognise, not a bare confirmation number.
+      const found = await findReservation(client, confirmation_number);
+      if (found.row && found.row.restaurant_id !== null && found.row.restaurant_id !== restaurant_id) {
+        throw new Error(
+          `Confirmation ${confirmation_number} is your reservation at ${found.row.restaurant_name} (restaurant ${found.row.restaurant_id}), not restaurant ${restaurant_id}. Re-check opentable_list_reservations and retry with the matching restaurant_id.`
+        );
+      }
+      const row = found.row;
+      const willSend = row
+        ? {
+            restaurant: row.restaurant_name,
+            restaurant_id,
+            confirmation_number,
+            date: row.date,
+            time: row.time,
+            party_size: row.party_size,
+            status: row.status,
+          }
+        : { restaurant: `restaurant ${restaurant_id} (name unavailable)`, restaurant_id, confirmation_number };
+      const warning = row
+        ? undefined
+        : `Reservation ${confirmation_number} was not found on your OpenTable dining dashboard${found.error ? ` (lookup failed: ${found.error})` : ''} — its venue, date and time could not be verified.`;
       const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
         action: 'opentable.cancel',
         message: 'Review and confirm this cancellation:',
-        details: willSend,
+        details: warning ? { ...willSend, warning } : willSend,
         tool: 'opentable_cancel',
         confirmToken,
         subject: () => ({
           target: String(confirmation_number),
-          payload: { restaurant_id, confirmation_number, security_token, database_region },
+          payload: { restaurant_id, confirmation_number, security_token, database_region, shown: willSend },
           preview: {
-            action: `Cancel reservation ${confirmation_number} at restaurant ${restaurant_id}`,
+            action: row
+              ? `Cancel reservation ${confirmation_number} at ${row.restaurant_name} on ${row.date} at ${row.time} (party of ${row.party_size})`
+              : `Cancel reservation ${confirmation_number} at restaurant ${restaurant_id}`,
             willSend,
+            ...(warning ? { warning } : {}),
             note: 'A cancellation may incur a fee per the restaurant\'s policy.',
           },
         }),
@@ -1243,6 +1313,158 @@ function requireSelectedExperience(
     throw new Error(
       `Experience ${experienceId} is not offered on this slot's booking page. Re-run opentable_find_slots and pick an experience_id from that slot's experience_ids.`
     );
+  }
+}
+
+// ─── confirm-prompt context (SEC-1) ───────────────────────────────
+//
+// The confirm gates on book / modify / cancel show the user the venue name,
+// the card that will be held and the policy text — never only numeric ids.
+
+/** What the confirm prompt for a book/modify shows. */
+interface ConfirmContext {
+  restaurantName: string | null;
+  ccRequired: boolean;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  policy: string | null;
+  experienceName: string | null;
+  termsAccepted: boolean;
+}
+
+/** Non-empty string or undefined — display fields come from an unsigned
+ *  token, so each one is type-checked before it is shown. */
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
+/** The display block book_preview / modify_preview bake into their token. */
+function tokenDisplay(summary: BookingDetailsSummary): BookingTokenDisplay {
+  return {
+    ...(summary.restaurant_name ? { restaurantName: summary.restaurant_name } : {}),
+    ...(summary.cc_required && summary.default_card ? { cardBrand: summary.default_card.brand } : {}),
+    ...(summary.policy.description ? { policy: summary.policy.description } : {}),
+    ...(summary.experience?.name ? { experienceName: summary.experience.name } : {}),
+  };
+}
+
+function confirmContextFromSummary(summary: BookingDetailsSummary): ConfirmContext {
+  const card = summary.cc_required ? summary.default_card : null;
+  return {
+    restaurantName: summary.restaurant_name,
+    ccRequired: summary.cc_required,
+    cardBrand: card?.brand ?? null,
+    cardLast4: card?.last4 ?? null,
+    policy: summary.policy.description || null,
+    experienceName: summary.experience?.name ?? null,
+    termsAccepted: summary.terms !== null,
+  };
+}
+
+/** Confirm context from a preview-minted token. No network, unless the
+ *  token predates the display block and so lacks the venue name — then the
+ *  restaurant page is read (GET) for it, best-effort. */
+async function confirmContextFromToken(
+  client: OpenTableClient,
+  payload: BookingTokenPayload
+): Promise<ConfirmContext> {
+  const display: Record<string, unknown> =
+    payload.display && typeof payload.display === 'object' ? { ...payload.display } : {};
+  const restaurantName =
+    str(display.restaurantName) ?? (await lookupRestaurantName(client, payload.restaurantId));
+  const card = payload.ccRequired ? payload.paymentCard : null;
+  return {
+    restaurantName,
+    ccRequired: payload.ccRequired,
+    cardBrand: str(display.cardBrand) ?? null,
+    cardLast4: str(card?.last4) ?? null,
+    policy: str(display.policy) ?? null,
+    experienceName: str(display.experienceName) ?? null,
+    termsAccepted: payload.tcAccepted === true,
+  };
+}
+
+async function lookupRestaurantName(
+  client: OpenTableClient,
+  restaurantId: number
+): Promise<string | null> {
+  for (const path of restaurantCandidatePaths(restaurantId)) {
+    try {
+      const name = parseRestaurant(await client.fetchHtml(path)).name;
+      if (name && name !== 'Unknown') return name;
+    } catch {
+      // Best-effort: try the next candidate; the prompt says "name unavailable".
+    }
+  }
+  return null;
+}
+
+function venueLabel(c: ConfirmContext, restaurantId: number): string {
+  return c.restaurantName ?? `restaurant ${restaurantId} (name unavailable)`;
+}
+
+function cardLabel(c: ConfirmContext): string | null {
+  if (!c.ccRequired) return null;
+  return `${c.cardBrand ?? 'Card'} •••• ${c.cardLast4 ?? '????'}`;
+}
+
+function cardClause(c: ConfirmContext): string {
+  const card = cardLabel(c);
+  return card ? `holds ${card}` : 'no card required';
+}
+
+function confirmDetails(
+  c: ConfirmContext,
+  args: { restaurant_id: number; date: string; time: string; party_size: number }
+): Record<string, unknown> {
+  return {
+    restaurant: venueLabel(c, args.restaurant_id),
+    restaurant_id: args.restaurant_id,
+    date: args.date,
+    time: args.time,
+    party_size: args.party_size,
+    card_hold: cardLabel(c) ?? 'none — no card required',
+    cc_required: c.ccRequired,
+    cancellation_policy: c.policy ?? (c.ccRequired ? 'unknown — call opentable_book_preview to see it' : 'none'),
+    ...(c.experienceName ? { experience: c.experienceName } : {}),
+    ...(c.termsAccepted ? { restaurant_terms: 'accepted on your behalf (see the preview\'s terms)' } : {}),
+  };
+}
+
+interface ExistingSlot {
+  date: string | null;
+  time: string | null;
+  party_size: number | null;
+}
+
+function existingSlotFromToken(payload: BookingTokenPayload): ExistingSlot {
+  const d: Record<string, unknown> =
+    payload.display && typeof payload.display === 'object' ? { ...payload.display } : {};
+  return {
+    date: str(d.existingDate) ?? null,
+    time: str(d.existingTime) ?? null,
+    party_size: typeof d.existingPartySize === 'number' ? d.existingPartySize : null,
+  };
+}
+
+function describeExisting(e: ExistingSlot): string {
+  if (!e.date) return 'its current slot (details unavailable)';
+  const when = e.time ? `${e.date} at ${e.time}` : e.date;
+  return e.party_size !== null ? `${when} (party of ${e.party_size})` : when;
+}
+
+/** Find a reservation on the dining dashboard (upcoming + past) by
+ *  confirmation number. Never throws: a failed lookup is reported so the
+ *  cancel prompt can warn that the details couldn't be verified. */
+async function findReservation(
+  client: OpenTableClient,
+  confirmationNumber: number
+): Promise<{ row: FormattedReservation | null; error?: string }> {
+  try {
+    const rows = parseDiningDashboard(await client.fetchHtml(DINING_DASHBOARD_PATH), 'all');
+    return { row: rows.find((r) => r.confirmation_number === confirmationNumber) ?? null };
+  } catch (e) {
+    return { row: null, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
