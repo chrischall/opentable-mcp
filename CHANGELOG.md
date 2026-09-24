@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/chrischall/opentable-mcp/compare/v1.1.4...v1.2.0) (2026-09-24)
+
+
+### Features
+
+* confirm writes with a preview token instead of confirm: true ([#236](https://github.com/chrischall/opentable-mcp/issues/236)) ([227fe6e](https://github.com/chrischall/opentable-mcp/commit/227fe6ed2554f2ed031ad86a48eb959e386099f3))
+
 ## [1.1.4](https://github.com/chrischall/opentable-mcp/compare/v1.1.3...v1.1.4) (2026-09-23)
 
 
