@@ -119,7 +119,7 @@ Other env vars: `OT_WS_PORT` (default 37149) overrides the fetchproxy WebSocket 
 
 ## Confirmations
 
-`opentable_book`, `opentable_modify` and `opentable_cancel` ask you before they act. A client that can show a confirmation prompt (Claude Code) shows one. On a client that cannot (claude.ai, Claude Desktop), the first call books, changes or cancels nothing: it returns a preview of exactly what would happen plus a `confirmToken`. Only a repeat call with the same arguments and that token proceeds, once — change any argument in between and it is refused (`DRAFT_CHANGED`) with a fresh preview.
+`opentable_book`, `opentable_modify` and `opentable_cancel` ask you before they act. A client that can show a confirmation prompt (Claude Code) shows one. On a client that cannot (claude.ai, Claude Desktop), the first call books, changes or cancels nothing: it returns a preview of exactly what would happen plus a `confirmToken`. Either way the prompt names the restaurant, date, time and party size, and for a booking or change the card that will be held and the cancellation policy (carried in the `booking_token` / `modify_token` from the preview tools; a cancel looks the reservation up on your dining dashboard and warns if it isn't there). Only a repeat call with the same arguments and that token proceeds, once — change any argument in between and it is refused (`DRAFT_CHANGED`) with a fresh preview.
 
 | variable | default | |
 |---|---|---|
