@@ -15,7 +15,7 @@ OpenTable's edge (Akamai Bot Manager) enforces a behavioral challenge on `/`, `/
 So instead of standing in for the browser, this MCP server:
 
 1. Starts a WebSocket listener on `127.0.0.1:37149` via [`@fetchproxy/server`](https://github.com/chrischall/fetchproxy).
-2. The [fetchproxy browser extension](https://github.com/chrischall/fetchproxy) (installed once, shared across all fetchproxy-based MCPs) connects from your signed-in browser and relays every request through the opentable.com tab via `fetch(..., { credentials: 'include' })` — your TLS, your cookies, your already-solved `_abck`.
+2. The [ContextMint Bridge](https://github.com/nullnet-app/contextmint-bridge/releases) browser extension (installed once, shared across all fetchproxy-based MCPs) connects from your signed-in browser and relays every request through the opentable.com tab via `fetch(..., { credentials: 'include' })` — your TLS, your cookies, your already-solved `_abck`.
 3. Parses JSON responses (public GraphQL / JSON endpoints) and SSR HTML (`/user/*`) into tool-shaped output.
 
 No cookie-pasting. No cycletls. No Playwright. Just your own browser, acting on its own behalf — the MCP server only picks what to ask for.
@@ -43,7 +43,7 @@ No cookie-pasting. No cycletls. No Playwright. Just your own browser, acting on 
 
 By using this MCP server, you acknowledge and agree to the following:
 
-**1. This server accesses your own OpenTable account.** Every request is dispatched through your own signed-in browser tab via the fetchproxy extension (or hangwin/mcp-chrome). It does not — and cannot — access anyone else's reservations.
+**1. This server accesses your own OpenTable account.** Every request is dispatched through your own signed-in browser tab via the ContextMint Bridge browser extension (or hangwin/mcp-chrome). It does not — and cannot — access anyone else's reservations.
 
 **2. [OpenTable's Terms of Use](https://www.opentable.com/c/legal/terms-and-conditions/) govern your use of this server**, just as they govern your direct use of opentable.com. The clauses most relevant here:
 
@@ -68,17 +68,17 @@ npm install
 npm run build
 ```
 
-### Install the fetchproxy extension
+### Install ContextMint Bridge
 
-opentable-mcp shares one browser extension with every other fetchproxy-based MCP. Install it once from https://github.com/chrischall/fetchproxy:
+opentable-mcp shares one browser extension, **ContextMint Bridge**, with every other fetchproxy-based MCP. Install it once from https://github.com/nullnet-app/contextmint-bridge/releases:
 
-1. Install the fetchproxy extension (Chrome Web Store / Safari `.dmg`).
+1. **Chrome:** download the Chrome zip from the latest release, unzip it, and load it unpacked (`chrome://extensions` → Developer mode → Load unpacked). **Safari:** the extension ships inside the ContextMint app.
 2. Sign in to `https://www.opentable.com/` in that same browser profile.
 3. The extension badge shows a green dot when the WebSocket + tab + auth cookie are all detected.
 
 After that, any MCP client that launches `node dist/bundle.js` will reach OpenTable through your signed-in tab.
 
-**Full setup + troubleshooting guide:** see the fetchproxy repo for the status-dot reference, WS protocol, and request lifecycle. Persisted-query hash capture for OpenTable redeploys is documented in [`CLAUDE.md`](CLAUDE.md) here.
+**Full setup + troubleshooting guide:** see the [ContextMint Bridge repo](https://github.com/nullnet-app/contextmint-bridge) for the status-dot reference, WS protocol, and request lifecycle. Persisted-query hash capture for OpenTable redeploys is documented in [`CLAUDE.md`](CLAUDE.md) here.
 
 ## Configure (Claude Desktop / Claude Code)
 
@@ -97,7 +97,7 @@ No env vars required by default — auth lives in the browser, not the MCP proce
 
 ### Optional: bridge through hangwin/mcp-chrome instead
 
-If you've installed [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) for browser automation, opentable-mcp can route its OpenTable fetches through it instead of the fetchproxy extension:
+If you've installed [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) for browser automation, opentable-mcp can route its OpenTable fetches through it instead of ContextMint Bridge:
 
 ```json
 {
@@ -111,7 +111,7 @@ If you've installed [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) 
 }
 ```
 
-In that mode you don't need the fetchproxy extension. Every OpenTable request becomes a `chrome_network_request` call against your existing mcp-chrome install, pinned via `tabUrl` to an opentable.com tab.
+In that mode you don't need ContextMint Bridge. Every OpenTable request becomes a `chrome_network_request` call against your existing mcp-chrome install, pinned via `tabUrl` to an opentable.com tab.
 
 **Note:** this path requires mcp-chrome ≥ the release containing [PR #348](https://github.com/hangwin/mcp-chrome/pull/348) (`tabUrl` parameter on `chrome_network_request`). Pre-#348 mcp-chrome versions are active-tab-only and will misbehave for cross-origin fetches. Live-verification of this path is pending the upstream merge.
 
@@ -146,24 +146,24 @@ The `scripts/probe-*.ts` files spin up the MCP server, call one or two tools thr
 
 ## Troubleshooting
 
-- **Red dot in popup / "extension offline" errors.** See the fetchproxy extension's troubleshooting guide — most "extension offline" issues are upstream lifecycle bugs (service-worker sleep, dead content script), not opentable-mcp.
+- **Red dot in popup / "extension offline" errors.** See ContextMint Bridge's troubleshooting guide — most "extension offline" issues are upstream lifecycle bugs (service-worker sleep, dead content script), not opentable-mcp.
 - **Behavioral challenge page in Chrome.** Akamai sometimes interrupts a long-idle tab with a "verify you're human" interstitial. Click through it once and the tab is usable again.
 - **`list_favorites` doesn't reflect a fresh `add_favorite`.** The `/user/favorites` SSR page is cached for a few seconds. Re-list after ~10 s or verify via `opentable_get_profile`'s count.
 
 ## Layout
 
-- `src/transport-fetchproxy.ts` — `FetchproxyTransport`: thin adapter over `@fetchproxy/server`'s `FetchproxyServer`, the shared WebSocket bridge that talks to the fetchproxy browser extension.
+- `src/transport-fetchproxy.ts` — `FetchproxyTransport`: thin adapter over `@fetchproxy/server`'s `FetchproxyServer`, the shared WebSocket bridge that talks to the ContextMint Bridge browser extension.
 - `src/client.ts` — `OpenTableClient`: wraps the transport with `fetchJson` / `fetchHtml` + error-mapping.
 - `src/tools/*.ts` — one file per concern (reservations / restaurants / favorites / user / search). Each exports `registerXxxTools(server, client)`.
 - `src/parse-*.ts` — pure HTML/JSON parsers, fully unit-tested.
 - `tests/` — 1:1 mirror of `src/`, vitest. WS-protocol-level tests live upstream in the fetchproxy repo.
-- `scripts/probe-*.ts` — live round-trip probes (require the fetchproxy extension + sign-in).
+- `scripts/probe-*.ts` — live round-trip probes (require ContextMint Bridge + sign-in).
 
 ## Known quirks
 
 - **Apollo persisted queries.** Slot search, slot lock, cancel, autocomplete — all use `extensions.persistedQuery.sha256Hash` with hashes captured from opentable.com. If OpenTable re-deploys, the server returns `PersistedQueryNotFound`; see `CLAUDE.md` → "Hot spots" for the re-capture procedure.
 - **`dining_area_id` is a required book arg.** We can't auto-resolve rooms, so pass the restaurant's slug **or numeric id** to `opentable_get_restaurant` (slugs route to `/r/{slug}`, numeric ids to `/restaurant/profile/{id}`), read `diningAreas[]`, and feed the id into `opentable_book`.
-- **Service-worker sleep.** MV3 SWs sleep after ~30 s idle. The fetchproxy extension keeps itself warm; on cold wake, the first request may wait up to ~5 s for WS reconnect.
+- **Service-worker sleep.** MV3 SWs sleep after ~30 s idle. ContextMint Bridge keeps itself warm; on cold wake, the first request may wait up to ~5 s for WS reconnect.
 
 ---
 

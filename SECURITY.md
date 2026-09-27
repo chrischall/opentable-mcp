@@ -16,7 +16,7 @@ opentable-mcp **never asks for** or **stores** your OpenTable email, password, o
 ## How it works
 
 1. opentable-mcp starts. It opens a WebSocket listener on `127.0.0.1:37149` (loopback interface only — not `0.0.0.0`).
-2. The companion [fetchproxy](https://github.com/chrischall/fetchproxy) Chrome extension connects from your signed-in opentable.com tab.
+2. The companion [ContextMint Bridge](https://github.com/nullnet-app/contextmint-bridge/releases) browser extension connects from your signed-in opentable.com tab.
 3. When you ask Claude to "list my reservations", opentable-mcp tells the extension to issue `GET https://www.opentable.com/user/dining-dashboard` from your tab. The browser sends your cookies; OpenTable's server validates them; the response flows back through the WebSocket.
 4. opentable-mcp parses the response and returns structured data via the MCP protocol.
 
@@ -31,7 +31,7 @@ The reason for this architecture: OpenTable's edge (Akamai Bot Manager) refuses 
 
 ## Per-fetchproxy-version capabilities
 
-opentable-mcp currently declares only the **`fetch`** capability when pairing with the fetchproxy extension. You'll see this in the pair-approval popup the first time you connect:
+opentable-mcp currently declares only the **`fetch`** capability when pairing with the ContextMint Bridge extension. You'll see this in the pair-approval popup the first time you connect:
 
 > opentable-mcp wants to access opentable.com  
 > • HTTP fetches
