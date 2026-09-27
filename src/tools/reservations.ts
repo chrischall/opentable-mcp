@@ -13,7 +13,7 @@
 //   2. /dapi/booking/make-reservation — consumes slotLockId + user PII + slot tokens.
 // Cancel is a single mutation keyed on (restaurantId, confirmationNumber, securityToken).
 //
-// Every write needs the x-csrf-token header, which the fetchproxy extension
+// Every write needs the x-csrf-token header, which the ContextMint Bridge extension
 // injects from the relay tab's window.__CSRF_TOKEN__. Which tab relays a
 // write is decided in transport-fetchproxy.ts (WRITE_RELAY_TAB_PREFIXES);
 // nothing here needs to know.

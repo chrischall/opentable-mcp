@@ -16,7 +16,7 @@ OpenTable fronts `www.opentable.com` with Akamai bot protection, and every
 booking/cancel action rides the user's own signed-in session (their
 loyalty account, saved cards) — there's no API key and no server-side
 login. `fpx` routes requests through the user's own signed-in browser tab
-(the Transporter extension), which already carries a cleared session, so
+(the ContextMint Bridge extension), which already carries a cleared session, so
 the same requests the opentable.com web app makes succeed.
 
 This is the same data/actions the `opentable_*` MCP tools expose, reached
@@ -29,10 +29,11 @@ below is transcribed verbatim from opentable-mcp's `src/client.ts` and
 ```sh
 npm install -g @fetchproxy/cli            # provides `fpx`
 fpx profile add opentable --domain opentable.com
-fpx pair -p opentable                     # prints a pair code → approve in Transporter
+fpx pair -p opentable                     # prints a pair code → approve in ContextMint Bridge
 ```
 
-Requirements: the **Transporter** browser extension installed, an open
+Requirements: the **ContextMint Bridge** browser extension installed
+(https://github.com/nullnet-app/contextmint-bridge/releases; Chrome: load the zip unpacked, Safari: ships inside the ContextMint app), an open
 `www.opentable.com` tab **signed in**, and its Chrome **Site access**
 allowing `opentable.com`. Pairing persists — after the first approval every
 later `fpx` call reuses it.

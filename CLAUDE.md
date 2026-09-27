@@ -7,8 +7,10 @@ Guidance for Claude working in this repo.
 OpenTable MCP server with 13 tools (read + write), fronted by a
 pluggable browser bridge. Default transport: localhost WebSocket via
 [`@fetchproxy/server`](https://github.com/chrischall/fetchproxy) — the
-companion browser extension is installed separately (Chrome Web Store /
-Safari .dmg) rather than embedded in this repo. Opt-in alternative:
+companion browser extension, ContextMint Bridge, is installed separately
+from https://github.com/nullnet-app/contextmint-bridge/releases (Chrome:
+unpacked zip; Safari: ships inside the ContextMint app) rather than
+embedded in this repo. Opt-in alternative:
 `OT_BRIDGE=mcp-chrome` routes through hangwin/mcp-chrome's HTTP MCP
 endpoint instead. Either way, every request rides the user's own browser
 session — their cookies, their TLS, their JS context — never ours.
@@ -19,9 +21,9 @@ session — their cookies, their TLS, their JS context — never ours.
 
 - `OT_BRIDGE=websocket` (default) — wraps `@fetchproxy/server`'s
   `FetchproxyServer` (WebSocket on 127.0.0.1:37149; override with
-  `OT_WS_PORT`). The user installs the fetchproxy extension once
+  `OT_WS_PORT`). The user installs the ContextMint Bridge extension once
   (Chrome / Safari) instead of loading a per-MCP embedded extension.
-  See https://github.com/chrischall/fetchproxy.
+  See https://github.com/nullnet-app/contextmint-bridge/releases.
 - `OT_BRIDGE=mcp-chrome` — talks to hangwin/mcp-chrome at
   `http://127.0.0.1:12306/mcp` (override with `OT_MCP_CHROME_URL`).
   Requires mcp-chrome ≥ the release containing
@@ -52,7 +54,7 @@ session — their cookies, their TLS, their JS context — never ours.
 - `npx tsx scripts/serve-only.ts` — raw WS listener that logs every extension frame. Debugging only.
 - `npx tsx scripts/e2e-phase-a.ts` — read-only smoke (list reservations / profile / favorites).
 
-All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed and a signed-in opentable tab — for anything that books, a signed-in **restaurant page** (`/r/…`) tab: it warms `RestaurantsAvailability` for `find_slots` and is the first relay candidate for writes.
+All `probe-*.ts` / `e2e-*.ts` scripts require the ContextMint Bridge extension installed and a signed-in opentable tab — for anything that books, a signed-in **restaurant page** (`/r/…`) tab: it warms `RestaurantsAvailability` for `find_slots` and is the first relay candidate for writes.
 
 ## Architecture
 
@@ -67,7 +69,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the fetchproxy extension installed
                             @fetchproxy/server (npm)
 ```
 
-- **Dependency on `@fetchproxy/server`** — the WebSocket server, frame validation, and browser extension all live in the separate https://github.com/chrischall/fetchproxy repo. Releases there ship `@fetchproxy/server` to npm and `fetchproxy-extension` to the Chrome Web Store / Safari. opentable-mcp pins both as runtime deps (`@fetchproxy/server`, `@fetchproxy/protocol`). The cross-repo split lets resy-mcp, future *.com-mcp servers, etc. share one extension instead of bundling their own.
+- **Dependency on `@fetchproxy/server`** — the WebSocket server and frame validation live in the separate https://github.com/chrischall/fetchproxy repo, whose releases ship `@fetchproxy/server` to npm. The browser extension is ContextMint Bridge, released from https://github.com/nullnet-app/contextmint-bridge/releases as a Chrome unpacked zip, with Safari shipping inside the ContextMint app. opentable-mcp pins `@fetchproxy/server` and `@fetchproxy/protocol` as runtime deps. The cross-repo split lets resy-mcp, future *.com-mcp servers, etc. share one extension instead of bundling their own.
 - **`src/transport.ts`** — the `OpenTableTransport` interface (`start/close/fetch`) and shared `FetchInit`/`FetchResult` types. Two implementations:
   - **`src/transport-fetchproxy.ts`** — `FetchproxyTransport`: thin adapter that wraps `@fetchproxy/server`'s `FetchproxyServer`. opentable-mcp passes opentable-relative paths (`/dapi/...`); the adapter prepends `https://www.opentable.com`. GETs relay through whichever opentable.com tab the extension picks; every non-GET walks `WRITE_RELAY_TAB_PREFIXES` (`/r/` → `/booking/` → `/user/`) via fetchproxy's `viaTab`, because only those app pages define the `window.__CSRF_TOKEN__` the write endpoints demand (see gotchas).
   - **`src/transport-mcp-chrome.ts`** — `McpChromeTransport`: opt-in via `OT_BRIDGE=mcp-chrome`. Talks to hangwin/mcp-chrome's HTTP MCP at `127.0.0.1:12306/mcp`. Each fetch maps to a `chrome_network_request` call pinned to `tabUrl: "https://www.opentable.com/"`. Requires the `tabUrl` param landing upstream — see https://github.com/hangwin/mcp-chrome/pull/348.
@@ -153,10 +155,10 @@ Commits land on `main` via PR. release-please (`.github/workflows/release-please
 - **`dining_area_id` is auto-resolved — booking no longer depends on `get_restaurant`.** `opentable_book` / `opentable_book_preview` take `dining_area_id` as an *optional* arg. When omitted, it's resolved from the `/booking/details` page they already fetch: `timeSlot.diningAreasBySeating[]` carries `{diningAreaId, tableCategory}`, and `resolveDiningAreaId()` (in `parse-booking-details-state.ts`) picks the first entry matching the seating (default `default`), falling back to the first area. So `find_slots → book` works with no separate lookup; pass `dining_area_id` explicitly only to pin a specific room. `opentable_modify_preview` / `opentable_modify` use the same helper (optional arg, token-authoritative on modify). Why this design: the `RestaurantsAvailability` response (find_slots) carries only the seating *category* (`attributes`, `diningAreasBySeating[].tableCategory`) — **not** the numeric `diningAreaId` (the `SlotDiningArea` objects there expose only `inventoryAccessRuleMap`). The numeric id lives only on `/booking/details`, so that's where we resolve it. Confirmed live 2026-06-03: `/booking/details` returns the full `diningAreasBySeating[]` whether or not `diningAreaId` is in the URL (and again 2026-09-02 on the `isModify=true` variant).
 - **`opentable_get_restaurant` does not surface dining areas.** Despite older tool copy, `parse-restaurant.ts` never extracted `diningAreas[]`. Don't rely on it for `dining_area_id` — use the auto-resolution above (or read the ids from a `book_preview` response's `reservation.dining_area_id`).
 - **Legacy detail pages live at root `/{slug}`, not `/r/{slug}`.** A subset of (older) listings — e.g. The Cellar at Duckworth's (`/the-cellar-at-duckworths`) — are served at the root path. `opentable_get_restaurant` accepts a slug, an absolute path, or a full URL: a path/URL is fetched verbatim (pass the search result's `url` for a guaranteed hit), while a bare slug tries `/r/{slug}` then falls back to `/{slug}` on a 404. The output `url` echoes whichever path actually resolved, so it stays clickable. See `resolveCandidatePaths` in `src/tools/restaurants.ts`.
-- **Extension lifecycle is owned by `@fetchproxy/server`.** Self-healing content scripts, MV3 service-worker keepalive, and CSRF token handling all live upstream in the fetchproxy extension. If a user hits "extension offline" or "Could not establish connection", point them at the fetchproxy installation docs — there's nothing for opentable-mcp to fix. One thing that IS ours: which tab relays a write (see the CSRF gotcha below).
+- **Extension lifecycle is owned by `@fetchproxy/server`.** Self-healing content scripts, MV3 service-worker keepalive, and CSRF token handling all live upstream in the ContextMint Bridge extension. If a user hits "extension offline" or "Could not establish connection", point them at the ContextMint Bridge installation docs — there's nothing for opentable-mcp to fix. One thing that IS ours: which tab relays a write (see the CSRF gotcha below).
 - **Every write needs `x-csrf-token`, and only OpenTable's app pages can supply it.**
   The slot-lock and cancel mutations AND the REST `/dapi/booking/make-reservation`
-  POST come back as an empty 403 without the header. The fetchproxy extension
+  POST come back as an empty 403 without the header. The ContextMint Bridge extension
   injects it from the relay tab's `window.__CSRF_TOKEN__` — which restaurant
   profiles (`/r/…`), the booking flow (`/booking/…`) and account pages
   (`/user/…`) define and the homepage / search pages do NOT. fetchproxy's
@@ -214,7 +216,7 @@ Commits land on `main` via PR. release-please (`.github/workflows/release-please
 
 1. `npm run build` — keep `dist/bundle.js` fresh.
 2. `lsof -ti :37149 | xargs -r kill` — clear any orphan MCP server from a prior crashed probe.
-3. `npx tsx scripts/probe-<x>.ts` — the probe spawns its own `dist/bundle.js` over stdio. The fetchproxy extension reconnects within ~2s and announces `ready` once it finds an opentable.com tab.
+3. `npx tsx scripts/probe-<x>.ts` — the probe spawns its own `dist/bundle.js` over stdio. ContextMint Bridge reconnects within ~2s and announces `ready` once it finds an opentable.com tab.
 4. If the first call fails with "extension offline", the extension is probably sleeping — reopen the popup or reload it once.
 
 ## What to *not* do

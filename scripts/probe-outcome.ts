@@ -125,7 +125,7 @@ export function describeProbeFailure(kind: ProbeFailureKind): string {
     case 'no_tab':
       return 'NO TAB — FetchProxy is connected, but no opentable.com tab is open. Open one, sign in, and re-run.';
     case 'bridge_unavailable':
-      return 'BRIDGE UNAVAILABLE — the OpenTable MCP server or the FetchProxy bridge is not reachable (server failed to start, extension offline, or its service worker was evicted). Check `npm run build` has produced dist/bundle.js, reload the extension from chrome://extensions, reload the tab, and re-run.';
+      return 'BRIDGE UNAVAILABLE — the OpenTable MCP server or ContextMint Bridge is not reachable (server failed to start, extension offline, or its service worker was evicted). Check `npm run build` has produced dist/bundle.js, reload the extension from chrome://extensions, reload the tab, and re-run.';
     case 'not_authenticated':
       return 'NOT SIGNED IN — the opentable.com tab exists but the session is signed out. Sign in at opentable.com and re-run.';
     case 'other':

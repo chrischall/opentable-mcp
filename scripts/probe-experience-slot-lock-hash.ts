@@ -5,7 +5,7 @@
 // the slot-lock step and dumps the SlotLock GraphQL POST body so we can
 // pin `BookDetailsExperienceSlotLock`'s persisted-query sha256Hash.
 //
-// Prereqs: fetchproxy extension installed (github.com/chrischall/fetchproxy);
+// Prereqs: ContextMint Bridge extension installed (github.com/nullnet-app/contextmint-bridge);
 // opentable.com signed-in tab open. Does NOT submit a booking — stops
 // after slot-lock.
 import { FetchproxyTransport } from '../src/transport-fetchproxy.js';

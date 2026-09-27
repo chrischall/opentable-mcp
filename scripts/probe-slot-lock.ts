@@ -9,7 +9,7 @@
  * expires on its own in ~90s.
  *
  * Usage:  npx tsx scripts/probe-slot-lock.ts [YYYY-MM-DD] [HH:MM]
- * Needs the fetchproxy extension installed and a signed-in restaurant page
+ * Needs the ContextMint Bridge extension installed and a signed-in restaurant page
  * (/r/…) open — that tab both warms RestaurantsAvailability for find_slots
  * and relays the slot-lock.
  */

@@ -11,7 +11,7 @@
 // extension reuses the live DocumentNode the tab's Apollo client already
 // observed for RestaurantsAvailability.
 //
-// Prereqs: fetchproxy extension installed; opentable.com signed-in tab
+// Prereqs: ContextMint Bridge extension installed; opentable.com signed-in tab
 // open, with at least one restaurant page loaded this session (so the
 // tab's Apollo client has observed a RestaurantsAvailability call — if
 // not, this errors with "operation ... not yet observed on this tab").

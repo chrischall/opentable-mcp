@@ -4,9 +4,9 @@
 // Boot sequence:
 //   1. Pick a transport based on $OT_BRIDGE (default: 'websocket').
 //      - websocket: wrap @fetchproxy/server's FetchproxyServer (listening
-//        on 127.0.0.1:37149). The shared fetchproxy Chrome/Safari
+//        on 127.0.0.1:37149). The shared ContextMint Bridge
 //        extension — installed separately, not in this repo — connects
-//        here. See https://github.com/chrischall/fetchproxy.
+//        here. See https://github.com/nullnet-app/contextmint-bridge.
 //      - mcp-chrome: open an MCP-over-HTTP connection to hangwin/mcp-chrome
 //        at http://127.0.0.1:12306/mcp. Requires mcp-chrome's
 //        `chrome_network_request` tool to support tabUrl pinning (PR
@@ -61,7 +61,7 @@ const banner =
       (mcpChromeUrl ?? 'http://127.0.0.1:12306/mcp') +
       '. Requires mcp-chrome ≥ the release containing PR #348 (tabUrl support).'
     : `[opentable-mcp] v${VERSION} — WebSocket bridge via @fetchproxy/server on 127.0.0.1:37149. ` +
-      'Install the fetchproxy extension (see https://github.com/chrischall/fetchproxy) ' +
+      'Install the ContextMint Bridge extension (see https://github.com/nullnet-app/contextmint-bridge/releases) ' +
       'and sign in at opentable.com. ' +
       '(To use hangwin/mcp-chrome as the bridge instead, set OT_BRIDGE=mcp-chrome.)';
 

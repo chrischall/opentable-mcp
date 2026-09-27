@@ -4,7 +4,7 @@
   "name": "opentable-mcp",
   "display_name": "OpenTable",
   "version": "1.2.1",
-  "description": "OpenTable reservation management for Claude — find slots, book, cancel, list reservations, manage favorites, search restaurants. Relays every request through the fetchproxy browser extension (github.com/chrischall/fetchproxy) running in your signed-in opentable.com tab, so there's no cookie paste or bot-wall dance.",
+  "description": "OpenTable reservation management for Claude — find slots, book, cancel, list reservations, manage favorites, search restaurants. Relays every request through the ContextMint Bridge browser extension (github.com/nullnet-app/contextmint-bridge) running in your signed-in opentable.com tab, so there's no cookie paste or bot-wall dance.",
   "author": {
     "name": "Chris Chall",
     "email": "chris.c.hall@gmail.com",
@@ -89,7 +89,7 @@
     },
     {
       "name": "opentable_healthcheck",
-      "description": "Verify the fetchproxy bridge end-to-end: round-trips a small public opentable.com URL and reports bridge role/port/timing plus a hint distinguishing 'bridge never came up' from 'extension not connected' from an OpenTable-side problem."
+      "description": "Verify the ContextMint Bridge connection end-to-end: round-trips a small public opentable.com URL and reports bridge role/port/timing plus a hint distinguishing 'bridge never came up' from 'extension not connected' from an OpenTable-side problem."
     }
   ],
   "compatibility": {
