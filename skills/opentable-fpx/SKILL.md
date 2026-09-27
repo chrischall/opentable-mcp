@@ -33,10 +33,11 @@ fpx pair -p opentable                     # prints a pair code → approve in Co
 ```
 
 Requirements: the **ContextMint Bridge** browser extension installed
-(https://github.com/nullnet-app/contextmint-bridge/releases; Chrome: load the zip unpacked, Safari: ships inside the ContextMint app), an open
+(https://github.com/nullnet-app/contextmint-bridge/releases; Chrome: load the zip unpacked; Safari isn't available yet, so use Chrome for now), an open
 `www.opentable.com` tab **signed in**, and its Chrome **Site access**
 allowing `opentable.com`. Pairing persists — after the first approval every
 later `fpx` call reuses it.
+ContextMint Bridge is the fetchproxy extension renamed, same maintainer (https://github.com/chrischall/fetchproxy#extension); source at https://github.com/nullnet-app/contextmint-bridge — build it or verify a release zip with `shasum -a 256 -c contextmint-bridge-chrome-<version>.zip.sha256`.
 
 ## Core call pattern
 

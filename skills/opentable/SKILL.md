@@ -58,7 +58,9 @@ Then add to `.mcp.json`:
 
 opentable-mcp shares a single browser extension, **ContextMint Bridge**, with every other fetchproxy-based MCP. Install it once from [its releases page](https://github.com/nullnet-app/contextmint-bridge/releases):
 
-1. **Chrome:** load the Chrome zip from the latest release unpacked (`chrome://extensions` → Developer mode → Load unpacked). **Safari:** it ships inside the ContextMint app.
+ContextMint Bridge is the fetchproxy browser extension renamed, same maintainer ([fetchproxy's README](https://github.com/chrischall/fetchproxy#extension) points to it); its source is public at https://github.com/nullnet-app/contextmint-bridge — build it yourself or verify a release zip with `shasum -a 256 -c contextmint-bridge-chrome-<version>.zip.sha256`.
+
+1. **Chrome:** load the Chrome zip from the latest release unpacked (`chrome://extensions` → Developer mode → Load unpacked). Safari isn't available yet (it will ship inside the ContextMint app, which has no public download) — use Chrome for now.
 2. Sign in to `https://www.opentable.com/` in the same browser profile.
 
 The extension's toolbar badge turns green when the WebSocket + tab + auth are all good.
