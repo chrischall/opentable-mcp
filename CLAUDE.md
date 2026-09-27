@@ -9,7 +9,7 @@ pluggable browser bridge. Default transport: localhost WebSocket via
 [`@fetchproxy/server`](https://github.com/chrischall/fetchproxy) — the
 companion browser extension, ContextMint Bridge, is installed separately
 from https://github.com/nullnet-app/contextmint-bridge/releases (Chrome:
-unpacked zip; Safari: ships inside the ContextMint app) rather than
+unpacked zip; Safari not available yet — use Chrome for now) rather than
 embedded in this repo. Opt-in alternative:
 `OT_BRIDGE=mcp-chrome` routes through hangwin/mcp-chrome's HTTP MCP
 endpoint instead. Either way, every request rides the user's own browser
@@ -69,7 +69,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the ContextMint Bridge extension i
                             @fetchproxy/server (npm)
 ```
 
-- **Dependency on `@fetchproxy/server`** — the WebSocket server and frame validation live in the separate https://github.com/chrischall/fetchproxy repo, whose releases ship `@fetchproxy/server` to npm. The browser extension is ContextMint Bridge, released from https://github.com/nullnet-app/contextmint-bridge/releases as a Chrome unpacked zip, with Safari shipping inside the ContextMint app. opentable-mcp pins `@fetchproxy/server` and `@fetchproxy/protocol` as runtime deps. The cross-repo split lets resy-mcp, future *.com-mcp servers, etc. share one extension instead of bundling their own.
+- **Dependency on `@fetchproxy/server`** — the WebSocket server and frame validation live in the separate https://github.com/chrischall/fetchproxy repo, whose releases ship `@fetchproxy/server` to npm. The browser extension is ContextMint Bridge, released from https://github.com/nullnet-app/contextmint-bridge/releases as a Chrome unpacked zip (Safari will ship inside the ContextMint app, which has no public download yet — use Chrome for now). opentable-mcp pins `@fetchproxy/server` and `@fetchproxy/protocol` as runtime deps. The cross-repo split lets resy-mcp, future *.com-mcp servers, etc. share one extension instead of bundling their own.
 - **`src/transport.ts`** — the `OpenTableTransport` interface (`start/close/fetch`) and shared `FetchInit`/`FetchResult` types. Two implementations:
   - **`src/transport-fetchproxy.ts`** — `FetchproxyTransport`: thin adapter that wraps `@fetchproxy/server`'s `FetchproxyServer`. opentable-mcp passes opentable-relative paths (`/dapi/...`); the adapter prepends `https://www.opentable.com`. GETs relay through whichever opentable.com tab the extension picks; every non-GET walks `WRITE_RELAY_TAB_PREFIXES` (`/r/` → `/booking/` → `/user/`) via fetchproxy's `viaTab`, because only those app pages define the `window.__CSRF_TOKEN__` the write endpoints demand (see gotchas).
   - **`src/transport-mcp-chrome.ts`** — `McpChromeTransport`: opt-in via `OT_BRIDGE=mcp-chrome`. Talks to hangwin/mcp-chrome's HTTP MCP at `127.0.0.1:12306/mcp`. Each fetch maps to a `chrome_network_request` call pinned to `tabUrl: "https://www.opentable.com/"`. Requires the `tabUrl` param landing upstream — see https://github.com/hangwin/mcp-chrome/pull/348.
