@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.2](https://github.com/chrischall/opentable-mcp/compare/v1.2.1...v1.2.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **deps:** bump the production-dependencies group with 4 updates ([#243](https://github.com/chrischall/opentable-mcp/issues/243)) ([98e7985](https://github.com/chrischall/opentable-mcp/commit/98e79854d067229fb0e55a27b02a52d2a4e1e214))
+* **deps:** move to [@fetchproxy](https://github.com/fetchproxy) 3.4 for ContextMint Bridge errors, capability subsets and managed pins ([#245](https://github.com/chrischall/opentable-mcp/issues/245)) ([cf1c99d](https://github.com/chrischall/opentable-mcp/commit/cf1c99d55ce4220cbf9fe821bd59ecad957b23df))
+* **deps:** move to @chrischall/mcp-utils 2.8 and [@fetchproxy](https://github.com/fetchproxy) 3.4.1 for clearer browser-bridge errors ([#246](https://github.com/chrischall/opentable-mcp/issues/246)) ([1f659af](https://github.com/chrischall/opentable-mcp/commit/1f659af0c48d68e36d7153bc45451034171fba74))
+
 ## [1.2.1](https://github.com/chrischall/opentable-mcp/compare/v1.2.0...v1.2.1) (2026-09-24)
 
 
