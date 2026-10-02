@@ -25,9 +25,8 @@ import { z } from 'zod';
 import {
   PositiveInt,
   confirmTokenParam,
-  confirmationFromEnv,
   minifiedResult,
-  requireConfirmationWithFallback,
+  confirmWrite,
 } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
@@ -916,27 +915,25 @@ export function registerReservationTools(
       // prompt showed. The unsigned booking_token is not an intent check —
       // this gate is.
       const willSend = confirmDetails(confirm, { restaurant_id, date, time, party_size });
-      const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
-        action: 'opentable.book',
-        message: 'Review and confirm this booking:',
-        details: willSend,
+      const gate = await confirmWrite(ctx, {
         tool: 'opentable_book',
+        action: 'opentable.book',
+        summary: `Book a table for ${party_size} at ${venueLabel(confirm, restaurant_id)} on ${date} at ${time} — ${cardClause(confirm)}`,
+        message: 'Review and confirm this booking:',
+        // One signed-in OpenTable session per server; no account selector.
+        account: undefined,
+        target: restaurant_id,
+        payload: {
+          restaurant_id, date, time, party_size, reservation_token, slot_hash,
+          dining_area_id, booking_token, experience_ids,
+          experience_id: callerExperienceId, database_region,
+        },
+        willSend,
+        preview: {
+          note: 'This commits a reservation and holds your saved card (if one is required) per the restaurant\'s cancellation policy shown above.',
+        },
         confirmToken,
-        subject: () => ({
-          target: String(restaurant_id),
-          payload: {
-            restaurant_id, date, time, party_size, reservation_token, slot_hash,
-            dining_area_id, booking_token, experience_ids,
-            experience_id: callerExperienceId, database_region,
-            shown: willSend,
-          },
-          preview: {
-            action: `Book a table for ${party_size} at ${venueLabel(confirm, restaurant_id)} on ${date} at ${time} — ${cardClause(confirm)}`,
-            willSend,
-            note: 'This commits a reservation and holds your saved card (if one is required) per the restaurant\'s cancellation policy shown above.',
-          },
-        }),
-      }));
+      });
       if (gate) return gate;
 
       // Resolved below: from the token (token path) or the booking-details
@@ -1108,27 +1105,24 @@ export function registerReservationTools(
         confirmation_number,
         existing,
       };
-      const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
-        action: 'opentable.modify',
-        message: 'Review and confirm this reservation change:',
-        details: willSend,
+      const gate = await confirmWrite(ctx, {
         tool: 'opentable_modify',
+        action: 'opentable.modify',
+        summary: `Change reservation ${confirmation_number} at ${venueLabel(confirm, restaurant_id)} from ${describeExisting(existing)} to ${date} at ${time} (party of ${party_size}) — ${cardClause(confirm)}`,
+        message: 'Review and confirm this reservation change:',
+        account: undefined,
+        target: confirmation_number,
+        payload: {
+          restaurant_id, confirmation_number, security_token, date, time, party_size,
+          reservation_token, slot_hash, dining_area_id, modify_token,
+          experience_id: callerExperienceId,
+        },
+        willSend,
+        preview: {
+          note: 'The new slot\'s cancellation policy and card re-hold shown above can differ from the original booking\'s.',
+        },
         confirmToken,
-        subject: () => ({
-          target: String(confirmation_number),
-          payload: {
-            restaurant_id, confirmation_number, security_token, date, time, party_size,
-            reservation_token, slot_hash, dining_area_id, modify_token,
-            experience_id: callerExperienceId,
-            shown: willSend,
-          },
-          preview: {
-            action: `Change reservation ${confirmation_number} at ${venueLabel(confirm, restaurant_id)} from ${describeExisting(existing)} to ${date} at ${time} (party of ${party_size}) — ${cardClause(confirm)}`,
-            willSend,
-            note: 'The new slot\'s cancellation policy and card re-hold shown above can differ from the original booking\'s.',
-          },
-        }),
-      }));
+      });
       if (gate) return gate;
 
       // The token is authoritative for the dining area (preview resolved it).
@@ -1221,25 +1215,23 @@ export function registerReservationTools(
       const warning = row
         ? undefined
         : `Reservation ${confirmation_number} was not found on your OpenTable dining dashboard${found.error ? ` (lookup failed: ${found.error})` : ''} — its venue, date and time could not be verified.`;
-      const gate = await requireConfirmationWithFallback(ctx, confirmationFromEnv({
-        action: 'opentable.cancel',
-        message: 'Review and confirm this cancellation:',
-        details: warning ? { ...willSend, warning } : willSend,
+      const gate = await confirmWrite(ctx, {
         tool: 'opentable_cancel',
+        action: 'opentable.cancel',
+        summary: row
+          ? `Cancel reservation ${confirmation_number} at ${row.restaurant_name} on ${row.date} at ${row.time} (party of ${row.party_size})`
+          : `Cancel reservation ${confirmation_number} at restaurant ${restaurant_id}`,
+        message: 'Review and confirm this cancellation:',
+        account: undefined,
+        target: confirmation_number,
+        payload: { restaurant_id, confirmation_number, security_token, database_region },
+        willSend,
+        preview: {
+          ...(warning ? { warning } : {}),
+          note: 'A cancellation may incur a fee per the restaurant\'s policy.',
+        },
         confirmToken,
-        subject: () => ({
-          target: String(confirmation_number),
-          payload: { restaurant_id, confirmation_number, security_token, database_region, shown: willSend },
-          preview: {
-            action: row
-              ? `Cancel reservation ${confirmation_number} at ${row.restaurant_name} on ${row.date} at ${row.time} (party of ${row.party_size})`
-              : `Cancel reservation ${confirmation_number} at restaurant ${restaurant_id}`,
-            willSend,
-            ...(warning ? { warning } : {}),
-            note: 'A cancellation may incur a fee per the restaurant\'s policy.',
-          },
-        }),
-      }));
+      });
       if (gate) return gate;
       const response = await client.fetchJson<{
         data?: {

@@ -2522,6 +2522,26 @@ describe('reservation tools', () => {
       }
     });
 
+    it('the elicitation prompt shows the same summary, willSend and note as the token preview (mcp-utils confirmWrite)', async () => {
+      let shown = '';
+      const elicited = await createTestHarness(
+        (server) => registerReservationTools(server, mockClient),
+        { elicitation: async (req) => { shown = JSON.stringify(req); return { action: 'decline' }; } },
+      );
+      try {
+        mockFetchHtml.mockResolvedValue(htmlWith({
+          diningDashboard: { upcomingReservations: [], pastReservations: [] },
+        }));
+        await elicited.callTool('opentable_cancel', cancelArgs);
+        expect(shown).toContain('Cancel reservation 555 at restaurant 123');
+        expect(shown).toContain('willSend');
+        expect(shown).toMatch(/may incur a fee/);
+        expect(mockFetchJson).not.toHaveBeenCalled();
+      } finally {
+        await elicited.close();
+      }
+    });
+
     it('a client that declines the elicitation prompt does not cancel', async () => {
       const elicited = await createTestHarness(
         (server) => registerReservationTools(server, mockClient),
