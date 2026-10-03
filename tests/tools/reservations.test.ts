@@ -2542,6 +2542,53 @@ describe('reservation tools', () => {
       }
     });
 
+    // The elicitation prompt must show the user exactly what the two-step token
+    // preview would: same action line, same willSend fields, same note. Compare
+    // against the live phase-1 preview rather than restating literals, so a
+    // drift between the two paths fails here.
+    const expectPromptMatchesPreview = async (name: string, args: Record<string, unknown>) => {
+      const { preview } = parseToolResult(await harness.callTool(name, args)) as GateResult & {
+        preview: { action: string; willSend: Record<string, unknown>; note: string };
+      };
+      let message = '';
+      const elicited = await createTestHarness(
+        (server) => registerReservationTools(server, mockClient),
+        {
+          elicitation: async (req) => {
+            message = (req as { params: { message: string } }).params.message;
+            return { action: 'decline' };
+          },
+        },
+      );
+      try {
+        const result = await elicited.callTool(name, args);
+        // confirmWrite renders "<heading>\n<JSON>"; the JSON's `details` is
+        // the preview the token path returns.
+        const shown = JSON.parse(message.slice(message.indexOf('\n') + 1)) as {
+          details: { action: string; willSend: Record<string, unknown>; note: string };
+        };
+        expect(shown.details).toEqual({
+          action: preview.action,
+          willSend: preview.willSend,
+          note: preview.note,
+        });
+        // Declined: nothing is written.
+        expect(result.isError).toBeFalsy();
+        expect(mockFetchHtml).not.toHaveBeenCalled();
+        expect(mockFetchJson).not.toHaveBeenCalled();
+      } finally {
+        await elicited.close();
+      }
+    };
+
+    it('the opentable_book elicitation prompt shows the same summary, willSend and note as the token preview', async () => {
+      await expectPromptMatchesPreview('opentable_book', { ...bookArgs, booking_token: bookToken() });
+    });
+
+    it('the opentable_modify elicitation prompt shows the same summary, willSend and note as the token preview', async () => {
+      await expectPromptMatchesPreview('opentable_modify', modifyArgs(modifyToken()));
+    });
+
     it('a client that declines the elicitation prompt does not cancel', async () => {
       const elicited = await createTestHarness(
         (server) => registerReservationTools(server, mockClient),
