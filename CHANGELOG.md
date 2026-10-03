@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.3](https://github.com/chrischall/opentable-mcp/compare/v1.2.2...v1.2.3) (2026-10-03)
+
+
+### Bug Fixes
+
+* **deps:** bump @chrischall/mcp-utils to 2.12.0 ([#251](https://github.com/chrischall/opentable-mcp/issues/251)) ([2f9d3e1](https://github.com/chrischall/opentable-mcp/commit/2f9d3e16497f44eb7c2944fb77df35314499c571))
+* **deps:** bump @chrischall/mcp-utils to 2.13.0 ([#255](https://github.com/chrischall/opentable-mcp/issues/255)) ([e0cc435](https://github.com/chrischall/opentable-mcp/commit/e0cc43547df209a45fbf29f5e2f25215db147a0b))
+* keep credentials and report edge_blocked on CDN/WAF blocks (mcp-utils 2.10.0) ([#249](https://github.com/chrischall/opentable-mcp/issues/249)) ([d511e65](https://github.com/chrischall/opentable-mcp/commit/d511e650dc6003620da2699c92ffd23cdaa487ac))
+* keep write approvals valid across a hosted restart (mcp-utils 2.11.0) ([#250](https://github.com/chrischall/opentable-mcp/issues/250)) ([99f996d](https://github.com/chrischall/opentable-mcp/commit/99f996d1f0edca696fe962cfad2cacc4983b09cb))
+* report CDN/WAF blocks as edge_blocked, not a rejected credential (mcp-utils 2.9.0) ([#247](https://github.com/chrischall/opentable-mcp/issues/247)) ([203e0be](https://github.com/chrischall/opentable-mcp/commit/203e0be44568581da608e1aa54677e3ebf15a1ec))
+* **reservations:** bind book/modify/cancel confirmations to the exact reservation via mcp-utils confirmWrite ([#252](https://github.com/chrischall/opentable-mcp/issues/252)) ([5be24e2](https://github.com/chrischall/opentable-mcp/commit/5be24e2aa3d8b54c2f46216e8c825e4ded8bd57b))
+
+
+### Documentation
+
+* stop telling agents to arm the release PR ([#253](https://github.com/chrischall/opentable-mcp/issues/253)) ([5bcf29b](https://github.com/chrischall/opentable-mcp/commit/5bcf29bbf2aa494e76c6c11f03de9374d15be5a5))
+
 ## [1.2.2](https://github.com/chrischall/opentable-mcp/compare/v1.2.1...v1.2.2) (2026-09-27)
 
 
