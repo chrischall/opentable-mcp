@@ -56,6 +56,10 @@
       "description": "Get full details for a restaurant by URL slug (cuisine, hours, dining areas, etc.)."
     },
     {
+      "name": "opentable_get_menu",
+      "description": "Get published restaurant menus, optionally selecting a menu title, with sections, dishes, prices, variations, currency, update timestamps and external menu links."
+    },
+    {
       "name": "opentable_find_slots",
       "description": "List available reservation slots for a restaurant on a given date + party size."
     },

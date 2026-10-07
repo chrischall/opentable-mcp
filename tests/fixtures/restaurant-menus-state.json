@@ -1,0 +1,45 @@
+{
+  "restaurantProfile": {
+    "restaurant": { "restaurantId": 42, "name": "Fixture Cafe" },
+    "menus": {
+      "menuData": [
+        {
+          "title": "Breakfast",
+          "description": "Morning menu",
+          "currency": { "code": "USD", "__typename": "MenuCurrency" },
+          "updated": "2026-09-11T21:29:35.665",
+          "provider": { "name": "OpenTable", "__typename": "MenuProvider" },
+          "sections": [{ "title": "Breakfast plates", "items": [{ "title": "Fixture toast", "price": "0.00" }] }]
+        },
+        {
+          "title": "Dinner",
+          "description": "Seasonal menu.\n\nAsk about today's specials.",
+          "currency": { "code": "USD", "__typename": "MenuCurrency" },
+          "updated": "2026-09-12T20:36:21.187",
+          "provider": {
+            "name": "OpenTable",
+            "image": { "url": "https://example.com/provider.png", "height": 24 },
+            "__typename": "MenuProvider"
+          },
+          "sections": [{
+            "title": "Main courses",
+            "description": "Served from 5pm",
+            "items": [{
+              "title": "Fixture stew",
+              "description": "Vegetables and beans",
+              "price": "18.00",
+              "variationGroups": [{
+                "items": [{ "title": "Small", "price": "0.00" }, { "title": "Large", "price": "6.00" }],
+                "__typename": "MenuVariationGroup"
+              }],
+              "__typename": "MenuItem"
+            }, { "title": "Market special", "price": null }],
+            "__typename": "MenuSection"
+          }],
+          "__typename": "Menu"
+        }
+      ],
+      "menuInfo": { "showThirdPartyMenu": true, "url": "https://example.com/menu", "__typename": "MenuInfo" }
+    }
+  }
+}

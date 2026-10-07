@@ -1,10 +1,31 @@
 import { z } from 'zod';
-import { PositiveInt, UpstreamHttpError, minifiedResult } from '@chrischall/mcp-utils';
+import { PositiveInt, UpstreamHttpError } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { OpenTableClient } from '../client.js';
 import { parseRestaurant } from '../parse-restaurant.js';
+import { parseMenu } from '../parse-menu.js';
 import { restaurantCandidatePaths, OPENTABLE_BASE_URL } from '../urls.js';
+
+async function fetchRestaurantPage(client: OpenTableClient, restaurantId: string | number): Promise<{ html: string; url: string }> {
+  const candidates = restaurantCandidatePaths(restaurantId);
+  let lastNotFound: UpstreamHttpError | undefined;
+  for (const path of candidates) {
+    try {
+      return { html: await client.fetchHtml(path), url: `${OPENTABLE_BASE_URL}${path}` };
+    } catch (e) {
+      if (e instanceof UpstreamHttpError && e.status === 404) {
+        lastNotFound = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error(
+    `No OpenTable restaurant detail page found for "${restaurantId}" (tried ${candidates.join(', ')}). ` +
+    `Pass the exact "url" from opentable_search_restaurants. Underlying error: ${lastNotFound?.message ?? 'not found'}`,
+  );
+}
 
 export function registerRestaurantTools(
   server: McpServer,
@@ -26,28 +47,26 @@ export function registerRestaurantTools(
       }),
     },
     async ({ restaurant_id, view }) => {
-      const candidates = restaurantCandidatePaths(restaurant_id);
-      let lastNotFound: UpstreamHttpError | undefined;
-      for (const path of candidates) {
-        try {
-          const html = await client.fetchHtml(path);
-          // Thread the exact URL we fetched through so the output `url` reflects
-          // the form OpenTable actually serves (/r/{slug} vs legacy /{slug}).
-          const restaurant = parseRestaurant(html, `${OPENTABLE_BASE_URL}${path}`);
-          return viewResponse(view, restaurant);
-        } catch (e) {
-          if (e instanceof UpstreamHttpError && e.status === 404) {
-            lastNotFound = e;
-            continue;
-          }
-          throw e;
-        }
-      }
-      throw new Error(
-        `No OpenTable restaurant detail page found for "${restaurant_id}" (tried ${candidates.join(
-          ', '
-        )}). Pass the exact "url" from opentable_search_restaurants. Underlying error: ${lastNotFound?.message ?? 'not found'}`
-      );
+      const { html, url } = await fetchRestaurantPage(client, restaurant_id);
+      return viewResponse(view, parseRestaurant(html, url));
     }
+  );
+
+  server.registerTool(
+    'opentable_get_menu',
+    {
+      description:
+        'Get published menus for an OpenTable restaurant, including sections, dishes, prices, variations, currency, provider and updated timestamps. Accepts the same numeric id/slug/path/URL as opentable_get_restaurant. Optional menu_name selects an exact title case-insensitively (e.g. Dinner). Returns available_menus and status: available, menu_not_found, external_only or not_available. External menu_url links are returned but never fetched. Prices describe OpenTable\'s published menu, not a live quote from the restaurant.',
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({
+        view: viewArg(),
+        restaurant_id: z.union([z.string(), PositiveInt]).describe('Numeric restaurant id, slug, path, or exact URL from opentable_search_restaurants.'),
+        menu_name: z.string().trim().min(1).optional().describe('Exact published menu title, case-insensitive. Omit to return all menus; available_menus lists titles when a selection is not found.'),
+      }),
+    },
+    async ({ restaurant_id, menu_name, view }) => {
+      const { html, url } = await fetchRestaurantPage(client, restaurant_id);
+      return viewResponse(view, parseMenu(html, url, menu_name));
+    },
   );
 }

@@ -29,6 +29,7 @@ No cookie-pasting. No cycletls. No Playwright. Just your own browser, acting on 
 | `opentable_list_favorites` | read | `/user/favorites` SSR |
 | `opentable_search_restaurants` | read | `/dapi/fe/gql?opname=Autocomplete` |
 | `opentable_get_restaurant` | read | `/r/{slug}` SSR (`__INITIAL_STATE__`) |
+| `opentable_get_menu` | read | Restaurant profile SSR (`restaurantProfile.menus`) |
 | `opentable_find_slots` | read | `/dapi/fe/gql?opname=RestaurantsAvailability` |
 | `opentable_book_preview` | read | `/booking/details` SSR + `SlotLock` |
 | `opentable_book` | write | `SlotLock` → `/dapi/booking/make-reservation` |
@@ -38,6 +39,29 @@ No cookie-pasting. No cycletls. No Playwright. Just your own browser, acting on 
 | `opentable_add_favorite` | write | `/dapi/wishlist/add` |
 | `opentable_remove_favorite` | write | `/dapi/wishlist/remove` |
 | `opentable_healthcheck` | read | `/robots.txt` (bridge probe) |
+
+### Published menus
+
+`opentable_get_menu` accepts the same restaurant ID, slug, path, or exact URL
+as `opentable_get_restaurant`. Omit `menu_name` to return all published menus,
+or pass an exact title such as `"Dinner"` (case-insensitive) to select one:
+
+```json
+{"restaurant_id":"https://www.opentable.com/r/social-san-juan","menu_name":"Dinner"}
+```
+
+The response includes restaurant identity and source `url`, `available_menus`,
+`menus`, and an optional external `menu_url`. Each published menu retains
+OpenTable's sections/items, price strings, `variationGroups`, currency,
+provider, and `updated` timestamp. `view` defaults to `compact` (media URLs
+removed); `full` retains media URLs too. Published prices may differ from the
+restaurant's current menu, so keep the source and update timestamp when quoting.
+
+`status` distinguishes `available`, `menu_not_found` (check `available_menus`),
+`external_only`, and `not_available`. An absent menu is not an HTTP/bridge or
+parsing error: those failures remain errors. External links are returned
+without fetching other hosts or parsing PDFs. This tool only reads the same
+restaurant page through the existing browser bridge; it never holds a table.
 
 ## Acknowledgement of Terms
 
