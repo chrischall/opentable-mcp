@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/chrischall/opentable-mcp/compare/v1.2.4...v1.3.0) (2026-10-07)
+
+
+### Features
+
+* expose published restaurant menus via opentable_get_menu (thanks @rhclaw) ([#263](https://github.com/chrischall/opentable-mcp/issues/263)) ([8c2288f](https://github.com/chrischall/opentable-mcp/commit/8c2288f0f605bb04ffa48b6f2b68485347615ae6))
+
 ## [1.2.4](https://github.com/chrischall/opentable-mcp/compare/v1.2.3...v1.2.4) (2026-10-05)
 
 
