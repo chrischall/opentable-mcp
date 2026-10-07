@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.1](https://github.com/chrischall/opentable-mcp/compare/v1.3.0...v1.3.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **deps:** bump source-map-js from 1.2.1 to 1.2.2 in the security group across 1 directory ([#265](https://github.com/chrischall/opentable-mcp/issues/265)) ([94dfc23](https://github.com/chrischall/opentable-mcp/commit/94dfc238c992d7431a69d998689abfaa6ffcf83d))
+* **deps:** retry bridge approval waits and allow opting out of confirmation prompts ([#267](https://github.com/chrischall/opentable-mcp/issues/267)) ([ede91ce](https://github.com/chrischall/opentable-mcp/commit/ede91ce53571f20afc563bba7f9eff0554db3b00))
+
+
+### Documentation
+
+* document MCP_CONFIRM_ELICITATION ([#268](https://github.com/chrischall/opentable-mcp/issues/268)) ([c52cfb8](https://github.com/chrischall/opentable-mcp/commit/c52cfb803f48fefc3fca31ba215efbe1ec14cf4a))
+
 ## [1.3.0](https://github.com/chrischall/opentable-mcp/compare/v1.2.4...v1.3.0) (2026-10-07)
 
 
