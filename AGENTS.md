@@ -4,7 +4,7 @@ Guidance for coding agents working in this repo.
 
 ## TL;DR
 
-OpenTable MCP server with 13 tools (read + write), fronted by a
+OpenTable MCP server with 15 tools (read + write), fronted by a
 pluggable browser bridge. Default transport: localhost WebSocket via
 [`@fetchproxy/server`](https://github.com/chrischall/fetchproxy) — the
 companion browser extension, ContextMint Bridge, is installed separately
@@ -90,6 +90,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the ContextMint Bridge extension i
 | `opentable_list_favorites` | `tools/favorites.ts` | GET `/user/favorites` SSR | read |
 | `opentable_search_restaurants` | `tools/search.ts` | POST `/dapi/fe/gql?opname=Autocomplete` | read |
 | `opentable_get_restaurant` | `tools/restaurants.ts` | GET `/r/{slug}` SSR (falls back to legacy root `/{slug}`) | read |
+| `opentable_get_menu` | `tools/restaurants.ts` | Same restaurant profile GET; `restaurantProfile.menus` SSR | read |
 | `opentable_find_slots` | `tools/reservations.ts` | `RestaurantsAvailability` via fetchproxy's `graphql` capability (not a raw fetch — see gotchas) | read |
 | `opentable_book_preview` | `tools/reservations.ts` | GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` | read |
 | `opentable_book` | `tools/reservations.ts` | (token path) POST `/dapi/booking/make-reservation`; (no-token path) GET `/booking/details` SSR + POST `BookDetailsStandardSlotLock` → POST `/dapi/booking/make-reservation` | write |
@@ -99,7 +100,7 @@ All `probe-*.ts` / `e2e-*.ts` scripts require the ContextMint Bridge extension i
 | `opentable_add_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/add` | write |
 | `opentable_remove_favorite` | `tools/favorites.ts` | POST `/dapi/wishlist/remove` | write |
 
-Note: `manifest.json` now lists all 13 tools (was historically out of sync — `opentable_book_preview` was missing). The release workflow rewrites versions but not the tool list — if you change the tool surface, update `manifest.json` by hand.
+Note: `manifest.json` lists all 15 tools (was historically out of sync — `opentable_book_preview` was missing). The release workflow rewrites versions but not the tool list — if you change the tool surface, update `manifest.json` by hand.
 
 ## Environment
 
@@ -238,4 +239,3 @@ Shared technical conventions (publishing, bundling, versioning guards,
 write-verification, transport archetypes, testing traps) live in
 [`chrischall/workflows`](https://github.com/chrischall/workflows):
 `docs/fleet-conventions.md`, plus `README.md` for the CI pipeline contract.
-
