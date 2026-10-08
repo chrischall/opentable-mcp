@@ -102,6 +102,19 @@ export class OpenTableClient {
   private readonly transport: OpenTableTransport;
   private readonly observations: Partial<Record<CapabilityName, CapabilityObservation>> = {};
 
+  constructor(opts: OpenTableClientOptions) {
+    this.transport = opts.transport;
+  }
+
+  async start(): Promise<void> {
+    await this.transport.start();
+  }
+
+  async close(): Promise<void> {
+    await this.transport.close();
+  }
+
+  /** Record what a real business read just showed, for the healthcheck. */
   recordCapability(name: CapabilityName, state: CapabilityObservation['state'], code?: string): void {
     this.observations[name] = { state, observed_at: new Date().toISOString(), ...(code ? { code } : {}) };
   }
@@ -114,18 +127,6 @@ export class OpenTableClient {
     }
     result.booking = { state: 'not_probed' }; // A read-only healthcheck never holds or books inventory.
     return result;
-  }
-
-  constructor(opts: OpenTableClientOptions) {
-    this.transport = opts.transport;
-  }
-
-  async start(): Promise<void> {
-    await this.transport.start();
-  }
-
-  async close(): Promise<void> {
-    await this.transport.close();
   }
 
   /**

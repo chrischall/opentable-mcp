@@ -56,8 +56,11 @@ export function registerHealthcheckTools(
       },
     });
     return withCapabilities(response, {
-      scope: 'bridge_transport_only', capabilities: client.capabilityStatus(),
-      capability_note: 'Observations belong to this MCP process and are fresh for five minutes, not proof of the current browser session. Not-probed/stale capabilities remain unverified. Booking is never tested by this read-only probe.' });
+      scope: 'bridge_transport_only',
+      capabilities: client.capabilityStatus(),
+      capability_note:
+        'Observations belong to this MCP process and are fresh for five minutes, not proof of the current browser session. Not-probed/stale capabilities remain unverified. Booking is never tested by this read-only probe.',
+    });
   });
 }
 
