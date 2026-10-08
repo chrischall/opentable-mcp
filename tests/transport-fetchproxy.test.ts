@@ -30,7 +30,7 @@ vi.mock('@chrischall/mcp-utils/fetchproxy', () => {
 });
 
 // Import AFTER vi.mock so the adapter picks up the fake.
-const { FetchproxyTransport, WRITE_RELAY_TAB_PREFIXES } = await import(
+const { FetchproxyTransport, WRITE_RELAY_TAB_PREFIXES, isGraphqlOpNotObserved } = await import(
   '../src/transport-fetchproxy.js'
 );
 const { FetchproxyNoTabError } = await import('@fetchproxy/server');
@@ -202,6 +202,7 @@ describe('FetchproxyTransport.graphqlQuery', () => {
     expect(graphqlQueryMock).toHaveBeenCalledWith({
       name: AVAILABILITY_GRAPHQL_OP_NAME,
       variables: { restaurantIds: [42], partySize: 2 },
+      tabUrl: 'https://www.opentable.com/r/',
       retryOnTimeout: true,
     });
     expect(result).toEqual({ availability: [] });
@@ -231,4 +232,35 @@ describe('FetchproxyTransport.fetch retryOnTimeout', () => {
       expect(call[2]).not.toHaveProperty('retryOnTimeout');
     }
   });
+  // fetchproxy's own wording (extension-core notYetObservedError): no typed
+  // error exists for this miss, so the substring IS the contract.
+  const NOT_OBSERVED = 'operation RestaurantsAvailability not yet observed on this tab — open a page on the site that triggers this GraphQL operation, then retry';
+
+  it.each([
+    ['the bridge error', new Error(NOT_OBSERVED), true],
+    ['a bare string', NOT_OBSERVED, true],
+    ['an HTTP failure', new Error('Response not successful: Received status code 409'), false],
+    ['an unrelated error', new Error('socket closed'), false],
+  ])('isGraphqlOpNotObserved: %s → %s', (_label, error, expected) => {
+    expect(isGraphqlOpNotObserved(error)).toBe(expected);
+  });
+
+  it('falls back to the next relay when a tab has not observed the operation', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    graphqlQueryMock.mockRejectedValueOnce(new Error(NOT_OBSERVED)).mockResolvedValueOnce({ availability: [] });
+    await expect(transport.graphqlQuery({ name: AVAILABILITY_GRAPHQL_OP_NAME, variables: {} })).resolves.toEqual({ availability: [] });
+    expect(graphqlQueryMock.mock.calls[1][0].tabUrl).toBe('https://www.opentable.com/restaurant/profile/');
+  });
+
+  it('falls back from a missing profile tab, but never retries HTTP 409 on another tab', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    graphqlQueryMock.mockRejectedValueOnce(new FetchproxyNoTabError('no matching profile tab')).mockResolvedValueOnce({ availability: [] });
+    await transport.graphqlQuery({ name: AVAILABILITY_GRAPHQL_OP_NAME, variables: {} });
+    expect(graphqlQueryMock.mock.calls[1][0].tabUrl).toBe('https://www.opentable.com/restaurant/profile/');
+    graphqlQueryMock.mockClear();
+    graphqlQueryMock.mockRejectedValueOnce(new Error('Response not successful: Received status code 409'));
+    await expect(transport.graphqlQuery({ name: AVAILABILITY_GRAPHQL_OP_NAME, variables: {} })).rejects.toThrow('409');
+    expect(graphqlQueryMock).toHaveBeenCalledTimes(1);
+  });
+
 });

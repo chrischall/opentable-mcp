@@ -75,6 +75,19 @@ const RETRY_SAFE_GRAPHQL_OPS: ReadonlySet<string> = new Set([
   AVAILABILITY_GRAPHQL_OP_NAME, // RestaurantsAvailability — a `query`
 ]);
 
+/**
+ * True when the relay tab has not yet seen the page fire this GraphQL
+ * operation. fetchproxy has no typed error for that miss — the extension
+ * sends a string and the server wraps it in a plain FetchproxyProtocolError —
+ * so this substring is the contract: it is exactly what fetchproxy's own
+ * `isNotYetObservedError` (extension-core) matches. Fails safe if the wording
+ * ever changes: the miss is rethrown instead of tried on the next tab.
+ */
+export function isGraphqlOpNotObserved(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return message.includes('not yet observed on this tab');
+}
+
 export class FetchproxyTransport implements OpenTableTransport {
   // mcp-utils' createFetchproxyTransport owns the FetchproxyServer construction
   // + start/close lifecycle (the boilerplate ~12 sibling MCPs duplicate). It
@@ -177,12 +190,21 @@ export class FetchproxyTransport implements OpenTableTransport {
   }
 
   async graphqlQuery(init: GraphqlQueryInit): Promise<unknown> {
-    // No explicit tabUrl: the extension walks the opentable.com tabs itself
-    // until it finds one that has observed the operation.
-    return this.inner.server.graphqlQuery({
-      name: init.name,
-      variables: init.variables,
+    const issue = (tabUrl?: string) => this.inner.server.graphqlQuery({
+      name: init.name, variables: init.variables,
+      ...(tabUrl ? { tabUrl } : {}),
       ...(RETRY_SAFE_GRAPHQL_OPS.has(init.name) ? { retryOnTimeout: true } : {}),
     });
+    // Prefer restaurant pages that fire this query. Only a missing tab/document
+    // permits a different relay; HTTP/session failures are terminal, not retried.
+    if (init.name === AVAILABILITY_GRAPHQL_OP_NAME) {
+      for (const prefix of ['https://www.opentable.com/r/', 'https://www.opentable.com/restaurant/profile/']) {
+        try { return await issue(prefix); }
+        catch (error) {
+          if (!(error instanceof FetchproxyNoTabError) && !isGraphqlOpNotObserved(error)) throw error;
+        }
+      }
+    }
+    return issue();
   }
 }

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
-import type { OpenTableClient } from '../client.js';
+import { type OpenTableClient, capabilityFailureCode } from '../client.js';
 import { parseSearch } from '../parse-search.js';
 
 /**
@@ -71,8 +71,14 @@ export function registerSearchTools(
     // builder enumerates its keys so nothing leaked, but the next one might not.)
     async ({ view, ...input }) => {
       const path = buildSearchUrl(input);
-      const html = await client.fetchHtml(path);
-      const result = parseSearch(html);
+      let result: ReturnType<typeof parseSearch>;
+      try {
+        result = parseSearch(await client.fetchHtml(path));
+      } catch (error) {
+        client.recordCapability?.('search', 'failed', capabilityFailureCode(error, 'read_error'));
+        throw error;
+      }
+      client.recordCapability?.('search', 'passed');
       return viewResponse(view, result);
     }
   );

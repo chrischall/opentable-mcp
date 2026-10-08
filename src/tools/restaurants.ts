@@ -2,10 +2,15 @@ import { z } from 'zod';
 import { PositiveInt, UpstreamHttpError } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
-import type { OpenTableClient } from '../client.js';
+import { type OpenTableClient, capabilityFailureCode } from '../client.js';
 import { parseRestaurant } from '../parse-restaurant.js';
 import { parseMenu, pageMenu } from '../parse-menu.js';
 import { restaurantCandidatePaths, OPENTABLE_BASE_URL } from '../urls.js';
+
+/** Every candidate path 404'd: the caller's id is wrong, not the bridge. */
+class RestaurantNotFoundError extends Error {
+  override name = 'RestaurantNotFoundError';
+}
 
 async function fetchRestaurantPage(client: OpenTableClient, restaurantId: string | number): Promise<{ html: string; url: string }> {
   const candidates = restaurantCandidatePaths(restaurantId);
@@ -21,7 +26,7 @@ async function fetchRestaurantPage(client: OpenTableClient, restaurantId: string
       throw e;
     }
   }
-  throw new Error(
+  throw new RestaurantNotFoundError(
     `No OpenTable restaurant detail page found for "${restaurantId}" (tried ${candidates.join(', ')}). ` +
     `Pass the exact "url" from opentable_search_restaurants. Underlying error: ${lastNotFound?.message ?? 'not found'}`,
   );
@@ -68,8 +73,21 @@ export function registerRestaurantTools(
       }),
     },
     async ({ restaurant_id, menu_name, view, section_name, offset, limit }) => {
-      const { html, url } = await fetchRestaurantPage(client, restaurant_id);
-      return viewResponse(view, pageMenu(parseMenu(html, url, menu_name), { view, section_name, offset, limit }));
+      let result: ReturnType<typeof parseMenu>;
+      try {
+        const { html, url } = await fetchRestaurantPage(client, restaurant_id);
+        result = parseMenu(html, url, menu_name);
+      } catch (error) {
+        // An id that matches no page is bad input, not a menus failure.
+        if (!(error instanceof RestaurantNotFoundError)) {
+          client.recordCapability?.('menus', 'failed', capabilityFailureCode(error, 'read_error'));
+        }
+        throw error;
+      }
+      client.recordCapability?.('menus', 'passed');
+      // Paging runs after the capability is recorded: an item too large for a
+      // page is a request-shape error, not a failure to read menus.
+      return viewResponse(view, pageMenu(result, { view, section_name, offset, limit }));
     },
   );
 }
