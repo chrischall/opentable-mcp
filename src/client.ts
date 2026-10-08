@@ -82,17 +82,33 @@ export interface OpenTableClientOptions {
   transport: OpenTableTransport;
 }
 
+/** Business reads the healthcheck reports from real calls (booking is never probed). */
+const CAPABILITY_NAMES = ['search', 'menus', 'availability'] as const;
+export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
+
+export interface CapabilityObservation {
+  state: 'passed' | 'failed';
+  observed_at: string;
+  code?: string;
+}
+
+/** An observation as the healthcheck reports it (with `fresh`), or `not_probed`. */
+export interface CapabilityReport extends Partial<Omit<CapabilityObservation, 'state'>> {
+  state: CapabilityObservation['state'] | 'not_probed';
+  fresh?: boolean;
+}
+
 export class OpenTableClient {
   private readonly transport: OpenTableTransport;
-  private readonly observations: Partial<Record<'search' | 'menus' | 'availability', { state: 'passed' | 'failed'; observed_at: string; code?: string }>> = {};
+  private readonly observations: Partial<Record<CapabilityName, CapabilityObservation>> = {};
 
-  recordCapability(name: 'search' | 'menus' | 'availability', state: 'passed' | 'failed', code?: string): void {
+  recordCapability(name: CapabilityName, state: CapabilityObservation['state'], code?: string): void {
     this.observations[name] = { state, observed_at: new Date().toISOString(), ...(code ? { code } : {}) };
   }
 
-  capabilityStatus(): Record<string, { state: string; observed_at?: string; code?: string; fresh?: boolean }> {
-    const result: Record<string, { state: string; observed_at?: string; code?: string; fresh?: boolean }> = {};
-    for (const name of ['search', 'menus', 'availability'] as const) {
+  capabilityStatus(): Record<CapabilityName | 'booking', CapabilityReport> {
+    const result = {} as Record<CapabilityName | 'booking', CapabilityReport>;
+    for (const name of CAPABILITY_NAMES) {
       const observed = this.observations[name];
       result[name] = observed ? { ...observed, fresh: Date.now() - Date.parse(observed.observed_at) < CAPABILITY_FRESH_MS } : { state: 'not_probed' };
     }

@@ -40,21 +40,21 @@ export function registerHealthcheckTools(
     inputSchema: z.object({}),
   }, async () => {
     const response = await runBridgeHealthcheck({
-    server,
-    prefix: 'opentable',
-    probePath: PROBE_PATH,
-    hostLabel: 'www.opentable.com',
-    transport: {
-      runProbe: (fetchFn, probePath) =>
-        runProbe.call(transport, fetchFn, probePath) as never,
-      status: () => bridgeStatus.call(transport) as never,
-    },
-    probeFn: async (path) => {
-      const html = await client.fetchHtml(path);
-      if (/^\s*<!doctype\s+html|<html[\s>]/i.test(html)) throw new Error('robots probe returned HTML instead of robots.txt; downstream response is unverified');
-      return html;
-    },
-  });
+      server,
+      prefix: 'opentable',
+      probePath: PROBE_PATH,
+      hostLabel: 'www.opentable.com',
+      transport: {
+        runProbe: (fetchFn, probePath) =>
+          runProbe.call(transport, fetchFn, probePath) as never,
+        status: () => bridgeStatus.call(transport) as never,
+      },
+      probeFn: async (path) => {
+        const html = await client.fetchHtml(path);
+        if (/^\s*<!doctype\s+html|<html[\s>]/i.test(html)) throw new Error('robots probe returned HTML instead of robots.txt; downstream response is unverified');
+        return html;
+      },
+    });
     return withCapabilities(response, {
       scope: 'bridge_transport_only', capabilities: client.capabilityStatus(),
       capability_note: 'Observations belong to this MCP process and are fresh for five minutes, not proof of the current browser session. Not-probed/stale capabilities remain unverified. Booking is never tested by this read-only probe.' });
