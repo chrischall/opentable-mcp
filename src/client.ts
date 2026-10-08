@@ -50,6 +50,21 @@ export interface OpenTableClientOptions {
 
 export class OpenTableClient {
   private readonly transport: OpenTableTransport;
+  private readonly observations: Partial<Record<'search' | 'menus' | 'availability', { state: 'passed' | 'failed'; observed_at: string; code?: string }>> = {};
+
+  recordCapability(name: 'search' | 'menus' | 'availability', state: 'passed' | 'failed', code?: string): void {
+    this.observations[name] = { state, observed_at: new Date().toISOString(), ...(code ? { code } : {}) };
+  }
+
+  capabilityStatus(): Record<string, { state: string; observed_at?: string; code?: string; fresh?: boolean }> {
+    const result: Record<string, { state: string; observed_at?: string; code?: string; fresh?: boolean }> = {};
+    for (const name of ['search', 'menus', 'availability'] as const) {
+      const observed = this.observations[name];
+      result[name] = observed ? { ...observed, fresh: Date.now() - Date.parse(observed.observed_at) < 300_000 } : { state: 'not_probed' };
+    }
+    result.booking = { state: 'not_probed' }; // A read-only healthcheck never holds or books inventory.
+    return result;
+  }
 
   constructor(opts: OpenTableClientOptions) {
     this.transport = opts.transport;
@@ -125,7 +140,17 @@ export class OpenTableClient {
    * has triggered the operation yet in this session.
    */
   async graphqlQuery(name: string, variables: Record<string, unknown>): Promise<unknown> {
-    return this.transport.graphqlQuery({ name, variables });
+    try {
+      const data = await this.transport.graphqlQuery({ name, variables });
+      if (name === AVAILABILITY_GRAPHQL_OP_NAME) this.recordCapability('availability', 'passed');
+      return data;
+    } catch (error) {
+      if (name !== AVAILABILITY_GRAPHQL_OP_NAME) throw error;
+      const message = truncateErrorMessage(error instanceof Error ? error.message : String(error));
+      const status = message.match(/(?:status(?: code)?|HTTP)\s*[:=]?\s*(403|409)\b/i)?.[1];
+      this.recordCapability('availability', 'failed', status ? `http_${status}` : 'graphql_error');
+      throw new Error(`${message}. Availability is unverified, not empty. A successful robots/bridge probe does not test this operation. Open or refresh an OpenTable restaurant page in the signed-in bridged browser, allow its availability query to load, complete any visible sign-in/human challenge, then retry once. Do not cycle through other restaurants or use a booking preview as a probe.`, { cause: error });
+    }
   }
 
   private throwIfNotOk(result: FetchResult, method: string, path: string): void {

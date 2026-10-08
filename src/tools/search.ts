@@ -70,10 +70,13 @@ export function registerSearchTools(
     // cast left `view` sitting in the object handed to buildSearchUrl; that
     // builder enumerates its keys so nothing leaked, but the next one might not.)
     async ({ view, ...input }) => {
+      try {
       const path = buildSearchUrl(input);
       const html = await client.fetchHtml(path);
       const result = parseSearch(html);
+      client.recordCapability?.('search', 'passed');
       return viewResponse(view, result);
+      } catch (error) { client.recordCapability?.('search', 'failed', 'read_or_parse_error'); throw error; }
     }
   );
 }

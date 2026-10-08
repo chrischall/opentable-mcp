@@ -177,12 +177,21 @@ export class FetchproxyTransport implements OpenTableTransport {
   }
 
   async graphqlQuery(init: GraphqlQueryInit): Promise<unknown> {
-    // No explicit tabUrl: the extension walks the opentable.com tabs itself
-    // until it finds one that has observed the operation.
-    return this.inner.server.graphqlQuery({
-      name: init.name,
-      variables: init.variables,
+    const issue = (tabUrl?: string) => this.inner.server.graphqlQuery({
+      name: init.name, variables: init.variables,
+      ...(tabUrl ? { tabUrl } : {}),
       ...(RETRY_SAFE_GRAPHQL_OPS.has(init.name) ? { retryOnTimeout: true } : {}),
     });
+    // Prefer restaurant pages that fire this query. Only a missing tab/document
+    // permits a different relay; HTTP/session failures are terminal, not retried.
+    if (init.name === AVAILABILITY_GRAPHQL_OP_NAME) {
+      for (const prefix of ['https://www.opentable.com/r/', 'https://www.opentable.com/restaurant/profile/']) {
+        try { return await issue(prefix); }
+        catch (error) {
+          if (!(error instanceof FetchproxyNoTabError) && !(error instanceof Error && /not yet observed on this tab/i.test(error.message))) throw error;
+        }
+      }
+    }
+    return issue();
   }
 }

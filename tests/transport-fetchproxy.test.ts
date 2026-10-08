@@ -202,6 +202,7 @@ describe('FetchproxyTransport.graphqlQuery', () => {
     expect(graphqlQueryMock).toHaveBeenCalledWith({
       name: AVAILABILITY_GRAPHQL_OP_NAME,
       variables: { restaurantIds: [42], partySize: 2 },
+      tabUrl: 'https://www.opentable.com/r/',
       retryOnTimeout: true,
     });
     expect(result).toEqual({ availability: [] });
@@ -231,4 +232,15 @@ describe('FetchproxyTransport.fetch retryOnTimeout', () => {
       expect(call[2]).not.toHaveProperty('retryOnTimeout');
     }
   });
+  it('falls back from a missing profile tab, but never retries HTTP 409 on another tab', async () => {
+    const transport = new FetchproxyTransport({ version: '1.2.3' });
+    graphqlQueryMock.mockRejectedValueOnce(new FetchproxyNoTabError('no matching profile tab')).mockResolvedValueOnce({ availability: [] });
+    await transport.graphqlQuery({ name: AVAILABILITY_GRAPHQL_OP_NAME, variables: {} });
+    expect(graphqlQueryMock.mock.calls[1][0].tabUrl).toBe('https://www.opentable.com/restaurant/profile/');
+    graphqlQueryMock.mockClear();
+    graphqlQueryMock.mockRejectedValueOnce(new Error('Response not successful: Received status code 409'));
+    await expect(transport.graphqlQuery({ name: AVAILABILITY_GRAPHQL_OP_NAME, variables: {} })).rejects.toThrow('409');
+    expect(graphqlQueryMock).toHaveBeenCalledTimes(1);
+  });
+
 });

@@ -65,8 +65,12 @@ export function registerRestaurantTools(
       }),
     },
     async ({ restaurant_id, menu_name, view }) => {
-      const { html, url } = await fetchRestaurantPage(client, restaurant_id);
-      return viewResponse(view, parseMenu(html, url, menu_name));
+      try {
+        const { html, url } = await fetchRestaurantPage(client, restaurant_id);
+        const result = parseMenu(html, url, menu_name);
+        client.recordCapability?.('menus', 'passed');
+        return viewResponse(view, result);
+      } catch (error) { client.recordCapability?.('menus', 'failed', 'read_or_parse_error'); throw error; }
     },
   );
 }

@@ -181,3 +181,16 @@ describe('OpenTableClient', () => {
     });
   });
 });
+
+describe('capability observations', () => {
+  it('starts unknown and distinguishes availability failures from bridge liveness', async () => {
+    const client = new OpenTableClient({ transport: stubTransport(async () => ({ status: 200, body: '', url: '' }), async () => { throw new Error('Response not successful: Received status code 409'); }) });
+    expect(client.capabilityStatus().availability.state).toBe('not_probed');
+    await expect(client.graphqlQuery('availability', {})).rejects.toThrow(/availability is unverified.*refresh/i);
+    expect(client.capabilityStatus().availability).toMatchObject({ state: 'failed', code: 'http_409', fresh: true });
+    expect(client.capabilityStatus().menus.state).toBe('not_probed');
+    client.recordCapability('menus', 'passed');
+    expect(client.capabilityStatus().menus.state).toBe('passed');
+    expect(client.capabilityStatus().booking.state).toBe('not_probed');
+  });
+});

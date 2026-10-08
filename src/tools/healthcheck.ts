@@ -1,5 +1,6 @@
+import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
-import { registerBridgeHealthcheckTool } from '@chrischall/mcp-utils/fetchproxy';
+import { runBridgeHealthcheck, bridgeHealthcheckDescription } from '@chrischall/mcp-utils/fetchproxy';
 import type { OpenTableClient } from '../client.js';
 import type { OpenTableTransport } from '../transport.js';
 
@@ -33,7 +34,12 @@ export function registerHealthcheckTools(
   const { runProbe, bridgeStatus } = transport;
   if (!runProbe || !bridgeStatus) return;
 
-  registerBridgeHealthcheckTool({
+  server.registerTool('opentable_healthcheck', {
+    description: bridgeHealthcheckDescription('www.opentable.com', PROBE_PATH) + ' Tests bridge transport only. Search/menus/availability are reported only from observed real reads; booking is never probed.',
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    inputSchema: z.object({}),
+  }, async () => {
+    const response = await runBridgeHealthcheck({
     server,
     prefix: 'opentable',
     probePath: PROBE_PATH,
@@ -43,6 +49,15 @@ export function registerHealthcheckTools(
         runProbe.call(transport, fetchFn, probePath) as never,
       status: () => bridgeStatus.call(transport) as never,
     },
-    probeFn: (path) => client.fetchHtml(path),
+    probeFn: async (path) => {
+      const html = await client.fetchHtml(path);
+      if (/^\s*<!doctype\s+html|<html[\s>]/i.test(html)) throw new Error('robots probe returned HTML instead of robots.txt; downstream response is unverified');
+      return html;
+    },
+  });
+    const body = JSON.parse(response.content[0].text);
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ...body,
+      scope: 'bridge_transport_only', capabilities: client.capabilityStatus(),
+      capability_note: 'Observations belong to this MCP process and are fresh for five minutes, not proof of the current browser session. Not-probed/stale capabilities remain unverified. Booking is never tested by this read-only probe.' }) }] };
   });
 }
