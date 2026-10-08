@@ -55,9 +55,30 @@ export function registerHealthcheckTools(
       return html;
     },
   });
-    const body = JSON.parse(response.content[0].text);
-    return { content: [{ type: 'text' as const, text: JSON.stringify({ ...body,
+    return withCapabilities(response, {
       scope: 'bridge_transport_only', capabilities: client.capabilityStatus(),
-      capability_note: 'Observations belong to this MCP process and are fresh for five minutes, not proof of the current browser session. Not-probed/stale capabilities remain unverified. Booking is never tested by this read-only probe.' }) }] };
+      capability_note: 'Observations belong to this MCP process and are fresh for five minutes, not proof of the current browser session. Not-probed/stale capabilities remain unverified. Booking is never tested by this read-only probe.' });
   });
+}
+
+type ToolReply = Awaited<ReturnType<typeof runBridgeHealthcheck>>;
+
+/**
+ * Merge the capability report into the bridge healthcheck's reply. That reply
+ * is normally one JSON-object text block, but its shape belongs to mcp-utils:
+ * anything else is kept verbatim and the report appended as its own block, so
+ * a changed upstream shape degrades the layout rather than throwing away the
+ * bridge result the user called the healthcheck for.
+ */
+export function withCapabilities(response: ToolReply, extra: Record<string, unknown>): ToolReply {
+  const [first, ...rest] = response.content;
+  if (first?.type === 'text') {
+    try {
+      const body: unknown = JSON.parse(first.text);
+      if (body && typeof body === 'object' && !Array.isArray(body)) {
+        return { ...response, content: [{ type: 'text', text: JSON.stringify({ ...body, ...extra }) }, ...rest] };
+      }
+    } catch { /* not JSON: fall through and append */ }
+  }
+  return { ...response, content: [...response.content, { type: 'text', text: JSON.stringify(extra) }] };
 }

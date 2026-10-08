@@ -13,6 +13,7 @@ import {
   truncateErrorMessage,
   UpstreamHttpError,
 } from '@chrischall/mcp-utils';
+import { ParseError } from './initial-state.js';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 /**
@@ -25,6 +26,39 @@ import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js'
  * `transport-fetchproxy.ts` directly.
  */
 export const AVAILABILITY_GRAPHQL_OP_NAME = 'availability';
+
+/**
+ * How long a capability observation counts as `fresh` in the healthcheck.
+ * Five minutes: long enough to cover a single conversation's burst of calls,
+ * short enough that a stale pass is not read as the browser session's current
+ * state (a session or bot challenge can flip at any time).
+ */
+export const CAPABILITY_FRESH_MS = 5 * 60_000;
+
+/**
+ * Apollo Client's `ServerError` wording for a non-2xx GraphQL response. The
+ * extension relays the page's own Apollo error as a message string with no
+ * structured status, so this is the one place that wording is matched.
+ */
+const APOLLO_STATUS_WORDING = /Received status code (\d{3})\b/;
+
+/**
+ * Classify why a business read failed, for the healthcheck's capability
+ * report. Structure first (UpstreamHttpError, or any error carrying a numeric
+ * `statusCode`/`status`), then Apollo's documented wording — any status, not a
+ * hand-picked few — then ParseError. `fallback` is used only when none apply.
+ */
+export function capabilityFailureCode(error: unknown, fallback: string): string {
+  if (error instanceof UpstreamHttpError) return `http_${error.status}`;
+  if (error instanceof ParseError) return 'parse_error';
+  if (error && typeof error === 'object') {
+    const { statusCode, status } = error as { statusCode?: unknown; status?: unknown };
+    const structured = typeof statusCode === 'number' ? statusCode : typeof status === 'number' ? status : undefined;
+    if (structured !== undefined) return `http_${structured}`;
+  }
+  const worded = (error instanceof Error ? error.message : String(error)).match(APOLLO_STATUS_WORDING)?.[1];
+  return worded ? `http_${worded}` : fallback;
+}
 
 // Non-2xx responses throw the fleet-shared `UpstreamHttpError`
 // (`@chrischall/mcp-utils`) — the status-carrying error the http kit exposes
@@ -60,7 +94,7 @@ export class OpenTableClient {
     const result: Record<string, { state: string; observed_at?: string; code?: string; fresh?: boolean }> = {};
     for (const name of ['search', 'menus', 'availability'] as const) {
       const observed = this.observations[name];
-      result[name] = observed ? { ...observed, fresh: Date.now() - Date.parse(observed.observed_at) < 300_000 } : { state: 'not_probed' };
+      result[name] = observed ? { ...observed, fresh: Date.now() - Date.parse(observed.observed_at) < CAPABILITY_FRESH_MS } : { state: 'not_probed' };
     }
     result.booking = { state: 'not_probed' }; // A read-only healthcheck never holds or books inventory.
     return result;
@@ -140,15 +174,14 @@ export class OpenTableClient {
    * has triggered the operation yet in this session.
    */
   async graphqlQuery(name: string, variables: Record<string, unknown>): Promise<unknown> {
+    // Only failures are recorded here. A transport success is not yet a pass:
+    // the caller records that once the response actually parses.
     try {
-      const data = await this.transport.graphqlQuery({ name, variables });
-      if (name === AVAILABILITY_GRAPHQL_OP_NAME) this.recordCapability('availability', 'passed');
-      return data;
+      return await this.transport.graphqlQuery({ name, variables });
     } catch (error) {
       if (name !== AVAILABILITY_GRAPHQL_OP_NAME) throw error;
       const message = truncateErrorMessage(error instanceof Error ? error.message : String(error));
-      const status = message.match(/(?:status(?: code)?|HTTP)\s*[:=]?\s*(403|409)\b/i)?.[1];
-      this.recordCapability('availability', 'failed', status ? `http_${status}` : 'graphql_error');
+      this.recordCapability('availability', 'failed', capabilityFailureCode(error, 'graphql_error'));
       throw new Error(`${message}. Availability is unverified, not empty. A successful robots/bridge probe does not test this operation. Open or refresh an OpenTable restaurant page in the signed-in bridged browser, allow its availability query to load, complete any visible sign-in/human challenge, then retry once. Do not cycle through other restaurants or use a booking preview as a probe.`, { cause: error });
     }
   }

@@ -2,10 +2,15 @@ import { z } from 'zod';
 import { PositiveInt, UpstreamHttpError } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
-import type { OpenTableClient } from '../client.js';
+import { type OpenTableClient, capabilityFailureCode } from '../client.js';
 import { parseRestaurant } from '../parse-restaurant.js';
 import { parseMenu } from '../parse-menu.js';
 import { restaurantCandidatePaths, OPENTABLE_BASE_URL } from '../urls.js';
+
+/** Every candidate path 404'd: the caller's id is wrong, not the bridge. */
+class RestaurantNotFoundError extends Error {
+  override name = 'RestaurantNotFoundError';
+}
 
 async function fetchRestaurantPage(client: OpenTableClient, restaurantId: string | number): Promise<{ html: string; url: string }> {
   const candidates = restaurantCandidatePaths(restaurantId);
@@ -21,7 +26,7 @@ async function fetchRestaurantPage(client: OpenTableClient, restaurantId: string
       throw e;
     }
   }
-  throw new Error(
+  throw new RestaurantNotFoundError(
     `No OpenTable restaurant detail page found for "${restaurantId}" (tried ${candidates.join(', ')}). ` +
     `Pass the exact "url" from opentable_search_restaurants. Underlying error: ${lastNotFound?.message ?? 'not found'}`,
   );
@@ -65,12 +70,19 @@ export function registerRestaurantTools(
       }),
     },
     async ({ restaurant_id, menu_name, view }) => {
+      let result: ReturnType<typeof parseMenu>;
       try {
         const { html, url } = await fetchRestaurantPage(client, restaurant_id);
-        const result = parseMenu(html, url, menu_name);
-        client.recordCapability?.('menus', 'passed');
-        return viewResponse(view, result);
-      } catch (error) { client.recordCapability?.('menus', 'failed', 'read_or_parse_error'); throw error; }
+        result = parseMenu(html, url, menu_name);
+      } catch (error) {
+        // An id that matches no page is bad input, not a menus failure.
+        if (!(error instanceof RestaurantNotFoundError)) {
+          client.recordCapability?.('menus', 'failed', capabilityFailureCode(error, 'read_error'));
+        }
+        throw error;
+      }
+      client.recordCapability?.('menus', 'passed');
+      return viewResponse(view, result);
     },
   );
 }

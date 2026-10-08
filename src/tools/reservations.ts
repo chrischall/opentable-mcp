@@ -329,7 +329,14 @@ export function registerReservationTools(
           database_region: database_region ?? DEFAULT_DATABASE_REGION,
         })
       );
-      const slots = parseAvailabilityResponse({ data }, date, time, party_size);
+      let slots: ReturnType<typeof parseAvailabilityResponse>;
+      try {
+        slots = parseAvailabilityResponse({ data }, date, time, party_size);
+      } catch (error) {
+        client.recordCapability?.('availability', 'failed', 'parse_error');
+        throw error;
+      }
+      client.recordCapability?.('availability', 'passed');
       return viewResponse(view, slots);
     }
   );
