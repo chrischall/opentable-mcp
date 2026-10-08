@@ -61,9 +61,9 @@ export function registerRestaurantTools(
       inputSchema: z.object({
         view: viewArg(),
         restaurant_id: z.union([z.string(), PositiveInt]).describe('Numeric restaurant id, slug, path, or exact URL from opentable_search_restaurants.'),
-        section_name: z.string().trim().min(1).optional(),
-        offset: z.number().int().min(0).optional(),
-        limit: z.number().int().min(1).max(50).optional(),
+        section_name: z.string().trim().min(1).optional().describe('Exact section title, case-insensitive (e.g. Appetizers). Returns only that section\'s items; available_sections lists the titles.'),
+        offset: z.number().int().min(0).optional().describe('Item offset to resume from: pass the previous page\'s pagination.next_offset, with the same menu_name/section_name. Default 0.'),
+        limit: z.number().int().min(1).max(50).optional().describe('Maximum whole items per page (1-50, default 20). A page may return fewer to stay within the response budget.'),
         menu_name: z.string().trim().min(1).optional().describe('Exact published menu title, case-insensitive. Omit to return all menus; available_menus lists titles when a selection is not found.'),
       }),
     },

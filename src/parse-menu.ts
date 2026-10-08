@@ -72,11 +72,19 @@ export function parseMenu(
   };
 }
 
+/**
+ * Serialized-JSON characters a paged (or default) menu reply may use. Native
+ * MCP clients cap tool output and truncate past it, which leaves malformed
+ * JSON and half an ingredient list; this keeps a page under that cap with
+ * headroom for the response envelope.
+ */
+export const MENU_PAGE_BUDGET_CHARS = 8500;
+
 /** Page whole items while preserving all observed recipe and menu metadata. */
 export function pageMenu(result: RestaurantMenus, args: {
   view?: string; section_name?: string; offset?: number; limit?: number;
 }): RestaurantMenus | Record<string, unknown> {
-  const budget = 8500;
+  const budget = MENU_PAGE_BUDGET_CHARS;
   if (args.view === 'full' && args.section_name === undefined && args.offset === undefined && args.limit === undefined) return result;
   if (args.section_name === undefined && args.offset === undefined && args.limit === undefined && JSON.stringify(result).length <= budget) return result;
   const offset = args.offset ?? 0;

@@ -21,6 +21,12 @@ describe('menu tool', () => {
     expect(tools.find(t => t.name === 'opentable_get_menu')?.annotations?.readOnlyHint).toBe(true);
   });
 
+  it('describes every input, including the paging ones', async () => {
+    const { tools } = await harness.client.listTools();
+    const props = tools.find(t => t.name === 'opentable_get_menu')?.inputSchema.properties as Record<string, { description?: string }>;
+    for (const name of ['section_name', 'offset', 'limit']) expect(props[name]?.description, name).toBeTruthy();
+  });
+
   it.each([42, '42'])('uses the numeric profile route for %s', async (restaurant_id) => {
     mockFetchHtml.mockResolvedValue(html);
     const result = await harness.callTool('opentable_get_menu', { restaurant_id });
