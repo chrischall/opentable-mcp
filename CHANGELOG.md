@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.2](https://github.com/chrischall/opentable-mcp/compare/v1.3.1...v1.3.2) (2026-10-08)
+
+
+### Bug Fixes
+
+* **health:** report business capability failures separately from bridge health ([#272](https://github.com/chrischall/opentable-mcp/issues/272)) ([9e47f2c](https://github.com/chrischall/opentable-mcp/commit/9e47f2c86bb4ec7f103494b47dccf0c7658fa786))
+* **menu:** return large menus as complete bounded pages ([b55ab96](https://github.com/chrischall/opentable-mcp/commit/b55ab964bbc31df3c524eb50ffa6691b38c41af1))
+
 ## [1.3.1](https://github.com/chrischall/opentable-mcp/compare/v1.3.0...v1.3.1) (2026-10-07)
 
 
