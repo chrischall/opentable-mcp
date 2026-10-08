@@ -57,6 +57,29 @@ provider, and `updated` timestamp. `view` defaults to `compact` (media URLs
 removed); `full` retains media URLs too. Published prices may differ from the
 restaurant's current menu, so keep the source and update timestamp when quoting.
 
+Large menus come back as pages of whole items, so a reply never stops halfway
+through a dish. Without paging arguments a menu that fits is returned as-is;
+a larger one returns its first page. Each page carries `available_sections` and
+`pagination`:
+
+```json
+{"offset":0,"returned_items":20,"total_items":57,"next_offset":20}
+```
+
+To continue, call again with `offset` set to `next_offset` and the same
+`menu_name`/`section_name`; `next_offset` is `null` on the last page. Optional
+paging inputs:
+
+- `section_name` — an exact section title (case-insensitive); the reply adds
+  `section_found`.
+- `offset` — the item to start from (default `0`).
+- `limit` — at most this many items per page (1–50, default 20). A page may
+  return fewer to stay within the response budget.
+
+`view: "full"` with no paging inputs returns the whole menu uncapped, for
+clients without an output limit. A single item too large for a page is an
+error, never a truncated description.
+
 `status` distinguishes `available`, `menu_not_found` (check `available_menus`),
 `external_only`, and `not_available`. An absent menu is not an HTTP/bridge or
 parsing error: those failures remain errors. External links are returned
