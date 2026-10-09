@@ -30,7 +30,7 @@ export function registerFavoriteTools(
       inputSchema: z.object({
         view: viewArg(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ view }) => {
       const html = await client.fetchHtml(FAVORITES_PATH);
@@ -44,7 +44,7 @@ export function registerFavoriteTools(
     {
       description:
         "Add a restaurant to the user's Saved Restaurants list.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
       }),
@@ -63,7 +63,7 @@ export function registerFavoriteTools(
     {
       description:
         "Remove a restaurant from the user's Saved Restaurants list.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
       }),

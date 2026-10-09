@@ -47,7 +47,7 @@ export function registerSearchTools(
     {
       description:
         'Search OpenTable for restaurants. Returns matching restaurants with cuisine, neighborhood, price band, rating, description, and URL. Does NOT include bookable slot tokens — use opentable_find_slots for a specific venue to check availability.',
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         view: viewArg(),
         term: z.string().optional().describe('Free-text query (cuisine or restaurant name)'),

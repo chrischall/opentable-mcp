@@ -25,7 +25,7 @@ export function registerUserTools(
       inputSchema: z.object({
         view: viewArg(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ view }) => {
       const html = await client.fetchHtml(PROFILE_SOURCE_PATH);
