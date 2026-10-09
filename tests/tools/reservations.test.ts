@@ -9,6 +9,7 @@ import {
 } from '../../src/tools/reservations.js';
 import { createTestHarness, parseToolResult } from '../helpers.js';
 import { decodeBookingToken, encodeBookingToken } from '../../src/booking-token.js';
+import { FetchproxyBridgeDownError, FetchproxyTimeoutError } from '@fetchproxy/server';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) =>
@@ -2982,6 +2983,78 @@ describe('reservation tools', () => {
       const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token });
       expect(result.isError).toBeFalsy();
       expect(sentBody).toMatchObject({ pointsType: 'Standard', points: 100 });
+    });
+  });
+
+  describe('a lost reply on a write reports an unknown outcome (fleet-audit #632)', () => {
+    const profileHtml = () =>
+      htmlWith({
+        header: {
+          userProfile: {
+            firstName: 'Test', lastName: 'User', email: 'test@example.com',
+            mobilePhoneNumber: { number: '5551234567', countryId: 'US' }, countryId: 'US',
+          },
+        },
+        diningDashboard: { upcomingReservations: [], pastReservations: [] },
+      });
+    const slotArgs = {
+      restaurant_id: 1272781, date: '2026-05-01', time: '19:00', party_size: 2,
+      reservation_token: 'rt', slot_hash: 'sh', dining_area_id: 48750,
+    };
+    const token = () => encodeBookingToken({
+      bookingType: 'standard', slotLockId: 5, restaurantId: 1272781, diningAreaId: 48750,
+      partySize: 2, date: '2026-05-01', time: '19:00', reservationToken: 'rt', slotHash: 'sh',
+      paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+    });
+    const timeout = () => new FetchproxyTimeoutError({
+      url: 'https://www.opentable.com/dapi/booking/make-reservation', timeoutMs: 30000, retrySafe: false,
+    });
+
+    it('opentable_book says the reservation may exist when make-reservation times out', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockRejectedValue(timeout());
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token() });
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/outcome unknown/i);
+      expect(text).toMatch(/opentable_list_reservations/);
+      expect(text).toMatch(/before retrying/i);
+    });
+
+    it('opentable_book treats a bridge drop on make-reservation the same way', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockRejectedValue(new FetchproxyBridgeDownError({ originalError: 'port closed' }));
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token() });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/outcome unknown/i);
+    });
+
+    it('an ordinary upstream error is not reported as an unknown outcome', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockRejectedValue(new Error('HTTP 400 Bad Request'));
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token() });
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/400/);
+      expect(text).not.toMatch(/outcome unknown/i);
+    });
+
+    it('opentable_cancel says the reservation may already be cancelled when the reply is lost', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith({
+        diningDashboard: {
+          upcomingReservations: [{ confirmationNumber: 555, restaurantId: 123, restaurantName: 'Testeria',
+            dateTime: '2026-08-01T19:30:00', partySize: 2, securityToken: 'st' }],
+          pastReservations: [],
+        },
+      }));
+      mockFetchJson.mockRejectedValue(timeout());
+      const result = await callConfirmed('opentable_cancel', {
+        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/outcome unknown/i);
+      expect(text).toMatch(/opentable_list_reservations/);
     });
   });
 

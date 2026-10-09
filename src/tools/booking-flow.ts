@@ -26,6 +26,7 @@
 // where the inline re-capture instructions can see them.
 
 import { randomUUID } from 'node:crypto';
+import { FetchproxyBridgeDownError, FetchproxyTimeoutError } from '@fetchproxy/server';
 import type { OpenTableClient } from '../client.js';
 import type {
   BookingTokenPaymentCard,
@@ -214,6 +215,28 @@ export interface MakeReservationResult {
   points: number;
 }
 
+/**
+ * When a write's reply is lost — the bridge timed out or dropped after the
+ * POST may already have reached OpenTable — the write may have committed.
+ * Returns an error that says so (and how to check) for those two cases, or
+ * null for any other failure, which the caller rethrows unchanged. Every
+ * call mints a fresh correlationId, so a blind retry is a NEW request.
+ */
+export function outcomeUnknownError(
+  error: unknown,
+  what: { action: string; check: string }
+): Error | null {
+  if (!(error instanceof FetchproxyTimeoutError) && !(error instanceof FetchproxyBridgeDownError)) {
+    return null;
+  }
+  const reason = error instanceof FetchproxyTimeoutError ? 'timed out' : 'dropped';
+  return new Error(
+    `OpenTable ${what.action} outcome unknown: the browser bridge ${reason} after the request may already have reached OpenTable (${error.message}). ` +
+      `${what.check} Call opentable_list_reservations before retrying.`,
+    { cause: error }
+  );
+}
+
 /** Format MM/YY-ish: month + year → "MMYY" (e.g. 10, 2028 → "1028"). */
 function expiryMmYy(month: number | null, year: number | null): string {
   if (month == null || year == null) return '';
@@ -271,7 +294,39 @@ export async function makeReservation(
       }
     : { isModify: false };
 
-  const response = await client.fetchJson<{
+  const body = {
+    restaurantId: args.restaurantId,
+    reservationDateTime: args.reservationDateTime,
+    partySize: args.partySize,
+    slotHash: args.slotHash,
+    slotAvailabilityToken: args.reservationToken,
+    slotLockId: args.slotLockId,
+    diningAreaId: args.diningAreaId,
+    firstName: args.profile.first_name,
+    lastName: args.profile.last_name,
+    email: args.profile.email,
+    phoneNumber: args.profile.mobile_phone_number,
+    phoneNumberCountryId: args.profile.phone_country_id || args.profile.country_id || 'US',
+    country: args.profile.country_id || 'US',
+    reservationAttribute: 'default',
+    pointsType: args.points?.type ?? DEFAULT_POINTS.type,
+    points: args.points?.value ?? DEFAULT_POINTS.value,
+    tipAmount: 0,
+    tipPercent: 0,
+    confirmPoints: true,
+    optInEmailRestaurant: false,
+    additionalServiceFees: [],
+    nonBookableExperiences: [],
+    katakanaFirstName: '',
+    katakanaLastName: '',
+    correlationId: randomUUID(),
+    ...(args.tcAccepted === true ? { tcAccepted: true } : {}),
+    ...modifyFields,
+    ...experienceFields,
+    ...ccFields,
+  };
+
+  let response: {
     success?: boolean;
     reservationId?: number;
     confirmationNumber?: number;
@@ -281,40 +336,19 @@ export async function makeReservation(
     errorMessage?: string;
     partnerScaRequired?: boolean;
     partnerScaRedirectUrl?: string | null;
-  }>(args.endpoint, {
-    method: 'POST',
-    body: {
-      restaurantId: args.restaurantId,
-      reservationDateTime: args.reservationDateTime,
-      partySize: args.partySize,
-      slotHash: args.slotHash,
-      slotAvailabilityToken: args.reservationToken,
-      slotLockId: args.slotLockId,
-      diningAreaId: args.diningAreaId,
-      firstName: args.profile.first_name,
-      lastName: args.profile.last_name,
-      email: args.profile.email,
-      phoneNumber: args.profile.mobile_phone_number,
-      phoneNumberCountryId: args.profile.phone_country_id || args.profile.country_id || 'US',
-      country: args.profile.country_id || 'US',
-      reservationAttribute: 'default',
-      pointsType: args.points?.type ?? DEFAULT_POINTS.type,
-      points: args.points?.value ?? DEFAULT_POINTS.value,
-      tipAmount: 0,
-      tipPercent: 0,
-      confirmPoints: true,
-      optInEmailRestaurant: false,
-      additionalServiceFees: [],
-      nonBookableExperiences: [],
-      katakanaFirstName: '',
-      katakanaLastName: '',
-      correlationId: randomUUID(),
-      ...(args.tcAccepted === true ? { tcAccepted: true } : {}),
-      ...modifyFields,
-      ...experienceFields,
-      ...ccFields,
-    },
-  });
+  } | null;
+  try {
+    response = await client.fetchJson(args.endpoint, { method: 'POST', body });
+  } catch (error) {
+    throw (
+      outcomeUnknownError(error, {
+        action: args.modify ? 'modify' : 'book',
+        check: args.modify
+          ? 'The reservation may already have moved to the new slot.'
+          : 'The reservation may exist (and hold your card per the policy).',
+      }) ?? error
+    );
+  }
 
   // 3DS challenge — rare for pre-authenticated saved cards, can't be
   // completed outside the browser. Surface the redirect URL and bail.

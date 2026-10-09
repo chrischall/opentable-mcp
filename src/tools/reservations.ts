@@ -53,6 +53,7 @@ import {
 import {
   lockSlot,
   makeReservation,
+  outcomeUnknownError,
   expiryMmYy,
   CC_PROVIDER,
   type BookProfile,
@@ -1267,7 +1268,7 @@ export function registerReservationTools(
         confirmToken,
       });
       if (gate) return gate;
-      const response = await client.fetchJson<{
+      let response: {
         data?: {
           cancelReservation?: {
             statusCode?: number;
@@ -1275,25 +1276,35 @@ export function registerReservationTools(
             data?: { reservationState?: string };
           };
         };
-      }>(CANCEL_RESERVATION_PATH, {
-        method: 'POST',
-        headers: { 'ot-page-type': 'network_confirmation', 'ot-page-group': 'booking' },
-        body: {
-          operationName: 'CancelReservation',
-          variables: {
-            input: {
-              restaurantId: restaurant_id,
-              confirmationNumber: confirmation_number,
-              securityToken: security_token,
-              databaseRegion: database_region ?? DEFAULT_DATABASE_REGION,
-              reservationSource: 'Online',
+      } | null;
+      try {
+        response = await client.fetchJson(CANCEL_RESERVATION_PATH, {
+          method: 'POST',
+          headers: { 'ot-page-type': 'network_confirmation', 'ot-page-group': 'booking' },
+          body: {
+            operationName: 'CancelReservation',
+            variables: {
+              input: {
+                restaurantId: restaurant_id,
+                confirmationNumber: confirmation_number,
+                securityToken: security_token,
+                databaseRegion: database_region ?? DEFAULT_DATABASE_REGION,
+                reservationSource: 'Online',
+              },
+            },
+            extensions: {
+              persistedQuery: { version: 1, sha256Hash: CANCEL_RESERVATION_HASH },
             },
           },
-          extensions: {
-            persistedQuery: { version: 1, sha256Hash: CANCEL_RESERVATION_HASH },
-          },
-        },
-      });
+        });
+      } catch (error) {
+        throw (
+          outcomeUnknownError(error, {
+            action: 'cancel',
+            check: 'The reservation may already be cancelled.',
+          }) ?? error
+        );
+      }
       const result = response?.data?.cancelReservation;
       const state = result?.data?.reservationState ?? '';
       const cancelled = result?.statusCode === 200 && /cancel/i.test(state) && !result?.errors;
