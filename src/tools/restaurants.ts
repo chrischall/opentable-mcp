@@ -41,7 +41,7 @@ export function registerRestaurantTools(
     {
       description:
         'Get full details for a single OpenTable restaurant: cuisine, price band, description, address, hours, phone, payment options, features, rating/review count, and availability_token (used internally when booking). Accepts the numeric restaurant_id, a slug, a path, or the full URL from opentable_search_restaurants — passing the search result\'s "url" verbatim always resolves, including legacy venues served at /{slug} instead of /r/{slug}.',
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         view: viewArg(),
         restaurant_id: z
@@ -62,7 +62,7 @@ export function registerRestaurantTools(
     {
       description:
         'Large menus return bounded pages of whole items; follow pagination.next_offset with the same filters. Optional section_name selects an exact section; offset/limit paginate items. view=full without paging is uncapped. Get published menus for an OpenTable restaurant, including sections, dishes, prices, variations, currency, provider and updated timestamps. Accepts the same numeric id/slug/path/URL as opentable_get_restaurant. Optional menu_name selects an exact title case-insensitively (e.g. Dinner). Returns available_menus and status: available, menu_not_found, external_only or not_available. External menu_url links are returned but never fetched. Prices describe OpenTable\'s published menu, not a live quote from the restaurant.',
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         view: viewArg(),
         restaurant_id: z.union([z.string(), PositiveInt]).describe('Numeric restaurant id, slug, path, or exact URL from opentable_search_restaurants.'),

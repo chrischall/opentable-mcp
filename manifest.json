@@ -31,7 +31,46 @@
       "command": "node",
       "args": [
         "${__dirname}/dist/bundle.js"
-      ]
+      ],
+      "env": {
+        "OT_BRIDGE": "${user_config.bridge}",
+        "OT_MCP_CHROME_URL": "${user_config.mcp_chrome_url}",
+        "OT_WS_PORT": "${user_config.ws_port}",
+        "FETCHPROXY_WS_HOST": "${user_config.fetchproxy_ws_host}",
+        "FETCHPROXY_IDENTITY_DIR": "${user_config.fetchproxy_identity_dir}"
+      }
+    }
+  },
+  "user_config": {
+    "bridge": {
+      "type": "string",
+      "title": "Browser transport",
+      "description": "Optional. Which browser transport to use: \"websocket\" (default, the fetchproxy bridge) or \"mcp-chrome\". Leave blank for the default.",
+      "required": false
+    },
+    "mcp_chrome_url": {
+      "type": "string",
+      "title": "mcp-chrome URL",
+      "description": "Optional. URL of the mcp-chrome bridge (default http://127.0.0.1:12306/mcp). Only used when OT_BRIDGE=mcp-chrome. Leave blank for the default.",
+      "required": false
+    },
+    "ws_port": {
+      "type": "string",
+      "title": "Bridge WebSocket port",
+      "description": "Optional. Overrides the fetchproxy WebSocket port (default 37149, the fleet-shared port). Leave blank for the default.",
+      "required": false
+    },
+    "fetchproxy_ws_host": {
+      "type": "string",
+      "title": "Bridge bind interface (hosted only)",
+      "description": "Optional. Bridge bind interface, a literal IP only (anything else is ignored); default 127.0.0.1. Keep on loopback — it exists for a hosted child in its own network namespace. Leave blank for the default.",
+      "required": false
+    },
+    "fetchproxy_identity_dir": {
+      "type": "string",
+      "title": "Bridge identity directory (hosted only)",
+      "description": "Optional. Where to store the long-term bridge identity keypair, an absolute path only (anything else is ignored); default ~/.fetchproxy/identity/. Exists for a host that runs a separate child per caller. Leave blank for the default.",
+      "required": false
     }
   },
   "tools": [
@@ -53,7 +92,7 @@
     },
     {
       "name": "opentable_get_restaurant",
-      "description": "Get full details for a restaurant by URL slug (cuisine, hours, dining areas, etc.)."
+      "description": "Get full details for a single OpenTable restaurant (cuisine, price band, address, hours, phone, payment options, rating) by numeric id, slug, path or URL."
     },
     {
       "name": "opentable_get_menu",

@@ -16,15 +16,20 @@ afterAll(async () => {
 });
 
 const EXPECTED: Record<string, Record<string, boolean>> = {
-  // Previews POST a slot-lock mutation that holds restaurant inventory.
-  opentable_book_preview: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  opentable_modify_preview: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  opentable_book: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  // Previews POST a slot-lock mutation that holds restaurant inventory for
+  // ~90s and then lapses on its own — nothing to undo, so not destructive.
+  opentable_book_preview: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  opentable_modify_preview: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  // A booking lands on a real restaurant's books (another party) and can
+  // hold a card under a cancellation/no-show fee — opentable_cancel cannot
+  // un-notify the restaurant or waive that fee, so it is no inverse.
+  opentable_book: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   // Modify replaces the existing reservation's slot.
-  opentable_modify: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  opentable_cancel: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-  opentable_add_favorite: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  opentable_remove_favorite: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  opentable_modify: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  opentable_cancel: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+  // add/remove favorite are each other's inverse on the user's private list.
+  opentable_add_favorite: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  opentable_remove_favorite: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 };
 
 describe('tool annotations', () => {
