@@ -9,6 +9,7 @@
  * any surface that changed without us having to chase every field.
  */
 import { extractInitialState, ParseError } from './initial-state.js';
+import { opentableUrl, restaurantProfilePath } from './urls.js';
 
 interface RawFavoriteRestaurant {
   id?: number | string;
@@ -32,7 +33,8 @@ interface RawFavoriteRestaurant {
 }
 
 export interface FormattedFavorite {
-  restaurant_id: string;
+  /** Numeric OpenTable restaurantId, as every other tool returns it; null when absent/non-numeric. */
+  restaurant_id: number | null;
   name: string;
   cuisine: string;
   neighborhood: string;
@@ -42,34 +44,48 @@ export interface FormattedFavorite {
   url: string;
 }
 
-const BASE_URL = 'https://www.opentable.com';
-
 function firstOf<T>(...vals: Array<T | undefined>): T | undefined {
   for (const v of vals) if (v !== undefined && v !== null) return v;
   return undefined;
 }
 
-function restaurantUrl(slug: string | undefined, profileUrl: string | undefined): string {
-  if (profileUrl) {
-    return profileUrl.startsWith('http')
-      ? profileUrl
-      : `${BASE_URL}${profileUrl.startsWith('/') ? profileUrl : `/${profileUrl}`}`;
+/**
+ * Coerce the raw id to the numeric `restaurant_id` every other tool returns
+ * (search, get_restaurant, slots, reservations). The favorites payload has
+ * been seen as either a number or a digit string; anything else is null.
+ */
+function numericId(raw: number | string | undefined): number | null {
+  if (typeof raw === 'number') return Number.isSafeInteger(raw) && raw > 0 ? raw : null;
+  if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) {
+    const n = Number(raw.trim());
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
   }
-  if (slug) return `${BASE_URL}/r/${slug}`;
+  return null;
+}
+
+function restaurantUrl(
+  slug: string | undefined,
+  profileUrl: string | undefined,
+  id: number | null
+): string {
+  if (profileUrl) return opentableUrl(profileUrl);
+  if (slug) return opentableUrl(`/r/${slug}`);
+  // No slug: the numeric-id profile route resolves (the /r/{id} shape 404s).
+  if (id !== null) return opentableUrl(restaurantProfilePath(id));
   return '';
 }
 
 export function formatFavorite(raw: RawFavoriteRestaurant): FormattedFavorite {
-  const id = firstOf(raw.id, raw.restaurantId);
+  const id = numericId(firstOf(raw.id, raw.restaurantId));
   return {
-    restaurant_id: id !== undefined ? String(id) : '',
+    restaurant_id: id,
     name: firstOf(raw.name, raw.restaurantName) ?? 'Unknown',
     cuisine: firstOf(raw.cuisine, raw.primaryCuisine) ?? '',
     neighborhood: firstOf(raw.neighborhoodName, raw.neighborhood) ?? '',
     price_range: firstOf(raw.priceBand, raw.priceRange, raw.price) ?? '',
     rating: firstOf(raw.overallRating, raw.averageRating) ?? null,
     review_count: firstOf(raw.reviewCount, raw.totalReviewCount) ?? null,
-    url: restaurantUrl(firstOf(raw.urlSlug, raw.slug), raw.profileUrl),
+    url: restaurantUrl(firstOf(raw.urlSlug, raw.slug), raw.profileUrl, id),
   };
 }
 

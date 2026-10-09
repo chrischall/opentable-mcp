@@ -36,7 +36,7 @@ describe('parseFavorites', () => {
     });
     expect(parseFavorites(html)).toEqual([
       {
-        restaurant_id: '42',
+        restaurant_id: 42,
         name: 'Testeria',
         cuisine: 'Italian',
         neighborhood: 'Hayes Valley',
@@ -60,7 +60,7 @@ describe('parseFavorites', () => {
       slug: 'alt-shape',
     });
     expect(r).toMatchObject({
-      restaurant_id: '99',
+      restaurant_id: 99,
       name: 'Alt Shape',
       cuisine: 'Japanese',
       neighborhood: 'Mission',
@@ -80,8 +80,41 @@ describe('parseFavorites', () => {
     ).toBe('https://www.opentable.com/r/x');
   });
 
-  it('returns empty string url when neither slug nor profileUrl is present', () => {
-    expect(formatFavorite({ id: 1, name: 'X' }).url).toBe('');
+  it('tolerates a profileUrl without a leading slash', () => {
+    expect(formatFavorite({ id: 1, name: 'X', profileUrl: 'restaurant/x' }).url).toBe(
+      'https://www.opentable.com/restaurant/x'
+    );
+  });
+
+  it('falls back to the numeric-id profile route when neither slug nor profileUrl is present', () => {
+    // /r/{numeric-id} 404s; /restaurant/profile/{id} resolves (see urls.ts).
+    expect(formatFavorite({ id: 1, name: 'X' }).url).toBe(
+      'https://www.opentable.com/restaurant/profile/1'
+    );
+    expect(formatFavorite({ restaurantId: '77', name: 'X' }).url).toBe(
+      'https://www.opentable.com/restaurant/profile/77'
+    );
+  });
+
+  it('returns empty string url when there is no slug, profileUrl or id', () => {
+    expect(formatFavorite({ name: 'X' }).url).toBe('');
+  });
+
+  it('returns restaurant_id as a number, like every other tool', () => {
+    expect(formatFavorite({ id: 42, name: 'X' }).restaurant_id).toBe(42);
+    expect(formatFavorite({ restaurantId: '99', name: 'X' }).restaurant_id).toBe(99);
+  });
+
+  it('returns null restaurant_id when the id is missing or not numeric', () => {
+    expect(formatFavorite({ name: 'X' }).restaurant_id).toBeNull();
+    expect(formatFavorite({ id: 'abc', name: 'X' }).restaurant_id).toBeNull();
+    // A non-numeric id has no profile route, so no url either.
+    expect(formatFavorite({ id: 'abc', name: 'X' }).url).toBe('');
+    // Non-positive / unsafe ids are not addressable OpenTable ids.
+    expect(formatFavorite({ id: 0, name: 'X' }).restaurant_id).toBeNull();
+    expect(formatFavorite({ id: 1.5, name: 'X' }).restaurant_id).toBeNull();
+    expect(formatFavorite({ id: '0', name: 'X' }).restaurant_id).toBeNull();
+    expect(formatFavorite({ id: '99999999999999999999', name: 'X' }).restaurant_id).toBeNull();
   });
 
   it('throws ParseError when userProfile.favorites is missing', () => {
