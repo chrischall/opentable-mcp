@@ -16,6 +16,9 @@
 // (no error), but the behavior will be wrong unless the user keeps
 // opentable.com as their active tab.
 //
+// READ-ONLY: writes are refused up front (see fetch()), and the `graphql`
+// capability find_slots needs is unsupported (see graphqlQuery()).
+//
 // Activated via OT_BRIDGE=mcp-chrome (see src/index.ts).
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -101,6 +104,19 @@ export class McpChromeTransport implements OpenTableTransport {
   }
 
   async fetch(init: FetchInit): Promise<FetchResult> {
+    // READ-ONLY transport. Every non-GET OpenTable call is a write
+    // (slot-lock, make-reservation, cancel, wishlist add/remove), and those
+    // 403 unless relayed from an /r/, /booking/ or /user/ tab that defines
+    // window.__CSRF_TOKEN__ (see transport-fetchproxy.ts). This transport
+    // pins every request to the opentable.com root page and injects no
+    // token, so a write could only fail with an opaque 403. Refuse it here
+    // with the fix instead.
+    if (init.method !== 'GET') {
+      throw new Error(
+        `OT_BRIDGE=mcp-chrome is read-only: OpenTable writes (book, modify, cancel, favorites) need a CSRF token this transport cannot supply, so ${init.method} ${init.path} was not sent. ` +
+          'Unset OT_BRIDGE to use the default fetchproxy transport (ContextMint Bridge) for writes.'
+      );
+    }
     const requestUrl = init.path.startsWith('http')
       ? init.path
       : `https://www.opentable.com${init.path}`;

@@ -162,6 +162,8 @@ If you've installed [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) 
 
 In that mode you don't need ContextMint Bridge. Every OpenTable request becomes a `chrome_network_request` call against your existing mcp-chrome install, pinned via `tabUrl` to an opentable.com tab.
 
+**This mode is read-only.** Booking, modifying, cancelling and favorites are refused with a clear error — OpenTable's write endpoints need a CSRF token from a restaurant/booking/account page, which this transport can't supply — and `opentable_find_slots` is unavailable. Use the default ContextMint Bridge transport for those.
+
 **Note:** this path requires mcp-chrome ≥ the release containing [PR #348](https://github.com/hangwin/mcp-chrome/pull/348) (`tabUrl` parameter on `chrome_network_request`). Pre-#348 mcp-chrome versions are active-tab-only and will misbehave for cross-origin fetches. Live-verification of this path is pending the upstream merge.
 
 Other env vars: `OT_WS_PORT` (default 37149) overrides the fetchproxy WebSocket port; `OT_MCP_CHROME_URL` (default `http://127.0.0.1:12306/mcp`) overrides the mcp-chrome endpoint.

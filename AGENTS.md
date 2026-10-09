@@ -31,6 +31,9 @@ session — their cookies, their TLS, their JS context — never ours.
   `tabUrl` parameter on `chrome_network_request`. Pre-PR mcp-chrome
   versions are active-tab-only and break credentialed cross-origin
   fetches. Live-verification of this path is pending the upstream merge.
+  **Read-only:** writes (book, modify, cancel, favorites) are refused up
+  front — they need a CSRF-bearing relay tab this transport can't supply —
+  and `opentable_find_slots` is unavailable (no `graphql` capability).
 
 ## Commands
 

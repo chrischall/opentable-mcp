@@ -72,26 +72,25 @@ describe('McpChromeTransport', () => {
     expect(client.lastCall?.arguments).not.toHaveProperty('headers');
   });
 
-  it('passes through method, headers, and body for POSTs', async () => {
+  it('refuses writes up front: the opentable.com root tab carries no CSRF token (fleet-audit #635)', async () => {
+    // Every non-GET OpenTable call is a write (slot-lock, make-reservation,
+    // cancel, wishlist add/remove) and 403s unless relayed from an /r/,
+    // /booking/ or /user/ tab defining window.__CSRF_TOKEN__. This transport
+    // pins every request to the root page and injects no token, so a write
+    // could only fail with an opaque 403 — refuse it clearly instead.
     const client = mockClient(rpcOk({ status: 200, body: '{"ok":true}', url: 'https://www.opentable.com/dapi' }));
     const t = new McpChromeTransport({ client });
     await t.start();
 
-    await t.fetch({
-      path: '/dapi/fe/gql?opname=X',
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'tok' },
-      body: '{"x":1}',
-    });
-
-    expect(client.lastCall?.arguments).toMatchObject({
-      url: 'https://www.opentable.com/dapi/fe/gql?opname=X',
-      method: 'POST',
-      tabUrl: 'https://www.opentable.com/',
-      background: true,
-      headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'tok' },
-      body: '{"x":1}',
-    });
+    await expect(
+      t.fetch({
+        path: '/dapi/booking/make-reservation',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"x":1}',
+      })
+    ).rejects.toThrow(/read-only.*OT_BRIDGE/s);
+    expect(client.lastCall).toBeNull();
   });
 
   it('respects an absolute URL in init.path (passes through unchanged)', async () => {
@@ -116,16 +115,16 @@ describe('McpChromeTransport', () => {
 
   it('returns the parsed status/body/url for happy-path responses', async () => {
     const client = mockClient(
-      rpcOk({ status: 204, body: '', url: 'https://www.opentable.com/dapi/wishlist/add' })
+      rpcOk({ status: 200, body: '<html>ok</html>', url: 'https://www.opentable.com/user/favorites' })
     );
     const t = new McpChromeTransport({ client });
     await t.start();
 
-    const r = await t.fetch({ path: '/dapi/wishlist/add', method: 'POST', body: '{}' });
+    const r = await t.fetch({ path: '/user/favorites', method: 'GET' });
 
-    expect(r.status).toBe(204);
-    expect(r.body).toBe('');
-    expect(r.url).toBe('https://www.opentable.com/dapi/wishlist/add');
+    expect(r.status).toBe(200);
+    expect(r.body).toBe('<html>ok</html>');
+    expect(r.url).toBe('https://www.opentable.com/user/favorites');
   });
 
   it('maps tool-level mcp-chrome errors (isError:true) to a 599 with the error text', async () => {
