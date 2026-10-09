@@ -63,7 +63,7 @@ export function registerFavoriteTools(
     {
       description:
         "Remove a restaurant from the user's Saved Restaurants list.",
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
       }),
