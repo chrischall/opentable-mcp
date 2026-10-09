@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { encodeBookingToken, decodeBookingToken, type BookingTokenPayload } from '../src/booking-token.js';
+import {
+  BOOKING_TOKEN_TTL_MS,
+  encodeBookingToken,
+  decodeBookingToken,
+  type BookingTokenPayload,
+} from '../src/booking-token.js';
 
 const samplePayload: BookingTokenPayload = {
   slotLockId: 12345,
@@ -24,19 +29,19 @@ const samplePayload: BookingTokenPayload = {
 describe('booking-token', () => {
   it('round-trips a payload through encode → decode', () => {
     const token = encodeBookingToken(samplePayload);
-    expect(token).toMatch(/^[A-Za-z0-9+/]+=*$/); // base64
+    expect(token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/); // base64url body . base64url HMAC
     expect(decodeBookingToken(token)).toEqual(samplePayload);
   });
 
-  it('throws on base64 that decodes to invalid JSON', () => {
+  it('throws on a garbage token', () => {
     const junk = Buffer.from('not json', 'utf8').toString('base64');
     expect(() => decodeBookingToken(junk)).toThrow(/booking_token/i);
   });
 
   it('throws when a required field is missing', () => {
     const { slotLockId: _drop, ...rest } = samplePayload;
-    const junk = Buffer.from(JSON.stringify(rest), 'utf8').toString('base64');
-    expect(() => decodeBookingToken(junk)).toThrow(/booking_token/i);
+    const token = encodeBookingToken(rest as unknown as BookingTokenPayload);
+    expect(() => decodeBookingToken(token)).toThrow(/missing required field: slotLockId/);
   });
 
   it('round-trips a no-guarantee payload (paymentCard=null, ccRequired=false)', () => {
@@ -88,7 +93,7 @@ describe('booking-token — bookingType + experienceId', () => {
       paymentCard: null, ccRequired: false,
       issuedAt: '2026-05-20T00:00:00.000Z',
     };
-    const encoded = Buffer.from(JSON.stringify(legacy), 'utf8').toString('base64');
+    const encoded = encodeBookingToken(legacy as unknown as BookingTokenPayload);
     const decoded = decodeBookingToken(encoded);
     expect(decoded.bookingType).toBe('standard');
     expect(decoded.experienceId).toBeUndefined();
@@ -124,7 +129,7 @@ describe('booking-token — modify-token shape', () => {
       bookingType: 'standard' as const,
       existingConfirmationNumber: 10001,
     };
-    const encoded = Buffer.from(JSON.stringify(malformed), 'utf8').toString('base64');
+    const encoded = encodeBookingToken(malformed as unknown as BookingTokenPayload);
     expect(() => decodeBookingToken(encoded)).toThrow(/partial-modify tokens are rejected/);
   });
 
@@ -140,5 +145,28 @@ describe('booking-token — modify-token shape', () => {
     const after = decodeBookingToken(encodeBookingToken(bookToken));
     expect(after.existingConfirmationNumber).toBeUndefined();
     expect(after.existingSecurityToken).toBeUndefined();
+  });
+});
+
+describe('booking-token — signed and short-lived (fleet-audit #636)', () => {
+  it('rejects an unsigned base64-JSON token an agent built itself', () => {
+    const forged = Buffer.from(JSON.stringify(samplePayload), 'utf8').toString('base64');
+    expect(() => decodeBookingToken(forged)).toThrow(/not issued by this server|altered/i);
+  });
+
+  it('rejects a token whose payload was edited after signing (e.g. tcAccepted flipped)', () => {
+    const [body, sig] = encodeBookingToken(samplePayload).split('.');
+    const envelope = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    envelope.p.tcAccepted = true;
+    envelope.p.ccRequired = false;
+    const edited = `${Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')}.${sig}`;
+    expect(() => decodeBookingToken(edited)).toThrow(/not issued by this server|altered/i);
+  });
+
+  it('rejects a token past its lifetime', () => {
+    const issued = Date.parse('2026-05-01T12:00:00Z');
+    const token = encodeBookingToken(samplePayload, { now: issued });
+    expect(decodeBookingToken(token, { now: issued + 60_000 }).slotLockId).toBe(12345);
+    expect(() => decodeBookingToken(token, { now: issued + BOOKING_TOKEN_TTL_MS + 1 })).toThrow(/expired/i);
   });
 });

@@ -2524,10 +2524,10 @@ describe('reservation tools', () => {
       const phaseOne = parseToolResult(await harness.callTool('opentable_book', {
         ...bookArgs, booking_token: bookToken(),
       })) as GateResult;
-      // reservation_token isn't tamper-checked against the booking_token, so
+      // database_region isn't tamper-checked against the booking_token, so
       // only the confirmToken binding catches this change.
       const result = await harness.callTool('opentable_book', {
-        ...bookArgs, reservation_token: 'rt-changed', booking_token: bookToken(), confirmToken: phaseOne.confirmToken,
+        ...bookArgs, database_region: 'EU', booking_token: bookToken(), confirmToken: phaseOne.confirmToken,
       });
       expect(result.isError).toBe(true);
       const body = parseToolResult(result) as GateResult;
@@ -3055,6 +3055,52 @@ describe('reservation tools', () => {
       const text = (result.content[0] as { text: string }).text;
       expect(text).toMatch(/outcome unknown/i);
       expect(text).toMatch(/opentable_list_reservations/);
+    });
+  });
+
+  describe('booking_token is server-signed and slot-bound (fleet-audit #636)', () => {
+    const slotArgs = {
+      restaurant_id: 1272781, date: '2026-05-01', time: '19:00', party_size: 2,
+      reservation_token: 'rt', slot_hash: 'sh',
+    };
+    const payload = {
+      bookingType: 'standard' as const, slotLockId: 5, restaurantId: 1272781, diningAreaId: 48750,
+      partySize: 2, date: '2026-05-01', time: '19:00', reservationToken: 'rt', slotHash: 'sh',
+      paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+    };
+
+    it('opentable_book refuses an unsigned token an agent built itself', async () => {
+      const forged = Buffer.from(JSON.stringify({ ...payload, tcAccepted: true }), 'utf8').toString('base64');
+      const result = await harness.callTool('opentable_book', { ...slotArgs, booking_token: forged });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/opentable_book_preview/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book refuses a token minted for a different slot_hash', async () => {
+      const token = encodeBookingToken(payload);
+      const result = await harness.callTool('opentable_book', { ...slotArgs, slot_hash: 'other', booking_token: token });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book refuses a token minted for a different reservation_token', async () => {
+      const token = encodeBookingToken(payload);
+      const result = await harness.callTool('opentable_book', { ...slotArgs, reservation_token: 'other', booking_token: token });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_modify refuses a modify_token minted for a different slot_hash', async () => {
+      const token = encodeBookingToken({ ...payload, existingConfirmationNumber: 555, existingSecurityToken: 'st' });
+      const result = await harness.callTool('opentable_modify', {
+        ...slotArgs, slot_hash: 'other', confirmation_number: 555, security_token: 'st', modify_token: token,
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
     });
   });
 

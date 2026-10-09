@@ -887,6 +887,10 @@ export function registerReservationTools(
           payload.date !== date ||
           payload.time !== time ||
           payload.partySize !== party_size ||
+          // The slot-lock in the token was minted for this exact slot;
+          // sending it with a different slot's tokens mixes two slots.
+          payload.slotHash !== slot_hash ||
+          payload.reservationToken !== reservation_token ||
           // dining_area_id is optional here — only tamper-check it when the
           // caller restated one. Omitted means "trust the token's area".
           (typeof dining_area_id === 'number' && payload.diningAreaId !== dining_area_id) ||
@@ -894,7 +898,7 @@ export function registerReservationTools(
             payload.experienceId !== callerExperienceId)
         ) {
           throw new Error(
-            'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, dining area, or experience_id). Call opentable_book_preview again with the current args.'
+            'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, slot_hash/reservation_token, dining area, or experience_id). Call opentable_book_preview again with the current args.'
           );
         }
         tokenPayload = payload;
@@ -942,7 +946,7 @@ export function registerReservationTools(
       // Confirm-gate: booking commits a reservation and holds the saved card
       // per the restaurant's policy. Ask the user (elicitation) or hand back a
       // preview + confirmToken bound to every argument and to what the
-      // prompt showed. The unsigned booking_token is not an intent check —
+      // prompt showed. The (server-signed) booking_token is not an intent check —
       // this gate is.
       const willSend = confirmDetails(confirm, { restaurant_id, date, time, party_size });
       const gate = await confirmWrite(ctx, {
@@ -1120,6 +1124,8 @@ export function registerReservationTools(
         payload.date !== date ||
         payload.time !== time ||
         payload.partySize !== party_size ||
+        payload.slotHash !== slot_hash ||
+        payload.reservationToken !== reservation_token ||
         // dining_area_id is optional here — only tamper-check it when the
         // caller restated one. Omitted means "trust the token's area".
         (typeof dining_area_id === 'number' && payload.diningAreaId !== dining_area_id) ||
@@ -1128,7 +1134,7 @@ export function registerReservationTools(
         (typeof callerExperienceId === 'number' && payload.experienceId !== callerExperienceId)
       ) {
         throw new Error(
-          'modify_token was issued for a different reservation (party_size, date/time, dining area, experience_id, or the existing reservation identifier has changed since opentable_modify_preview). Call opentable_modify_preview again with the current args.'
+          'modify_token was issued for a different reservation (party_size, date/time, slot_hash/reservation_token, dining area, experience_id, or the existing reservation identifier has changed since opentable_modify_preview). Call opentable_modify_preview again with the current args.'
         );
       }
 
@@ -1369,8 +1375,9 @@ interface ConfirmContext {
   termsAccepted: boolean;
 }
 
-/** Non-empty string or undefined — display fields come from an unsigned
- *  token, so each one is type-checked before it is shown. */
+/** Non-empty string or undefined — display fields come from a token
+ *  (signed, but possibly minted by an older build), so each one is
+ *  type-checked before it is shown. */
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
 }
