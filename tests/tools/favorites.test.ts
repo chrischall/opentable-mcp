@@ -23,6 +23,15 @@ describe('favorite tools', () => {
     );
   });
 
+  it('list_favorites documents restaurant_id as a numeric id (or null) callers can pass to other tools', async () => {
+    const { tools } = await harness.client.listTools();
+    const description =
+      tools.find((t) => t.name === 'opentable_list_favorites')?.description ?? '';
+    expect(description).toMatch(/numeric `?restaurant_id`?/);
+    expect(description).toMatch(/null/);
+    expect(description).toMatch(/opentable_get_restaurant/);
+  });
+
   it('list_favorites fetches /user/favorites and returns a formatted list', async () => {
     mockFetchHtml.mockResolvedValue(
       htmlWith({

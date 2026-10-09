@@ -45,7 +45,7 @@
     },
     {
       "name": "opentable_list_favorites",
-      "description": "List the user's saved restaurants."
+      "description": "List the user's saved restaurants (numeric restaurant_id, or null when absent)."
     },
     {
       "name": "opentable_search_restaurants",

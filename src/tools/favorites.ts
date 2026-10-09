@@ -26,7 +26,7 @@ export function registerFavoriteTools(
     'opentable_list_favorites',
     {
       description:
-        "List the user's saved restaurants from OpenTable (Saved Restaurants list). Returns each entry's id, name, cuisine, neighborhood, price band, rating, and OpenTable URL.",
+        "List the user's saved restaurants from OpenTable (Saved Restaurants list). Returns each entry's numeric restaurant_id (a number, or null when OpenTable omits it — the same id opentable_get_restaurant, opentable_find_slots and opentable_remove_favorite take), name, cuisine, neighborhood, price band, rating, and OpenTable URL.",
       inputSchema: z.object({
         view: viewArg(),
       }),
