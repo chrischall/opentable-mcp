@@ -40,6 +40,7 @@ import {
   sameDayConflicts,
   resolveDiningAreaId,
   type BookingDetailsSummary,
+  type SlotPoints,
 } from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
 import { opentableUrl, restaurantCandidatePaths, restaurantProfilePath } from '../urls.js';
@@ -52,6 +53,7 @@ import {
 import {
   lockSlot,
   makeReservation,
+  outcomeUnknownError,
   expiryMmYy,
   CC_PROVIDER,
   type BookProfile,
@@ -85,6 +87,29 @@ const DatabaseRegion = z
   .describe(
     "OpenTable's sharded-database region for the restaurant. Defaults to 'NA' (North America). Pass the venue's region (e.g. for UK/EU/APAC restaurants) when booking or cancelling outside North America — slot-lock, availability, and cancel route to the wrong database shard, or fail opaquely, when this is wrong. LIMITATION: not auto-derived from restaurant data (OpenTable's availability/booking responses don't surface the shard id), so non-NA bookings must set it explicitly."
   );
+
+/** `date` input shared by the slot/booking tools: a strict calendar date.
+ *  Free text ("May 1") used to flow straight into the /booking/details URL
+ *  and the slot-lock body. */
+const ReservationDate = (description = 'YYYY-MM-DD') =>
+  z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'date must be YYYY-MM-DD')
+    .describe(description);
+
+/** `time` input shared by the slot/booking tools: 24h HH:MM. A free-text
+ *  time like "7pm" used to parse as NaN in parse-slots and silently anchor
+ *  every slot at midnight. */
+const ReservationTime = (description: string) =>
+  z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be 24-hour HH:MM (e.g. 19:30)')
+    .describe(description);
+
+/** Thrown by the previews when a CC-required slot has no card that can
+ *  hold it — none saved, or every saved card expired or inactive. */
+const NO_USABLE_CARD_ERROR =
+  'No default payment method on your OpenTable account that can hold this reservation (expired or inactive saved cards are skipped). Add or update one at https://www.opentable.com/account/payment-methods and try again.';
 
 /**
  * URL for the SSR /booking/details page. OpenTable shows this page right
@@ -309,8 +334,8 @@ export function registerReservationTools(
       inputSchema: z.object({
         view: viewArg(),
         restaurant_id: PositiveInt,
-        date: z.string().describe('YYYY-MM-DD'),
-        time: z.string().describe('HH:MM (24h) — anchor time; slots come back relative to this'),
+        date: ReservationDate('YYYY-MM-DD'),
+        time: ReservationTime('HH:MM (24h) — anchor time; slots come back relative to this'),
         party_size: PositiveInt,
         database_region: DatabaseRegion,
       }),
@@ -351,8 +376,8 @@ export function registerReservationTools(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
-        date: z.string().describe('YYYY-MM-DD'),
-        time: z.string().describe('HH:MM (24h) — must match a slot returned by find_slots'),
+        date: ReservationDate('YYYY-MM-DD'),
+        time: ReservationTime('HH:MM (24h) — must match a slot returned by find_slots'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots'),
@@ -441,9 +466,7 @@ export function registerReservationTools(
 
       // Step 2b — CC-required: we must have a default saved card.
       if (summary.cc_required && !summary.default_card) {
-        throw new Error(
-          'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
-        );
+        throw new Error(NO_USABLE_CARD_ERROR);
       }
 
       // Step 2c — resolve the dining area (caller's value, or the default
@@ -506,6 +529,7 @@ export function registerReservationTools(
         // its terms checkbox exists; `terms` is surfaced below so the
         // caller sees what confirming opentable_book accepts.
         ...(summary.terms ? { tcAccepted: true } : {}),
+        ...(summary.points ? { pointsType: summary.points.type, pointsValue: summary.points.value } : {}),
              display: tokenDisplay(summary),
       });
 
@@ -565,8 +589,8 @@ export function registerReservationTools(
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
-        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
-        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        date: ReservationDate('YYYY-MM-DD (the NEW date)'),
+        time: ReservationTime('HH:MM (24h) — the NEW time'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
@@ -645,9 +669,7 @@ export function registerReservationTools(
       }
 
       if (summary.cc_required && !summary.default_card) {
-        throw new Error(
-          'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
-        );
+        throw new Error(NO_USABLE_CARD_ERROR);
       }
 
       // 2b) Dining area: caller's value, or the page's default (same helper
@@ -726,6 +748,7 @@ export function registerReservationTools(
             }
           : {}),
         ...(summary.terms ? { tcAccepted: true } : {}),
+        ...(summary.points ? { pointsType: summary.points.type, pointsValue: summary.points.value } : {}),
         existingConfirmationNumber: confirmation_number,
         existingSecurityToken: security_token,
         display: {
@@ -783,8 +806,8 @@ export function registerReservationTools(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
-        date: z.string().describe('YYYY-MM-DD'),
-        time: z.string().describe('HH:MM (24h) — must match the slot returned by find_slots'),
+        date: ReservationDate('YYYY-MM-DD'),
+        time: ReservationTime('HH:MM (24h) — must match the slot returned by find_slots'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots'),
@@ -864,6 +887,10 @@ export function registerReservationTools(
           payload.date !== date ||
           payload.time !== time ||
           payload.partySize !== party_size ||
+          // The slot-lock in the token was minted for this exact slot;
+          // sending it with a different slot's tokens mixes two slots.
+          payload.slotHash !== slot_hash ||
+          payload.reservationToken !== reservation_token ||
           // dining_area_id is optional here — only tamper-check it when the
           // caller restated one. Omitted means "trust the token's area".
           (typeof dining_area_id === 'number' && payload.diningAreaId !== dining_area_id) ||
@@ -871,7 +898,7 @@ export function registerReservationTools(
             payload.experienceId !== callerExperienceId)
         ) {
           throw new Error(
-            'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, dining area, or experience_id). Call opentable_book_preview again with the current args.'
+            'booking_token was issued for a different reservation (some field has changed since opentable_book_preview — party_size, date/time, restaurant, slot_hash/reservation_token, dining area, or experience_id). Call opentable_book_preview again with the current args.'
           );
         }
         tokenPayload = payload;
@@ -919,7 +946,7 @@ export function registerReservationTools(
       // Confirm-gate: booking commits a reservation and holds the saved card
       // per the restaurant's policy. Ask the user (elicitation) or hand back a
       // preview + confirmToken bound to every argument and to what the
-      // prompt showed. The unsigned booking_token is not an intent check —
+      // prompt showed. The (server-signed) booking_token is not an intent check —
       // this gate is.
       const willSend = confirmDetails(confirm, { restaurant_id, date, time, party_size });
       const gate = await confirmWrite(ctx, {
@@ -954,6 +981,7 @@ export function registerReservationTools(
       let experienceId: number | undefined;
       let experienceVersion: number | undefined;
       let tcAccepted: boolean | undefined;
+      let points: SlotPoints | undefined;
 
       if (tokenPayload) {
         // The token is authoritative for the dining area (preview resolved it).
@@ -965,12 +993,14 @@ export function registerReservationTools(
         experienceId = tokenPayload.experienceId;
         experienceVersion = tokenPayload.experienceVersion;
         tcAccepted = tokenPayload.tcAccepted;
+        points = tokenPoints(tokenPayload);
       } else {
         const summary = pageSummary!;
         // Resolve the dining area (caller's value, or the default parsed from
         // this same page) before locking.
         diningAreaId = requireDiningAreaId(dining_area_id, summary);
         tcAccepted = summary.terms ? true : undefined;
+        points = summary.points ?? undefined;
 
         // Standard-no-guarantee path: lock the slot ourselves.
         slotLockId = await lockSlot(client, {
@@ -1001,6 +1031,7 @@ export function registerReservationTools(
         experienceVersion,
         paymentCard,
         tcAccepted,
+        points,
         endpoint: MAKE_RESERVATION_PATH,
       });
 
@@ -1032,8 +1063,8 @@ export function registerReservationTools(
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
-        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
-        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        date: ReservationDate('YYYY-MM-DD (the NEW date)'),
+        time: ReservationTime('HH:MM (24h) — the NEW time'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
@@ -1093,6 +1124,8 @@ export function registerReservationTools(
         payload.date !== date ||
         payload.time !== time ||
         payload.partySize !== party_size ||
+        payload.slotHash !== slot_hash ||
+        payload.reservationToken !== reservation_token ||
         // dining_area_id is optional here — only tamper-check it when the
         // caller restated one. Omitted means "trust the token's area".
         (typeof dining_area_id === 'number' && payload.diningAreaId !== dining_area_id) ||
@@ -1101,7 +1134,7 @@ export function registerReservationTools(
         (typeof callerExperienceId === 'number' && payload.experienceId !== callerExperienceId)
       ) {
         throw new Error(
-          'modify_token was issued for a different reservation (party_size, date/time, dining area, experience_id, or the existing reservation identifier has changed since opentable_modify_preview). Call opentable_modify_preview again with the current args.'
+          'modify_token was issued for a different reservation (party_size, date/time, slot_hash/reservation_token, dining area, experience_id, or the existing reservation identifier has changed since opentable_modify_preview). Call opentable_modify_preview again with the current args.'
         );
       }
 
@@ -1157,6 +1190,7 @@ export function registerReservationTools(
         experienceVersion,
         paymentCard,
         tcAccepted: payload.tcAccepted,
+        points: tokenPoints(payload),
         modify: {
           confirmationNumber: payload.existingConfirmationNumber!,
           securityToken: payload.existingSecurityToken!,
@@ -1240,7 +1274,7 @@ export function registerReservationTools(
         confirmToken,
       });
       if (gate) return gate;
-      const response = await client.fetchJson<{
+      let response: {
         data?: {
           cancelReservation?: {
             statusCode?: number;
@@ -1248,25 +1282,35 @@ export function registerReservationTools(
             data?: { reservationState?: string };
           };
         };
-      }>(CANCEL_RESERVATION_PATH, {
-        method: 'POST',
-        headers: { 'ot-page-type': 'network_confirmation', 'ot-page-group': 'booking' },
-        body: {
-          operationName: 'CancelReservation',
-          variables: {
-            input: {
-              restaurantId: restaurant_id,
-              confirmationNumber: confirmation_number,
-              securityToken: security_token,
-              databaseRegion: database_region ?? DEFAULT_DATABASE_REGION,
-              reservationSource: 'Online',
+      } | null;
+      try {
+        response = await client.fetchJson(CANCEL_RESERVATION_PATH, {
+          method: 'POST',
+          headers: { 'ot-page-type': 'network_confirmation', 'ot-page-group': 'booking' },
+          body: {
+            operationName: 'CancelReservation',
+            variables: {
+              input: {
+                restaurantId: restaurant_id,
+                confirmationNumber: confirmation_number,
+                securityToken: security_token,
+                databaseRegion: database_region ?? DEFAULT_DATABASE_REGION,
+                reservationSource: 'Online',
+              },
+            },
+            extensions: {
+              persistedQuery: { version: 1, sha256Hash: CANCEL_RESERVATION_HASH },
             },
           },
-          extensions: {
-            persistedQuery: { version: 1, sha256Hash: CANCEL_RESERVATION_HASH },
-          },
-        },
-      });
+        });
+      } catch (error) {
+        throw (
+          outcomeUnknownError(error, {
+            action: 'cancel',
+            check: 'The reservation may already be cancelled.',
+          }) ?? error
+        );
+      }
       const result = response?.data?.cancelReservation;
       const state = result?.data?.reservationState ?? '';
       const cancelled = result?.statusCode === 200 && /cancel/i.test(state) && !result?.errors;
@@ -1331,10 +1375,21 @@ interface ConfirmContext {
   termsAccepted: boolean;
 }
 
-/** Non-empty string or undefined — display fields come from an unsigned
- *  token, so each one is type-checked before it is shown. */
+/** Non-empty string or undefined — display fields come from a token
+ *  (signed, but possibly minted by an older build), so each one is
+ *  type-checked before it is shown. */
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
+/** The slot's points a preview baked into its token, when both fields are
+ *  present and well-typed; undefined otherwise (make-reservation then sends
+ *  the historical default). */
+function tokenPoints(payload: BookingTokenPayload): SlotPoints | undefined {
+  return typeof payload.pointsType === 'string' && payload.pointsType !== '' &&
+    typeof payload.pointsValue === 'number'
+    ? { type: payload.pointsType, value: payload.pointsValue }
+    : undefined;
 }
 
 /** The display block book_preview / modify_preview bake into their token. */

@@ -1,9 +1,18 @@
 // Opaque, stateless token passed between opentable_book_preview and
-// opentable_book. Base64-encoded JSON — no signing (we have no shared
-// secret with the MCP client) — so the tamper check on the receiving
-// end is purely against the caller's own call arguments. See
-// docs/superpowers/specs/2026-04-21-cc-required-booking-design.md for
-// the rationale.
+// opentable_book (and modify_preview → modify). Format:
+//
+//   base64url(JSON({ p: payload, exp })) "." base64url(HMAC-SHA256)
+//
+// The HMAC key never leaves this server (derived from the fleet confirm key:
+// MCP_CONFIRM_SECRET when set, else a per-process random key — the server
+// outlives preview → book), so an agent can neither forge a token to skip
+// the preview nor edit one (ccRequired, paymentCard, tcAccepted, slot
+// tokens…). `exp` bounds how long a token is accepted. The receiving tool
+// still tamper-checks the payload against the caller's own call arguments.
+// See docs/superpowers/specs/2026-04-21-cc-required-booking-design.md.
+
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { confirmKeyFromEnv } from '@chrischall/mcp-utils';
 
 /** Card details the `make-reservation` payload needs for a CC-required
  *  booking. The four fields are OpenTable's payload keys; we stash them
@@ -85,6 +94,11 @@ export interface BookingTokenPayload {
    *  wire as `securityToken`. Required together with
    *  existingConfirmationNumber; partial-modify tokens fail decode. */
   existingSecurityToken?: string;
+  /** The slot's loyalty points from the booking-details page, echoed on
+   *  make-reservation. Absent on tokens minted before they were carried
+   *  (make-reservation then falls back to Standard / 100). */
+  pointsType?: string;
+  pointsValue?: number;
   /** Confirm-prompt context (venue name, card brand, policy). Absent on
    *  tokens minted before it was added. */
   display?: BookingTokenDisplay;
@@ -107,17 +121,58 @@ const REQUIRED_KEYS: Array<keyof BookingTokenPayload> = [
   // experienceId intentionally omitted — only set on experience tokens.
 ];
 
-export function encodeBookingToken(payload: BookingTokenPayload): string {
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+/** How long a minted token is accepted. The slot lock it carries lasts
+ *  only ~90s (make-reservation then answers SLOT_LOCK_EXPIRED), but the
+ *  two-step confirm flow can wait on the user, so this matches the confirm
+ *  token's default lifetime rather than the lock's. */
+export const BOOKING_TOKEN_TTL_MS = 10 * 60_000;
+
+const NOT_OURS =
+  'booking_token was not issued by this server or was altered — call opentable_book_preview (or opentable_modify_preview) again and pass its token unchanged.';
+
+/** Token-specific subkey of the fleet confirm key, so a signature here can
+ *  never double as a confirm-token signature (or vice versa). */
+function signingKey(): Buffer {
+  return createHmac('sha256', confirmKeyFromEnv())
+    .update('opentable-mcp/booking-token/v1')
+    .digest();
 }
 
-export function decodeBookingToken(token: string): BookingTokenPayload {
-  const json = Buffer.from(token, 'base64').toString('utf8');
-  let parsed: unknown;
+function sign(body: string): string {
+  return createHmac('sha256', signingKey()).update(body, 'utf8').digest('base64url');
+}
+
+export function encodeBookingToken(
+  payload: BookingTokenPayload,
+  opts: { now?: number } = {}
+): string {
+  const exp = (opts.now ?? Date.now()) + BOOKING_TOKEN_TTL_MS;
+  const body = Buffer.from(JSON.stringify({ p: payload, exp }), 'utf8').toString('base64url');
+  return `${body}.${sign(body)}`;
+}
+
+export function decodeBookingToken(
+  token: string,
+  opts: { now?: number } = {}
+): BookingTokenPayload {
+  const parts = token.split('.');
+  if (parts.length !== 2) throw new Error(NOT_OURS);
+  const [body, sig] = parts;
+  const want = Buffer.from(sign(body), 'utf8');
+  const got = Buffer.from(sig, 'utf8');
+  if (want.length !== got.length || !timingSafeEqual(want, got)) throw new Error(NOT_OURS);
+
+  let envelope: unknown;
   try {
-    parsed = JSON.parse(json);
+    envelope = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
   } catch {
     throw new Error('booking_token does not contain valid JSON — was it issued by opentable_book_preview?');
+  }
+  const { p: parsed, exp } = (envelope ?? {}) as { p?: unknown; exp?: unknown };
+  if (typeof exp !== 'number' || (opts.now ?? Date.now()) > exp) {
+    throw new Error(
+      'booking_token has expired — call opentable_find_slots for a fresh slot, then preview again.'
+    );
   }
   if (typeof parsed !== 'object' || parsed === null) {
     throw new Error('booking_token payload is not an object');

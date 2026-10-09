@@ -9,6 +9,7 @@ import {
 } from '../../src/tools/reservations.js';
 import { createTestHarness, parseToolResult } from '../helpers.js';
 import { decodeBookingToken, encodeBookingToken } from '../../src/booking-token.js';
+import { FetchproxyBridgeDownError, FetchproxyTimeoutError } from '@fetchproxy/server';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) =>
@@ -1860,6 +1861,36 @@ describe('reservation tools', () => {
         expect(mockFetchJson).not.toHaveBeenCalled();
       });
 
+      it('book_preview refuses with a clear error when every saved card is expired or inactive (fleet-audit #631)', async () => {
+        const ccState = fixture('booking-details-state-cc.json') as Record<string, unknown>;
+        mockFetchHtml.mockResolvedValue(htmlWith({
+          ...ccState,
+          wallet: {
+            savedCards: [
+              { cardId: 'card_x', last4: '1111', type: 'Visa', default: true, active: true, expiryMonth: 1, expiryYear: 2020, expired: true },
+            ],
+            selectedPaymentCardId: 'card_x',
+          },
+        }));
+        mockFetchJson.mockImplementation(async () => {
+          throw new Error('slot-lock should not be reached');
+        });
+
+        const result = await harness.callTool('opentable_book_preview', {
+          restaurant_id: 2827,
+          date: '2026-05-01',
+          time: '20:45',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          dining_area_id: 1,
+        });
+
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/expired or inactive/);
+        expect(mockFetchJson).not.toHaveBeenCalled();
+      });
+
       it('populates payment_method + a "re-held only" charges_at_booking description when the new slot is CC-required', async () => {
         mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-cc.json')));
         mockFetchJson.mockImplementation(async (path: string) => {
@@ -2493,10 +2524,10 @@ describe('reservation tools', () => {
       const phaseOne = parseToolResult(await harness.callTool('opentable_book', {
         ...bookArgs, booking_token: bookToken(),
       })) as GateResult;
-      // reservation_token isn't tamper-checked against the booking_token, so
+      // database_region isn't tamper-checked against the booking_token, so
       // only the confirmToken binding catches this change.
       const result = await harness.callTool('opentable_book', {
-        ...bookArgs, reservation_token: 'rt-changed', booking_token: bookToken(), confirmToken: phaseOne.confirmToken,
+        ...bookArgs, database_region: 'EU', booking_token: bookToken(), confirmToken: phaseOne.confirmToken,
       });
       expect(result.isError).toBe(true);
       const body = parseToolResult(result) as GateResult;
@@ -2834,6 +2865,241 @@ describe('reservation tools', () => {
       const result = await harness.callTool('opentable_cancel', { ...args, confirmToken: phaseOne.confirmToken });
       expect(result.isError).toBe(true);
       expect((parseToolResult(result) as GateResult).error).toBe('DRAFT_CHANGED');
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('date / time inputs are validated (fleet-audit #630)', () => {
+    // A free-text time like "7pm" used to reach parse-slots, where
+    // Number('7pm') is NaN and `h || 0` silently anchored every slot at
+    // midnight. Every reservation tool now rejects malformed date/time at
+    // the schema, before any network call.
+    const slotArgs = {
+      restaurant_id: 123,
+      party_size: 2,
+      reservation_token: 'tok',
+      slot_hash: 'hash',
+    };
+    const modifyIdentity = { confirmation_number: 555, security_token: 'st' };
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['opentable_find_slots', { restaurant_id: 123, party_size: 2 }],
+      ['opentable_book_preview', slotArgs],
+      ['opentable_book', slotArgs],
+      ['opentable_modify_preview', { ...slotArgs, ...modifyIdentity }],
+      ['opentable_modify', { ...slotArgs, ...modifyIdentity, modify_token: 'x' }],
+    ];
+
+    for (const [tool, base] of cases) {
+      it(`${tool} rejects a non-HH:MM time`, async () => {
+        const result = await harness.callTool(tool, { ...base, date: '2026-05-01', time: '7pm' });
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/time/i);
+        expect(mockFetchHtml).not.toHaveBeenCalled();
+        expect(mockFetchJson).not.toHaveBeenCalled();
+        expect(mockGraphqlQuery).not.toHaveBeenCalled();
+      });
+
+      it(`${tool} rejects a non-YYYY-MM-DD date`, async () => {
+        const result = await harness.callTool(tool, { ...base, date: 'May 1', time: '19:00' });
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/date/i);
+        expect(mockFetchHtml).not.toHaveBeenCalled();
+        expect(mockFetchJson).not.toHaveBeenCalled();
+        expect(mockGraphqlQuery).not.toHaveBeenCalled();
+      });
+    }
+
+    it('rejects an out-of-range hour such as 24:00', async () => {
+      const result = await harness.callTool('opentable_find_slots', {
+        restaurant_id: 123, party_size: 2, date: '2026-05-01', time: '24:00',
+      });
+      expect(result.isError).toBe(true);
+      expect(mockGraphqlQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("make-reservation carries the slot's own loyalty points (fleet-audit #629)", () => {
+    const profileHtml = () =>
+      htmlWith({
+        header: {
+          userProfile: {
+            firstName: 'Test', lastName: 'User', email: 'test@example.com',
+            mobilePhoneNumber: { number: '5551234567', countryId: 'US' }, countryId: 'US',
+          },
+        },
+        diningDashboard: { upcomingReservations: [], pastReservations: [] },
+      });
+    const bonusState = () => {
+      const base = fixture('booking-details-state-no-cc.json') as { timeSlot: Record<string, unknown> };
+      return { ...base, timeSlot: { ...base.timeSlot, pointsType: 'POP', pointsValue: 1000 } };
+    };
+    const slotArgs = {
+      restaurant_id: 1272781, date: '2026-05-01', time: '19:00', party_size: 2,
+      reservation_token: 'rt', slot_hash: 'sh', dining_area_id: 48750,
+    };
+    let sentBody: Record<string, unknown> | undefined;
+    const answerJson = async (path: string, init?: { body?: unknown }) => {
+      if (path.includes('SlotLock')) return { data: { lockSlot: { success: true, slotLock: { slotLockId: 777 } } } };
+      if (path.includes('make-reservation')) {
+        sentBody = init?.body as Record<string, unknown>;
+        return { success: true, confirmationNumber: 1, reservationId: 2, securityToken: 's', points: 1000 };
+      }
+      throw new Error(`unexpected fetchJson path: ${path}`);
+    };
+    beforeEach(() => { sentBody = undefined; });
+
+    it('book_preview bakes the slot points into the token and book sends them', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(bonusState()));
+      mockFetchJson.mockImplementation(answerJson);
+      const preview = parseToolResult(await harness.callTool('opentable_book_preview', slotArgs)) as { booking_token: string };
+      const payload = decodeBookingToken(preview.booking_token);
+      expect(payload.pointsType).toBe('POP');
+      expect(payload.pointsValue).toBe(1000);
+
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: preview.booking_token });
+      expect(result.isError).toBeFalsy();
+      expect(sentBody).toMatchObject({ pointsType: 'POP', points: 1000 });
+    });
+
+    it('the no-token book path sends the points from the booking-details page', async () => {
+      mockFetchHtml.mockImplementation(async (path: string) =>
+        path.startsWith('/booking/details') ? htmlWith(bonusState()) : profileHtml()
+      );
+      mockFetchJson.mockImplementation(answerJson);
+      const result = await callConfirmed('opentable_book', slotArgs);
+      expect(result.isError).toBeFalsy();
+      expect(sentBody).toMatchObject({ pointsType: 'POP', points: 1000 });
+    });
+
+    it('falls back to Standard / 100 for a token minted before points were carried', async () => {
+      const token = encodeBookingToken({
+        bookingType: 'standard', slotLockId: 5, restaurantId: 1272781, diningAreaId: 48750,
+        partySize: 2, date: '2026-05-01', time: '19:00', reservationToken: 'rt', slotHash: 'sh',
+        paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+      });
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockImplementation(answerJson);
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token });
+      expect(result.isError).toBeFalsy();
+      expect(sentBody).toMatchObject({ pointsType: 'Standard', points: 100 });
+    });
+  });
+
+  describe('a lost reply on a write reports an unknown outcome (fleet-audit #632)', () => {
+    const profileHtml = () =>
+      htmlWith({
+        header: {
+          userProfile: {
+            firstName: 'Test', lastName: 'User', email: 'test@example.com',
+            mobilePhoneNumber: { number: '5551234567', countryId: 'US' }, countryId: 'US',
+          },
+        },
+        diningDashboard: { upcomingReservations: [], pastReservations: [] },
+      });
+    const slotArgs = {
+      restaurant_id: 1272781, date: '2026-05-01', time: '19:00', party_size: 2,
+      reservation_token: 'rt', slot_hash: 'sh', dining_area_id: 48750,
+    };
+    const token = () => encodeBookingToken({
+      bookingType: 'standard', slotLockId: 5, restaurantId: 1272781, diningAreaId: 48750,
+      partySize: 2, date: '2026-05-01', time: '19:00', reservationToken: 'rt', slotHash: 'sh',
+      paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+    });
+    const timeout = () => new FetchproxyTimeoutError({
+      url: 'https://www.opentable.com/dapi/booking/make-reservation', timeoutMs: 30000, retrySafe: false,
+    });
+
+    it('opentable_book says the reservation may exist when make-reservation times out', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockRejectedValue(timeout());
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token() });
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/outcome unknown/i);
+      expect(text).toMatch(/opentable_list_reservations/);
+      expect(text).toMatch(/before retrying/i);
+    });
+
+    it('opentable_book treats a bridge drop on make-reservation the same way', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockRejectedValue(new FetchproxyBridgeDownError({ originalError: 'port closed' }));
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token() });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/outcome unknown/i);
+    });
+
+    it('an ordinary upstream error is not reported as an unknown outcome', async () => {
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockRejectedValue(new Error('HTTP 400 Bad Request'));
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token() });
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/400/);
+      expect(text).not.toMatch(/outcome unknown/i);
+    });
+
+    it('opentable_cancel says the reservation may already be cancelled when the reply is lost', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith({
+        diningDashboard: {
+          upcomingReservations: [{ confirmationNumber: 555, restaurantId: 123, restaurantName: 'Testeria',
+            dateTime: '2026-08-01T19:30:00', partySize: 2, securityToken: 'st' }],
+          pastReservations: [],
+        },
+      }));
+      mockFetchJson.mockRejectedValue(timeout());
+      const result = await callConfirmed('opentable_cancel', {
+        restaurant_id: 123, confirmation_number: 555, security_token: 'st',
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/outcome unknown/i);
+      expect(text).toMatch(/opentable_list_reservations/);
+    });
+  });
+
+  describe('booking_token is server-signed and slot-bound (fleet-audit #636)', () => {
+    const slotArgs = {
+      restaurant_id: 1272781, date: '2026-05-01', time: '19:00', party_size: 2,
+      reservation_token: 'rt', slot_hash: 'sh',
+    };
+    const payload = {
+      bookingType: 'standard' as const, slotLockId: 5, restaurantId: 1272781, diningAreaId: 48750,
+      partySize: 2, date: '2026-05-01', time: '19:00', reservationToken: 'rt', slotHash: 'sh',
+      paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+    };
+
+    it('opentable_book refuses an unsigned token an agent built itself', async () => {
+      const forged = Buffer.from(JSON.stringify({ ...payload, tcAccepted: true }), 'utf8').toString('base64');
+      const result = await harness.callTool('opentable_book', { ...slotArgs, booking_token: forged });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/opentable_book_preview/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book refuses a token minted for a different slot_hash', async () => {
+      const token = encodeBookingToken(payload);
+      const result = await harness.callTool('opentable_book', { ...slotArgs, slot_hash: 'other', booking_token: token });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_book refuses a token minted for a different reservation_token', async () => {
+      const token = encodeBookingToken(payload);
+      const result = await harness.callTool('opentable_book', { ...slotArgs, reservation_token: 'other', booking_token: token });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
+      expect(mockFetchJson).not.toHaveBeenCalled();
+    });
+
+    it('opentable_modify refuses a modify_token minted for a different slot_hash', async () => {
+      const token = encodeBookingToken({ ...payload, existingConfirmationNumber: 555, existingSecurityToken: 'st' });
+      const result = await harness.callTool('opentable_modify', {
+        ...slotArgs, slot_hash: 'other', confirmation_number: 555, security_token: 'st', modify_token: token,
+      });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as { text: string }).text).toMatch(/different reservation/);
       expect(mockFetchJson).not.toHaveBeenCalled();
     });
   });

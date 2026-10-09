@@ -167,7 +167,8 @@ The other eight tools take no `view`, each for its own reason:
 
 `opentable_book`, `opentable_modify` and `opentable_cancel` ask the user to
 confirm before they act. Where the client can show a confirmation prompt, it
-does. Otherwise the first call does nothing and returns
+does (unless the server sets `MCP_CONFIRM_ELICITATION=off`). Otherwise the
+first call does nothing and returns
 `status: "confirmation-required"`, a `preview` (the action — naming the
 restaurant, date, time and party — plus the card that will be held and the
 cancellation policy for book/modify, or a `warning` when a cancel's

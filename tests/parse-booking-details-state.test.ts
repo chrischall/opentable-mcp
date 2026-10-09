@@ -76,6 +76,55 @@ describe('parseBookingDetailsState', () => {
     expect(r.default_card!.last4).toBe('2222');
   });
 
+  describe('skips cards that cannot hold a reservation (fleet-audit #631)', () => {
+    const card = (id: string, extra: Record<string, unknown>) => ({
+      cardId: id, last4: id.slice(-4), type: 'Visa', default: false, active: true,
+      expiryMonth: 5, expiryYear: 2030, expired: false, ...extra,
+    });
+    const withCards = (savedCards: unknown[], selectedPaymentCardId: string | null = null) => ({
+      ...fixture('booking-details-state-cc.json'),
+      wallet: { savedCards, selectedPaymentCardId },
+    });
+
+    it('does not fall back to an expired first card', () => {
+      const r = parseBookingDetailsState(
+        withCards([card('card_1111', { expired: true }), card('card_2222', {})])
+      );
+      expect(r.default_card!.id).toBe('card_2222');
+    });
+
+    it('does not pick an inactive default card', () => {
+      const r = parseBookingDetailsState(
+        withCards([card('card_1111', { default: true, active: false }), card('card_2222', {})])
+      );
+      expect(r.default_card!.id).toBe('card_2222');
+    });
+
+    it('does not honour a selectedPaymentCardId that points at an expired card', () => {
+      const r = parseBookingDetailsState(
+        withCards([card('card_1111', { expired: true }), card('card_2222', {})], 'card_1111')
+      );
+      expect(r.default_card!.id).toBe('card_2222');
+    });
+
+    it('returns default_card=null when every saved card is expired or inactive', () => {
+      const r = parseBookingDetailsState(
+        withCards([card('card_1111', { expired: true }), card('card_2222', { active: false })])
+      );
+      expect(r.default_card).toBeNull();
+    });
+  });
+
+  it("surfaces the slot's loyalty points (type + value) from timeSlot", () => {
+    const base = fixture('booking-details-state-no-cc.json') as { timeSlot: Record<string, unknown> };
+    const r = parseBookingDetailsState({ ...base, timeSlot: { ...base.timeSlot, pointsType: 'POP', pointsValue: 1000 } });
+    expect(r.points).toEqual({ type: 'POP', value: 1000 });
+  });
+
+  it('returns points=null when the slot carries no points fields', () => {
+    expect(parseBookingDetailsState({ timeSlot: {} }).points).toBeNull();
+  });
+
   it('parses a "$NN total" fee where the message omits "per person"', () => {
     const state = {
       ...fixture('booking-details-state-cc.json'),

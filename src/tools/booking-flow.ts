@@ -26,6 +26,7 @@
 // where the inline re-capture instructions can see them.
 
 import { randomUUID } from 'node:crypto';
+import { FetchproxyBridgeDownError, FetchproxyTimeoutError } from '@fetchproxy/server';
 import type { OpenTableClient } from '../client.js';
 import type {
   BookingTokenPaymentCard,
@@ -36,6 +37,10 @@ import type {
  *  requires this field when any `creditCard*` field is set, even though
  *  pre-authenticated saved cards never trigger an actual 3DS flow. */
 const SCA_REDIRECT_URL = 'https://www.opentable.com/booking/payments-sca';
+
+/** What make-reservation was always sent before the slot's own points were
+ *  carried through — the common Standard-slot value. */
+const DEFAULT_POINTS = { type: 'Standard', value: 100 } as const;
 
 /** OpenTable's card-tokenization vendor. Saved-card cardIds are already
  *  Spreedly tokens; we don't tokenize anything ourselves. */
@@ -188,6 +193,10 @@ export interface MakeReservationArgs {
    *  exists (captured 2026-09-02); we send it under the same condition and
    *  omit the key otherwise, exactly as the page does. */
   tcAccepted?: boolean;
+  /** The slot's loyalty points (`pointsType` / `points` on the wire). When
+   *  absent — an old token, or a page that didn't carry them — the
+   *  historical Standard / 100 is sent. */
+  points?: { type: string; value: number };
   /** When set, sends the modify identity triple (isModify + securityToken
    *  + confnumber) instead of a fresh booking. */
   modify?: {
@@ -204,6 +213,28 @@ export interface MakeReservationResult {
   reservationId: number | null;
   securityToken: string;
   points: number;
+}
+
+/**
+ * When a write's reply is lost — the bridge timed out or dropped after the
+ * POST may already have reached OpenTable — the write may have committed.
+ * Returns an error that says so (and how to check) for those two cases, or
+ * null for any other failure, which the caller rethrows unchanged. Every
+ * call mints a fresh correlationId, so a blind retry is a NEW request.
+ */
+export function outcomeUnknownError(
+  error: unknown,
+  what: { action: string; check: string }
+): Error | null {
+  if (!(error instanceof FetchproxyTimeoutError) && !(error instanceof FetchproxyBridgeDownError)) {
+    return null;
+  }
+  const reason = error instanceof FetchproxyTimeoutError ? 'timed out' : 'dropped';
+  return new Error(
+    `OpenTable ${what.action} outcome unknown: the browser bridge ${reason} after the request may already have reached OpenTable (${error.message}). ` +
+      `${what.check} Call opentable_list_reservations before retrying.`,
+    { cause: error }
+  );
 }
 
 /** Format MM/YY-ish: month + year → "MMYY" (e.g. 10, 2028 → "1028"). */
@@ -263,7 +294,39 @@ export async function makeReservation(
       }
     : { isModify: false };
 
-  const response = await client.fetchJson<{
+  const body = {
+    restaurantId: args.restaurantId,
+    reservationDateTime: args.reservationDateTime,
+    partySize: args.partySize,
+    slotHash: args.slotHash,
+    slotAvailabilityToken: args.reservationToken,
+    slotLockId: args.slotLockId,
+    diningAreaId: args.diningAreaId,
+    firstName: args.profile.first_name,
+    lastName: args.profile.last_name,
+    email: args.profile.email,
+    phoneNumber: args.profile.mobile_phone_number,
+    phoneNumberCountryId: args.profile.phone_country_id || args.profile.country_id || 'US',
+    country: args.profile.country_id || 'US',
+    reservationAttribute: 'default',
+    pointsType: args.points?.type ?? DEFAULT_POINTS.type,
+    points: args.points?.value ?? DEFAULT_POINTS.value,
+    tipAmount: 0,
+    tipPercent: 0,
+    confirmPoints: true,
+    optInEmailRestaurant: false,
+    additionalServiceFees: [],
+    nonBookableExperiences: [],
+    katakanaFirstName: '',
+    katakanaLastName: '',
+    correlationId: randomUUID(),
+    ...(args.tcAccepted === true ? { tcAccepted: true } : {}),
+    ...modifyFields,
+    ...experienceFields,
+    ...ccFields,
+  };
+
+  let response: {
     success?: boolean;
     reservationId?: number;
     confirmationNumber?: number;
@@ -273,40 +336,19 @@ export async function makeReservation(
     errorMessage?: string;
     partnerScaRequired?: boolean;
     partnerScaRedirectUrl?: string | null;
-  }>(args.endpoint, {
-    method: 'POST',
-    body: {
-      restaurantId: args.restaurantId,
-      reservationDateTime: args.reservationDateTime,
-      partySize: args.partySize,
-      slotHash: args.slotHash,
-      slotAvailabilityToken: args.reservationToken,
-      slotLockId: args.slotLockId,
-      diningAreaId: args.diningAreaId,
-      firstName: args.profile.first_name,
-      lastName: args.profile.last_name,
-      email: args.profile.email,
-      phoneNumber: args.profile.mobile_phone_number,
-      phoneNumberCountryId: args.profile.phone_country_id || args.profile.country_id || 'US',
-      country: args.profile.country_id || 'US',
-      reservationAttribute: 'default',
-      pointsType: 'Standard',
-      points: 100,
-      tipAmount: 0,
-      tipPercent: 0,
-      confirmPoints: true,
-      optInEmailRestaurant: false,
-      additionalServiceFees: [],
-      nonBookableExperiences: [],
-      katakanaFirstName: '',
-      katakanaLastName: '',
-      correlationId: randomUUID(),
-      ...(args.tcAccepted === true ? { tcAccepted: true } : {}),
-      ...modifyFields,
-      ...experienceFields,
-      ...ccFields,
-    },
-  });
+  } | null;
+  try {
+    response = await client.fetchJson(args.endpoint, { method: 'POST', body });
+  } catch (error) {
+    throw (
+      outcomeUnknownError(error, {
+        action: args.modify ? 'modify' : 'book',
+        check: args.modify
+          ? 'The reservation may already have moved to the new slot.'
+          : 'The reservation may exist (and hold your card per the policy).',
+      }) ?? error
+    );
+  }
 
   // 3DS challenge — rare for pre-authenticated saved cards, can't be
   // completed outside the browser. Surface the redirect URL and bail.
