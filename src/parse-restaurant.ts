@@ -145,8 +145,9 @@ function joinAddress(a: RawRestaurant['address']): string {
  *              through so the `url` field reflects the exact form OpenTable
  *              serves — `/r/{slug}` for most venues, root `/{slug}` for
  *              legacy listings. Optional for callers that don't have it
- *              (e.g. unit tests); url falls back to `/r/{numeric-id}` in
- *              that case (404s on opentable.com, but better than empty).
+ *              (e.g. unit tests); url then falls back to the numeric-id
+ *              route `/restaurant/profile/{id}` (see `restaurantProfilePath`
+ *              in urls.ts), or '' when the state carries no restaurantId.
  */
 export function parseRestaurant(
   html: string,

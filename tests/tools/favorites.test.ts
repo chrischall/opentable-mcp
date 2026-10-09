@@ -48,9 +48,9 @@ describe('favorite tools', () => {
     expect(result.isError).toBeFalsy();
     const parsed = JSON.parse(
       (result.content[0] as { text: string }).text
-    ) as Array<{ restaurant_id: string; name: string }>;
+    ) as Array<{ restaurant_id: number; name: string }>;
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].restaurant_id).toBe('42');
+    expect(parsed[0].restaurant_id).toBe(42);
     expect(parsed[0].name).toBe('Testeria');
   });
 
@@ -83,7 +83,7 @@ describe('favorite tools', () => {
       }
       expect(seen[0]).toEqual(seen[2]);
       expect(seen[1]).toEqual(seen[2]);
-      expect(seen[2][0]).toMatchObject({ restaurant_id: '42', name: 'Testeria' });
+      expect(seen[2][0]).toMatchObject({ restaurant_id: 42, name: 'Testeria' });
     });
 
     // …and the wiring is still observable, because `viewResponse` minifies where
