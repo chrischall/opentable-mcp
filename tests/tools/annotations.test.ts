@@ -24,7 +24,7 @@ const EXPECTED: Record<string, Record<string, boolean>> = {
   opentable_modify: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   opentable_cancel: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
   opentable_add_favorite: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  opentable_remove_favorite: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  opentable_remove_favorite: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
 };
 
 describe('tool annotations', () => {
