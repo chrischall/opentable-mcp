@@ -2917,4 +2917,72 @@ describe('reservation tools', () => {
     });
   });
 
+  describe("make-reservation carries the slot's own loyalty points (fleet-audit #629)", () => {
+    const profileHtml = () =>
+      htmlWith({
+        header: {
+          userProfile: {
+            firstName: 'Test', lastName: 'User', email: 'test@example.com',
+            mobilePhoneNumber: { number: '5551234567', countryId: 'US' }, countryId: 'US',
+          },
+        },
+        diningDashboard: { upcomingReservations: [], pastReservations: [] },
+      });
+    const bonusState = () => {
+      const base = fixture('booking-details-state-no-cc.json') as { timeSlot: Record<string, unknown> };
+      return { ...base, timeSlot: { ...base.timeSlot, pointsType: 'POP', pointsValue: 1000 } };
+    };
+    const slotArgs = {
+      restaurant_id: 1272781, date: '2026-05-01', time: '19:00', party_size: 2,
+      reservation_token: 'rt', slot_hash: 'sh', dining_area_id: 48750,
+    };
+    let sentBody: Record<string, unknown> | undefined;
+    const answerJson = async (path: string, init?: { body?: unknown }) => {
+      if (path.includes('SlotLock')) return { data: { lockSlot: { success: true, slotLock: { slotLockId: 777 } } } };
+      if (path.includes('make-reservation')) {
+        sentBody = init?.body as Record<string, unknown>;
+        return { success: true, confirmationNumber: 1, reservationId: 2, securityToken: 's', points: 1000 };
+      }
+      throw new Error(`unexpected fetchJson path: ${path}`);
+    };
+    beforeEach(() => { sentBody = undefined; });
+
+    it('book_preview bakes the slot points into the token and book sends them', async () => {
+      mockFetchHtml.mockResolvedValue(htmlWith(bonusState()));
+      mockFetchJson.mockImplementation(answerJson);
+      const preview = parseToolResult(await harness.callTool('opentable_book_preview', slotArgs)) as { booking_token: string };
+      const payload = decodeBookingToken(preview.booking_token);
+      expect(payload.pointsType).toBe('POP');
+      expect(payload.pointsValue).toBe(1000);
+
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: preview.booking_token });
+      expect(result.isError).toBeFalsy();
+      expect(sentBody).toMatchObject({ pointsType: 'POP', points: 1000 });
+    });
+
+    it('the no-token book path sends the points from the booking-details page', async () => {
+      mockFetchHtml.mockImplementation(async (path: string) =>
+        path.startsWith('/booking/details') ? htmlWith(bonusState()) : profileHtml()
+      );
+      mockFetchJson.mockImplementation(answerJson);
+      const result = await callConfirmed('opentable_book', slotArgs);
+      expect(result.isError).toBeFalsy();
+      expect(sentBody).toMatchObject({ pointsType: 'POP', points: 1000 });
+    });
+
+    it('falls back to Standard / 100 for a token minted before points were carried', async () => {
+      const token = encodeBookingToken({
+        bookingType: 'standard', slotLockId: 5, restaurantId: 1272781, diningAreaId: 48750,
+        partySize: 2, date: '2026-05-01', time: '19:00', reservationToken: 'rt', slotHash: 'sh',
+        paymentCard: null, ccRequired: false, issuedAt: new Date().toISOString(),
+      });
+      mockFetchHtml.mockResolvedValue(profileHtml());
+      mockFetchJson.mockImplementation(answerJson);
+      const result = await callConfirmed('opentable_book', { ...slotArgs, booking_token: token });
+      expect(result.isError).toBeFalsy();
+      expect(sentBody).toMatchObject({ pointsType: 'Standard', points: 100 });
+    });
+  });
+
 });

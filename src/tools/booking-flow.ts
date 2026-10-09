@@ -37,6 +37,10 @@ import type {
  *  pre-authenticated saved cards never trigger an actual 3DS flow. */
 const SCA_REDIRECT_URL = 'https://www.opentable.com/booking/payments-sca';
 
+/** What make-reservation was always sent before the slot's own points were
+ *  carried through — the common Standard-slot value. */
+const DEFAULT_POINTS = { type: 'Standard', value: 100 } as const;
+
 /** OpenTable's card-tokenization vendor. Saved-card cardIds are already
  *  Spreedly tokens; we don't tokenize anything ourselves. */
 const CC_PROVIDER = 'spreedly';
@@ -188,6 +192,10 @@ export interface MakeReservationArgs {
    *  exists (captured 2026-09-02); we send it under the same condition and
    *  omit the key otherwise, exactly as the page does. */
   tcAccepted?: boolean;
+  /** The slot's loyalty points (`pointsType` / `points` on the wire). When
+   *  absent — an old token, or a page that didn't carry them — the
+   *  historical Standard / 100 is sent. */
+  points?: { type: string; value: number };
   /** When set, sends the modify identity triple (isModify + securityToken
    *  + confnumber) instead of a fresh booking. */
   modify?: {
@@ -290,8 +298,8 @@ export async function makeReservation(
       phoneNumberCountryId: args.profile.phone_country_id || args.profile.country_id || 'US',
       country: args.profile.country_id || 'US',
       reservationAttribute: 'default',
-      pointsType: 'Standard',
-      points: 100,
+      pointsType: args.points?.type ?? DEFAULT_POINTS.type,
+      points: args.points?.value ?? DEFAULT_POINTS.value,
       tipAmount: 0,
       tipPercent: 0,
       confirmPoints: true,

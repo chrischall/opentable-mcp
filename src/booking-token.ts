@@ -85,6 +85,11 @@ export interface BookingTokenPayload {
    *  wire as `securityToken`. Required together with
    *  existingConfirmationNumber; partial-modify tokens fail decode. */
   existingSecurityToken?: string;
+  /** The slot's loyalty points from the booking-details page, echoed on
+   *  make-reservation. Absent on tokens minted before they were carried
+   *  (make-reservation then falls back to Standard / 100). */
+  pointsType?: string;
+  pointsValue?: number;
   /** Confirm-prompt context (venue name, card brand, policy). Absent on
    *  tokens minted before it was added. */
   display?: BookingTokenDisplay;

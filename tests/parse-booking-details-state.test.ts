@@ -115,6 +115,16 @@ describe('parseBookingDetailsState', () => {
     });
   });
 
+  it("surfaces the slot's loyalty points (type + value) from timeSlot", () => {
+    const base = fixture('booking-details-state-no-cc.json') as { timeSlot: Record<string, unknown> };
+    const r = parseBookingDetailsState({ ...base, timeSlot: { ...base.timeSlot, pointsType: 'POP', pointsValue: 1000 } });
+    expect(r.points).toEqual({ type: 'POP', value: 1000 });
+  });
+
+  it('returns points=null when the slot carries no points fields', () => {
+    expect(parseBookingDetailsState({ timeSlot: {} }).points).toBeNull();
+  });
+
   it('parses a "$NN total" fee where the message omits "per person"', () => {
     const state = {
       ...fixture('booking-details-state-cc.json'),

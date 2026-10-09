@@ -40,6 +40,7 @@ import {
   sameDayConflicts,
   resolveDiningAreaId,
   type BookingDetailsSummary,
+  type SlotPoints,
 } from '../parse-booking-details-state.js';
 import { extractInitialState } from '../initial-state.js';
 import { opentableUrl, restaurantCandidatePaths, restaurantProfilePath } from '../urls.js';
@@ -527,6 +528,7 @@ export function registerReservationTools(
         // its terms checkbox exists; `terms` is surfaced below so the
         // caller sees what confirming opentable_book accepts.
         ...(summary.terms ? { tcAccepted: true } : {}),
+        ...(summary.points ? { pointsType: summary.points.type, pointsValue: summary.points.value } : {}),
              display: tokenDisplay(summary),
       });
 
@@ -745,6 +747,7 @@ export function registerReservationTools(
             }
           : {}),
         ...(summary.terms ? { tcAccepted: true } : {}),
+        ...(summary.points ? { pointsType: summary.points.type, pointsValue: summary.points.value } : {}),
         existingConfirmationNumber: confirmation_number,
         existingSecurityToken: security_token,
         display: {
@@ -973,6 +976,7 @@ export function registerReservationTools(
       let experienceId: number | undefined;
       let experienceVersion: number | undefined;
       let tcAccepted: boolean | undefined;
+      let points: SlotPoints | undefined;
 
       if (tokenPayload) {
         // The token is authoritative for the dining area (preview resolved it).
@@ -984,12 +988,14 @@ export function registerReservationTools(
         experienceId = tokenPayload.experienceId;
         experienceVersion = tokenPayload.experienceVersion;
         tcAccepted = tokenPayload.tcAccepted;
+        points = tokenPoints(tokenPayload);
       } else {
         const summary = pageSummary!;
         // Resolve the dining area (caller's value, or the default parsed from
         // this same page) before locking.
         diningAreaId = requireDiningAreaId(dining_area_id, summary);
         tcAccepted = summary.terms ? true : undefined;
+        points = summary.points ?? undefined;
 
         // Standard-no-guarantee path: lock the slot ourselves.
         slotLockId = await lockSlot(client, {
@@ -1020,6 +1026,7 @@ export function registerReservationTools(
         experienceVersion,
         paymentCard,
         tcAccepted,
+        points,
         endpoint: MAKE_RESERVATION_PATH,
       });
 
@@ -1176,6 +1183,7 @@ export function registerReservationTools(
         experienceVersion,
         paymentCard,
         tcAccepted: payload.tcAccepted,
+        points: tokenPoints(payload),
         modify: {
           confirmationNumber: payload.existingConfirmationNumber!,
           securityToken: payload.existingSecurityToken!,
@@ -1354,6 +1362,16 @@ interface ConfirmContext {
  *  token, so each one is type-checked before it is shown. */
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
+/** The slot's points a preview baked into its token, when both fields are
+ *  present and well-typed; undefined otherwise (make-reservation then sends
+ *  the historical default). */
+function tokenPoints(payload: BookingTokenPayload): SlotPoints | undefined {
+  return typeof payload.pointsType === 'string' && payload.pointsType !== '' &&
+    typeof payload.pointsValue === 'number'
+    ? { type: payload.pointsType, value: payload.pointsValue }
+    : undefined;
 }
 
 /** The display block book_preview / modify_preview bake into their token. */

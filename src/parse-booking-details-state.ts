@@ -77,6 +77,11 @@ export interface BookingExperience {
   version: number | null;
 }
 
+export interface SlotPoints {
+  type: string;
+  value: number;
+}
+
 export interface BookingDetailsSummary {
   /** The venue's display name (`restaurant.name`), so confirm prompts can
    *  name the restaurant instead of a bare numeric id. `null` when the page
@@ -102,6 +107,10 @@ export interface BookingDetailsSummary {
    *  `dining_area_id` when the caller doesn't pass one — the numeric id
    *  isn't available from find_slots' availability response, only here. */
   dining_areas: DiningAreaOption[];
+  /** The slot's loyalty points (`timeSlot.pointsType` / `pointsValue`) —
+   *  e.g. a 1000-point POP slot. make-reservation echoes these back.
+   *  `null` when the page doesn't carry them. */
+  points: SlotPoints | null;
 }
 
 interface RawBookableExperienceMini {
@@ -132,6 +141,8 @@ interface RawTimeSlot {
   creditCardPolicyId?: string | null;
   experiencesBySeating?: RawExperiencesBySeating[];
   diningAreasBySeating?: RawDiningAreaBySeating[];
+  pointsType?: string;
+  pointsValue?: number;
 }
 
 interface RawExperienceRecord {
@@ -383,6 +394,11 @@ export function parseBookingDetailsState(
       table_category: d.tableCategory ?? '',
     }));
 
+  const points: SlotPoints | null =
+    typeof ts.pointsType === 'string' && ts.pointsType !== '' && typeof ts.pointsValue === 'number'
+      ? { type: ts.pointsType, value: ts.pointsValue }
+      : null;
+
   const restaurantName = root.restaurant?.name;
   return {
     restaurant_name:
@@ -395,6 +411,7 @@ export function parseBookingDetailsState(
     terms,
     experience,
     dining_areas,
+    points,
   };
 }
 
