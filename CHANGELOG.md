@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.3](https://github.com/chrischall/opentable-mcp/compare/v1.3.2...v1.3.3) (2026-10-09)
+
+
+### Bug Fixes
+
+* annotate tools truthfully and sync manifests with the served tools ([#283](https://github.com/chrischall/opentable-mcp/issues/283)) ([eb323dd](https://github.com/chrischall/opentable-mcp/commit/eb323dd0175dc45656ead8dd8ec05571120f8ae5))
+* declare the plugin MCP config under the mcpServers key Claude Code reads ([#284](https://github.com/chrischall/opentable-mcp/issues/284)) ([2c2386a](https://github.com/chrischall/opentable-mcp/commit/2c2386a00465e8bfcfee48106fc6be331996010c))
+* **deps:** update @chrischall/mcp-utils to 3.0.0 ([#282](https://github.com/chrischall/opentable-mcp/issues/282)) ([7ff44d9](https://github.com/chrischall/opentable-mcp/commit/7ff44d921a0420041d6fe4a312eb66ab918ef055))
+* **favorites:** annotate opentable_remove_favorite as non-destructive ([#278](https://github.com/chrischall/opentable-mcp/issues/278)) ([b4931c1](https://github.com/chrischall/opentable-mcp/commit/b4931c16e73ae8b9b09ea83607621fef446eae79))
+* **favorites:** document numeric restaurant_id in list_favorites output ([#281](https://github.com/chrischall/opentable-mcp/issues/281)) ([bd98241](https://github.com/chrischall/opentable-mcp/commit/bd98241d50529e05bc05f74640414a5ba5a3c399))
+* **favorites:** return numeric restaurant_id and resolvable urls from list_favorites ([#279](https://github.com/chrischall/opentable-mcp/issues/279)) ([47edcd2](https://github.com/chrischall/opentable-mcp/commit/47edcd2d32a9ff250d392e7b6ec4f4387d9fc620))
+* resolve low-severity audit findings ([#276](https://github.com/chrischall/opentable-mcp/issues/276)) ([3c276f3](https://github.com/chrischall/opentable-mcp/commit/3c276f385ea21d52c93789f407e67951ee2e3690))
+
 ## [1.3.2](https://github.com/chrischall/opentable-mcp/compare/v1.3.1...v1.3.2) (2026-10-08)
 
 
