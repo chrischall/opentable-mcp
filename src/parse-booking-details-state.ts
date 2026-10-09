@@ -289,7 +289,12 @@ export function parseBookingDetailsState(
         raw_text: '',
       };
 
-  const cards = wallet.savedCards ?? [];
+  // An expired or deactivated card can't guarantee a reservation: offering
+  // it in the preview only fails the booking (or sends it to 3DS) after the
+  // user has confirmed. Choose among usable cards only.
+  const cards = (wallet.savedCards ?? []).filter(
+    (c) => c.expired !== true && c.active !== false
+  );
   let defaultCard: SavedCard | null = null;
   if (cards.length > 0) {
     let chosen: RawCard | undefined;

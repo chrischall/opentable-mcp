@@ -1860,6 +1860,36 @@ describe('reservation tools', () => {
         expect(mockFetchJson).not.toHaveBeenCalled();
       });
 
+      it('book_preview refuses with a clear error when every saved card is expired or inactive (fleet-audit #631)', async () => {
+        const ccState = fixture('booking-details-state-cc.json') as Record<string, unknown>;
+        mockFetchHtml.mockResolvedValue(htmlWith({
+          ...ccState,
+          wallet: {
+            savedCards: [
+              { cardId: 'card_x', last4: '1111', type: 'Visa', default: true, active: true, expiryMonth: 1, expiryYear: 2020, expired: true },
+            ],
+            selectedPaymentCardId: 'card_x',
+          },
+        }));
+        mockFetchJson.mockImplementation(async () => {
+          throw new Error('slot-lock should not be reached');
+        });
+
+        const result = await harness.callTool('opentable_book_preview', {
+          restaurant_id: 2827,
+          date: '2026-05-01',
+          time: '20:45',
+          party_size: 2,
+          reservation_token: 'tok',
+          slot_hash: 'h',
+          dining_area_id: 1,
+        });
+
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/expired or inactive/);
+        expect(mockFetchJson).not.toHaveBeenCalled();
+      });
+
       it('populates payment_method + a "re-held only" charges_at_booking description when the new slot is CC-required', async () => {
         mockFetchHtml.mockResolvedValue(htmlWith(fixture('booking-details-state-cc.json')));
         mockFetchJson.mockImplementation(async (path: string) => {

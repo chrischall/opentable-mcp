@@ -104,6 +104,11 @@ const ReservationTime = (description: string) =>
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be 24-hour HH:MM (e.g. 19:30)')
     .describe(description);
 
+/** Thrown by the previews when a CC-required slot has no card that can
+ *  hold it — none saved, or every saved card expired or inactive. */
+const NO_USABLE_CARD_ERROR =
+  'No default payment method on your OpenTable account that can hold this reservation (expired or inactive saved cards are skipped). Add or update one at https://www.opentable.com/account/payment-methods and try again.';
+
 /**
  * URL for the SSR /booking/details page. OpenTable shows this page right
  * before the user clicks "Complete Reservation" and it ships the
@@ -459,9 +464,7 @@ export function registerReservationTools(
 
       // Step 2b — CC-required: we must have a default saved card.
       if (summary.cc_required && !summary.default_card) {
-        throw new Error(
-          'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
-        );
+        throw new Error(NO_USABLE_CARD_ERROR);
       }
 
       // Step 2c — resolve the dining area (caller's value, or the default
@@ -663,9 +666,7 @@ export function registerReservationTools(
       }
 
       if (summary.cc_required && !summary.default_card) {
-        throw new Error(
-          'No default payment method on your OpenTable account. Add one at https://www.opentable.com/account/payment-methods and try again.'
-        );
+        throw new Error(NO_USABLE_CARD_ERROR);
       }
 
       // 2b) Dining area: caller's value, or the page's default (same helper
