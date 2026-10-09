@@ -86,6 +86,24 @@ const DatabaseRegion = z
     "OpenTable's sharded-database region for the restaurant. Defaults to 'NA' (North America). Pass the venue's region (e.g. for UK/EU/APAC restaurants) when booking or cancelling outside North America — slot-lock, availability, and cancel route to the wrong database shard, or fail opaquely, when this is wrong. LIMITATION: not auto-derived from restaurant data (OpenTable's availability/booking responses don't surface the shard id), so non-NA bookings must set it explicitly."
   );
 
+/** `date` input shared by the slot/booking tools: a strict calendar date.
+ *  Free text ("May 1") used to flow straight into the /booking/details URL
+ *  and the slot-lock body. */
+const ReservationDate = (description = 'YYYY-MM-DD') =>
+  z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'date must be YYYY-MM-DD')
+    .describe(description);
+
+/** `time` input shared by the slot/booking tools: 24h HH:MM. A free-text
+ *  time like "7pm" used to parse as NaN in parse-slots and silently anchor
+ *  every slot at midnight. */
+const ReservationTime = (description: string) =>
+  z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be 24-hour HH:MM (e.g. 19:30)')
+    .describe(description);
+
 /**
  * URL for the SSR /booking/details page. OpenTable shows this page right
  * before the user clicks "Complete Reservation" and it ships the
@@ -309,8 +327,8 @@ export function registerReservationTools(
       inputSchema: z.object({
         view: viewArg(),
         restaurant_id: PositiveInt,
-        date: z.string().describe('YYYY-MM-DD'),
-        time: z.string().describe('HH:MM (24h) — anchor time; slots come back relative to this'),
+        date: ReservationDate('YYYY-MM-DD'),
+        time: ReservationTime('HH:MM (24h) — anchor time; slots come back relative to this'),
         party_size: PositiveInt,
         database_region: DatabaseRegion,
       }),
@@ -351,8 +369,8 @@ export function registerReservationTools(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
-        date: z.string().describe('YYYY-MM-DD'),
-        time: z.string().describe('HH:MM (24h) — must match a slot returned by find_slots'),
+        date: ReservationDate('YYYY-MM-DD'),
+        time: ReservationTime('HH:MM (24h) — must match a slot returned by find_slots'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots'),
@@ -565,8 +583,8 @@ export function registerReservationTools(
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
-        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
-        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        date: ReservationDate('YYYY-MM-DD (the NEW date)'),
+        time: ReservationTime('HH:MM (24h) — the NEW time'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),
@@ -783,8 +801,8 @@ export function registerReservationTools(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({
         restaurant_id: PositiveInt,
-        date: z.string().describe('YYYY-MM-DD'),
-        time: z.string().describe('HH:MM (24h) — must match the slot returned by find_slots'),
+        date: ReservationDate('YYYY-MM-DD'),
+        time: ReservationTime('HH:MM (24h) — must match the slot returned by find_slots'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots'),
@@ -1032,8 +1050,8 @@ export function registerReservationTools(
         restaurant_id: PositiveInt,
         confirmation_number: PositiveInt,
         security_token: z.string(),
-        date: z.string().describe('YYYY-MM-DD (the NEW date)'),
-        time: z.string().describe('HH:MM (24h) — the NEW time'),
+        date: ReservationDate('YYYY-MM-DD (the NEW date)'),
+        time: ReservationTime('HH:MM (24h) — the NEW time'),
         party_size: PositiveInt,
         reservation_token: z.string().describe('slot_availability_token from opentable_find_slots for the NEW slot'),
         slot_hash: z.string().describe('slot_hash from opentable_find_slots for the NEW slot'),

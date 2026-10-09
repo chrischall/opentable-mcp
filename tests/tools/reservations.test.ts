@@ -2838,4 +2838,53 @@ describe('reservation tools', () => {
     });
   });
 
+  describe('date / time inputs are validated (fleet-audit #630)', () => {
+    // A free-text time like "7pm" used to reach parse-slots, where
+    // Number('7pm') is NaN and `h || 0` silently anchored every slot at
+    // midnight. Every reservation tool now rejects malformed date/time at
+    // the schema, before any network call.
+    const slotArgs = {
+      restaurant_id: 123,
+      party_size: 2,
+      reservation_token: 'tok',
+      slot_hash: 'hash',
+    };
+    const modifyIdentity = { confirmation_number: 555, security_token: 'st' };
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['opentable_find_slots', { restaurant_id: 123, party_size: 2 }],
+      ['opentable_book_preview', slotArgs],
+      ['opentable_book', slotArgs],
+      ['opentable_modify_preview', { ...slotArgs, ...modifyIdentity }],
+      ['opentable_modify', { ...slotArgs, ...modifyIdentity, modify_token: 'x' }],
+    ];
+
+    for (const [tool, base] of cases) {
+      it(`${tool} rejects a non-HH:MM time`, async () => {
+        const result = await harness.callTool(tool, { ...base, date: '2026-05-01', time: '7pm' });
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/time/i);
+        expect(mockFetchHtml).not.toHaveBeenCalled();
+        expect(mockFetchJson).not.toHaveBeenCalled();
+        expect(mockGraphqlQuery).not.toHaveBeenCalled();
+      });
+
+      it(`${tool} rejects a non-YYYY-MM-DD date`, async () => {
+        const result = await harness.callTool(tool, { ...base, date: 'May 1', time: '19:00' });
+        expect(result.isError).toBe(true);
+        expect((result.content[0] as { text: string }).text).toMatch(/date/i);
+        expect(mockFetchHtml).not.toHaveBeenCalled();
+        expect(mockFetchJson).not.toHaveBeenCalled();
+        expect(mockGraphqlQuery).not.toHaveBeenCalled();
+      });
+    }
+
+    it('rejects an out-of-range hour such as 24:00', async () => {
+      const result = await harness.callTool('opentable_find_slots', {
+        restaurant_id: 123, party_size: 2, date: '2026-05-01', time: '24:00',
+      });
+      expect(result.isError).toBe(true);
+      expect(mockGraphqlQuery).not.toHaveBeenCalled();
+    });
+  });
+
 });
