@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { OpenTableClient } from '../src/client.js';
 import type { OpenTableTransport } from '../src/transport.js';
 import { registerReservationTools } from '../src/tools/reservations.js';
@@ -49,5 +49,17 @@ describe('manifest.json / server.json', () => {
     const vars = server.packages[0].environmentVariables as { name: string; isRequired: boolean }[];
     expect(vars.map((v) => v.name).sort()).toEqual(ENV_KEYS);
     expect(vars.every((v) => v.isRequired === false)).toBe(true);
+  });
+});
+
+describe('.claude-plugin/plugin.json', () => {
+  // Claude Code reads the MCP config from `mcpServers`; a bare `mcp` key is
+  // an unknown field it silently ignores (only harmless while the path is the
+  // ./.mcp.json default).
+  it('declares the MCP config under mcpServers, pointing at a file that exists', () => {
+    const plugin = readJson('.claude-plugin/plugin.json');
+    expect(plugin).not.toHaveProperty('mcp');
+    expect(plugin.mcpServers).toBe('./.mcp.json');
+    expect(existsSync(new URL(`../${plugin.mcpServers}`, import.meta.url))).toBe(true);
   });
 });
