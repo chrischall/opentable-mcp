@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.4](https://github.com/chrischall/opentable-mcp/compare/v1.3.3...v1.3.4) (2026-10-10)
+
+
+### Documentation
+
+* make AGENTS.md a symlink to CLAUDE.md ([#285](https://github.com/chrischall/opentable-mcp/issues/285)) ([29b5ed7](https://github.com/chrischall/opentable-mcp/commit/29b5ed734934e9b5c938b97eb1f86b0d1a135f06))
+
 ## [1.3.3](https://github.com/chrischall/opentable-mcp/compare/v1.3.2...v1.3.3) (2026-10-09)
 
 
