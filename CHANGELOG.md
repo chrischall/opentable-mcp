@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.4](https://github.com/chrischall/opentable-mcp/compare/v1.3.3...v1.3.4) (2026-10-16)
+
+
+### Bug Fixes
+
+* **deps:** bump @chrischall/mcp-utils to 3.0.3 and @fetchproxy/server to 3.6.2 ([#289](https://github.com/chrischall/opentable-mcp/issues/289)) ([b9f41f0](https://github.com/chrischall/opentable-mcp/commit/b9f41f005e41a3bc202f0599ab94a6fc1968ece9))
+* **deps:** bump the production-dependencies group with 3 updates ([#288](https://github.com/chrischall/opentable-mcp/issues/288)) ([f149e68](https://github.com/chrischall/opentable-mcp/commit/f149e68e7f07f1aad168e1c32543073d345de563))
+* **plugin:** launch the published package so marketplace installs start ([#290](https://github.com/chrischall/opentable-mcp/issues/290)) ([63c28cb](https://github.com/chrischall/opentable-mcp/commit/63c28cb958f30b7e1b59597dcaeb1ca338965f82))
+
+
+### Documentation
+
+* make AGENTS.md a symlink to CLAUDE.md ([#285](https://github.com/chrischall/opentable-mcp/issues/285)) ([29b5ed7](https://github.com/chrischall/opentable-mcp/commit/29b5ed734934e9b5c938b97eb1f86b0d1a135f06))
+
 ## [1.3.3](https://github.com/chrischall/opentable-mcp/compare/v1.3.2...v1.3.3) (2026-10-09)
 
 
