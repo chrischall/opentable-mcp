@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.5](https://github.com/chrischall/opentable-mcp/compare/v1.3.4...v1.3.5) (2026-10-19)
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 18.0.6 to 18.0.8 in the production-dependencies group ([#294](https://github.com/chrischall/opentable-mcp/issues/294)) ([6655e97](https://github.com/chrischall/opentable-mcp/commit/6655e9753d7713552800103556fd89735034eb71))
+* **pages:** report OpenTable's placeholder page as incomplete, with a recovery step, instead of a parse error ([#296](https://github.com/chrischall/opentable-mcp/issues/296)) ([9fd82a7](https://github.com/chrischall/opentable-mcp/commit/9fd82a7a6b899fd5e9fffb3dc8d4b4cd49880ee1))
+
 ## [1.3.4](https://github.com/chrischall/opentable-mcp/compare/v1.3.3...v1.3.4) (2026-10-16)
 
 
