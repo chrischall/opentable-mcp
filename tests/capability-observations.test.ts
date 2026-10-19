@@ -6,7 +6,7 @@ import {
   CAPABILITY_FRESH_MS,
   capabilityFailureCode,
 } from '../src/client.js';
-import { ParseError } from '../src/initial-state.js';
+import { IncompletePageError, INCOMPLETE_PAGE_MAX_CHARS, ParseError } from '../src/initial-state.js';
 import type { OpenTableTransport } from '../src/transport.js';
 import { registerSearchTools } from '../src/tools/search.js';
 import { registerRestaurantTools } from '../src/tools/restaurants.js';
@@ -44,6 +44,7 @@ describe('capabilityFailureCode', () => {
 
   it('names parse failures and falls back only for genuinely unclassified errors', () => {
     expect(capabilityFailureCode(new ParseError('no state'), 'read_error')).toBe('parse_error');
+    expect(capabilityFailureCode(new IncompletePageError(2700), 'read_error')).toBe('incomplete_page');
     expect(capabilityFailureCode(new Error('socket closed'), 'graphql_error')).toBe('graphql_error');
   });
 });
@@ -96,11 +97,20 @@ describe('search and menus classify what failed', () => {
     expect(client.capabilityStatus().search).toMatchObject({ state: 'failed', code: 'http_503' });
   });
 
-  it('search: an unparseable page is parse_error', async () => {
-    const client = clientWith({ body: '<html>no state here</html>' });
+  it('search: a full-size page with no state is parse_error', async () => {
+    const client = clientWith({ body: `<html>no state here${' '.repeat(INCOMPLETE_PAGE_MAX_CHARS)}</html>` });
     harness = await createTestHarness(server => registerSearchTools(server, client));
     await harness.callTool('opentable_search_restaurants', { term: 'sushi' });
     expect(client.capabilityStatus().search).toMatchObject({ state: 'failed', code: 'parse_error' });
+  });
+
+  it('menus: a short placeholder page is incomplete_page, and says how to recover', async () => {
+    const client = clientWith({ body: '<html><body><div></div></body></html>' });
+    harness = await createTestHarness(server => registerRestaurantTools(server, client));
+    const reply = await harness.callTool('opentable_get_menu', { restaurant_id: 42 });
+    expect(reply.isError).toBe(true);
+    expect(JSON.stringify(reply.content)).toMatch(/refresh the restaurant's page .*in the signed-in bridged browser/);
+    expect(client.capabilityStatus().menus).toMatchObject({ state: 'failed', code: 'incomplete_page' });
   });
 
   it('menus: a restaurant id that matches no page is bad input, not a capability failure', async () => {

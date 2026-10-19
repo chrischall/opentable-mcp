@@ -70,10 +70,16 @@ describe('menu tool', () => {
   });
 
   it('surfaces parsing failures without returning a successful empty menu', async () => {
+    // A human-check page is an incomplete page: an error with a recovery step.
     mockFetchHtml.mockResolvedValue('<html>Verify you are human</html>');
     const result = await harness.callTool('opentable_get_menu', { restaurant_id: 42 });
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain('__INITIAL_STATE__');
+    expect((result.content[0] as { text: string }).text).toContain('OpenTable returned an incomplete page');
+    // A full-size page without state is still the genuine parse error.
+    mockFetchHtml.mockResolvedValue(`<html>${' '.repeat(70_000)}</html>`);
+    const changed = await harness.callTool('opentable_get_menu', { restaurant_id: 42 });
+    expect(changed.isError).toBe(true);
+    expect((changed.content[0] as { text: string }).text).toContain('__INITIAL_STATE__ not found or unparseable');
   });
 
   it('never fetches an external menu URL', async () => {
