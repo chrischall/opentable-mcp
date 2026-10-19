@@ -200,6 +200,8 @@ The `scripts/probe-*.ts` files spin up the MCP server, call one or two tools thr
 
 - **Red dot in popup / "extension offline" errors.** See ContextMint Bridge's troubleshooting guide — most "extension offline" issues are upstream lifecycle bugs (service-worker sleep, dead content script), not opentable-mcp.
 - **Behavioral challenge page in Chrome.** Akamai sometimes interrupts a long-idle tab with a "verify you're human" interstitial. Click through it once and the tab is usable again.
+- **"OpenTable returned an incomplete page".** OpenTable sometimes answers with a short placeholder (a few KB, no page state) before the real page has loaded, or with a human check. The healthcheck records it as `incomplete_page`, distinct from `parse_error` (a full-size page whose format changed). Refresh the restaurant's page in the signed-in bridged browser, let it finish loading, then retry once.
+- **`find_slots` fails with HTTP 409.** The browser's OpenTable session needs refreshing. Open the restaurant's page in the signed-in bridged tab and let its availability load, then retry once. The error says availability is unverified, not empty, and a passing bridge healthcheck does not test it.
 - **`list_favorites` doesn't reflect a fresh `add_favorite`.** The `/user/favorites` SSR page is cached for a few seconds. Re-list after ~10 s or verify via `opentable_get_profile`'s count.
 
 ## Layout

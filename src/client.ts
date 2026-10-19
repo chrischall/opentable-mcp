@@ -13,7 +13,7 @@ import {
   truncateErrorMessage,
   UpstreamHttpError,
 } from '@chrischall/mcp-utils';
-import { ParseError } from './initial-state.js';
+import { IncompletePageError, ParseError } from './initial-state.js';
 import type { FetchInit, FetchResult, OpenTableTransport } from './transport.js';
 
 /**
@@ -46,10 +46,11 @@ const APOLLO_STATUS_WORDING = /Received status code (\d{3})\b/;
  * Classify why a business read failed, for the healthcheck's capability
  * report. Structure first (UpstreamHttpError, or any error carrying a numeric
  * `statusCode`/`status`), then Apollo's documented wording — any status, not a
- * hand-picked few — then ParseError. `fallback` is used only when none apply.
+ * hand-picked few — then an incomplete page, then ParseError. `fallback` is used only when none apply.
  */
 export function capabilityFailureCode(error: unknown, fallback: string): string {
   if (error instanceof UpstreamHttpError) return `http_${error.status}`;
+  if (error instanceof IncompletePageError) return 'incomplete_page';
   if (error instanceof ParseError) return 'parse_error';
   if (error && typeof error === 'object') {
     const { statusCode, status } = error as { statusCode?: unknown; status?: unknown };
