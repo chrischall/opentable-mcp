@@ -7,6 +7,17 @@ summary: >-
   request through the ContextMint Bridge browser extension
   (github.com/nullnet-app/contextmint-bridge) running in your signed-in opentable.com
   tab, so there's no cookie paste or bot-wall dance.
+examples:
+  - prompt: >-
+      Find a highly rated Italian restaurant in Charlotte that has a table for
+      four this Saturday around 7:30pm.
+    note: Searches restaurants, then checks open slots at the best match.
+  - prompt: What reservations do I have coming up on OpenTable?
+    note: Reads the upcoming reservations on your signed-in account.
+  - prompt: >-
+      Show me the dinner menu and opening hours for the first restaurant on my
+      OpenTable favorites list.
+    note: Read-only; nothing is booked or changed.
 #
 # Hosting note (a comment, not user-facing summary text): this is a
 # BROWSER-BRIDGE MCP — it reaches its site through the user's signed-in
