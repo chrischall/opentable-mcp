@@ -2,11 +2,9 @@ version: 1
 name: OpenTable
 slug: opentable
 summary: >-
-  OpenTable reservation management for Claude — find slots, book, cancel,
-  list reservations, manage favorites, search restaurants. Relays every
-  request through the ContextMint Bridge browser extension
-  (github.com/nullnet-app/contextmint-bridge) running in your signed-in opentable.com
-  tab, so there's no cookie paste or bot-wall dance.
+  Search OpenTable restaurants and menus, find open slots, book, modify or
+  cancel reservations, and manage favorites through your signed-in tab via
+  the ContextMint Bridge extension.
 examples:
   - prompt: >-
       Find a highly rated Italian restaurant in Charlotte that has a table for
