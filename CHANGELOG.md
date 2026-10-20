@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.6](https://github.com/chrischall/opentable-mcp/compare/v1.3.5...v1.3.6) (2026-10-20)
+
+
+### Documentation
+
+* **mint:** add sample prompts for the public catalog ([#298](https://github.com/chrischall/opentable-mcp/issues/298)) ([29d95b5](https://github.com/chrischall/opentable-mcp/commit/29d95b5fc63dc9e16808e1eb031c9fa4e19d54a4))
+* **mint:** fit the catalog summary within 200 characters ([#300](https://github.com/chrischall/opentable-mcp/issues/300)) ([f6df1e7](https://github.com/chrischall/opentable-mcp/commit/f6df1e74752c3fdf22af6571aaace4a56a5e33f7))
+
 ## [1.3.5](https://github.com/chrischall/opentable-mcp/compare/v1.3.4...v1.3.5) (2026-10-19)
 
 
