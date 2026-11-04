@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { minifiedResult } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
+import { foodMeta } from './hints.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { OpenTableClient } from '../client.js';
 import { parseUserProfile } from '../parse-user-profile.js';
@@ -20,6 +21,7 @@ export function registerUserTools(
   server.registerTool(
     'opentable_get_profile',
     {
+      _meta: foodMeta('lookup'),
       description:
         "Get the authenticated OpenTable user's profile: name, email, phones, loyalty points and tier, home metro, member-since date. Payment and credit-card details are never exposed.",
       inputSchema: z.object({

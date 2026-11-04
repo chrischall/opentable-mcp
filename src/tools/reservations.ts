@@ -28,7 +28,8 @@ import {
   minifiedResult,
   confirmWrite,
 } from '@chrischall/mcp-utils';
-import { viewArg, viewResponse } from '../view.js';
+import { OT_VIEWS, viewArg, viewResponse } from '../view.js';
+import { foodMeta, RESERVATION_ALIASES } from './hints.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import { type OpenTableClient, AVAILABILITY_GRAPHQL_OP_NAME } from '../client.js';
 import { parseDiningDashboard, type FormattedReservation } from '../parse-dining-dashboard.js';
@@ -96,6 +97,26 @@ const ReservationDate = (description = 'YYYY-MM-DD') =>
     .string()
     .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'date must be YYYY-MM-DD')
     .describe(description);
+
+/** `opentable_list_reservations` honours the server's rungs plus `brief`, the
+ *  one-line-per-item answer a context-group intent call asks its canonical read for. */
+const RESERVATION_VIEWS = [...OT_VIEWS, 'brief'] as const;
+
+const BRIEF_MAX = 120;
+
+/**
+ * One brief line: `<restaurant>, party of <n> — <date>T<time> | no date — <status>`,
+ * never longer than {@link BRIEF_MAX} (the restaurant name is what gets cut).
+ */
+export function briefReservationLine(r: FormattedReservation): string {
+  const when = r.date ? (r.time ? `${r.date}T${r.time}` : r.date) : 'no date';
+  const status = r.status ? r.status.toLowerCase() : 'unknown';
+  const party = `, party of ${r.party_size}`;
+  const tail = `${party} — ${when} — ${status}`;
+  const room = BRIEF_MAX - tail.length;
+  const name = r.restaurant_name.length > room ? `${r.restaurant_name.slice(0, Math.max(room - 1, 0))}…` : r.restaurant_name;
+  return `${name}${tail}`;
+}
 
 /** `time` input shared by the slot/booking tools: 24h HH:MM. A free-text
  *  time like "7pm" used to parse as NaN in parse-slots and silently anchor
@@ -313,14 +334,33 @@ export function registerReservationTools(
       description:
         'List the authenticated user\'s OpenTable reservations. Defaults to upcoming; pass scope="past" or scope="all" to broaden. Each entry includes the security_token needed to cancel or modify.',
       annotations: { readOnlyHint: true, openWorldHint: true },
+      _meta: foodMeta('whats-on', {
+        canonical: true,
+        when: { start: 'start_date', end: 'end_date' },
+        aliases: RESERVATION_ALIASES,
+      }),
       inputSchema: z.object({
-        view: viewArg(),
+        view: z
+          .enum(RESERVATION_VIEWS)
+          .optional()
+          .describe(
+            'Response shape. "compact" (default) strips image/avatar URLs; "full" returns the parsed reservations untouched; ' +
+              '"brief" answers one text line per reservation: "<restaurant>, party of <n> — <date>T<time> or no date — <status>".'
+          ),
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
+        start_date: ReservationDate('YYYY-MM-DD; only reservations on or after this date (inclusive)').optional(),
+        end_date: ReservationDate('YYYY-MM-DD; only reservations on or before this date (inclusive)').optional(),
       }),
     },
-    async ({ scope, view }) => {
+    async ({ scope, view, start_date, end_date }) => {
       const html = await client.fetchHtml(DINING_DASHBOARD_PATH);
-      const reservations = parseDiningDashboard(html, scope ?? 'upcoming');
+      const reservations = parseDiningDashboard(html, scope ?? 'upcoming').filter(
+        (r) => (!start_date || r.date >= start_date) && (!end_date || (r.date !== '' && r.date <= end_date))
+      );
+      if (view === 'brief') {
+        const text = reservations.length > 0 ? reservations.map(briefReservationLine).join('\n') : 'No reservations.';
+        return { content: [{ type: 'text' as const, text }] };
+      }
       return viewResponse(view, reservations);
     }
   );
@@ -328,6 +368,7 @@ export function registerReservationTools(
   server.registerTool(
     'opentable_find_slots',
     {
+      _meta: foodMeta('lookup', { aliases: ['table', 'availability', 'open tables'] }),
       description:
         "List available reservation slots at a specific OpenTable restaurant for a date + party size. Returns each slot's reservation_token (use it with opentable_book — tokens expire quickly, book promptly). Slots may be attributes=['default'|'bar'|'highTop'|'outdoor'] and type=Standard|Experience|POP. You can pass a slot's reservation_token + slot_hash straight to opentable_book without a separate opentable_get_restaurant call — book auto-resolves the dining area. (OpenTable's availability response carries only the seating category, not the numeric dining-area id, so that id is resolved at book time from the booking-details page.) If this errors with \"operation ... not yet observed on this tab\", open any OpenTable restaurant page in your browser once (the graphql bridge needs to see the page's own availability query fire first), then retry.",
       annotations: { readOnlyHint: true, openWorldHint: true },
@@ -369,6 +410,7 @@ export function registerReservationTools(
   server.registerTool(
     'opentable_book_preview',
     {
+      _meta: foodMeta('other'),
       description:
         "Preview an OpenTable booking BEFORE committing. Fetches the /booking/details SSR page and the slot-lock to surface: the cancellation policy (including any credit-card no-show fee), the saved payment card that would be charged/held, and a short-lived `booking_token` that opentable_book consumes. REQUIRED for CC-required slots — opentable_book refuses to commit without the token. Safe to call for standard slots too (the token skips a redundant re-lock in book). Holds the slot for ~60-90s; preview → book should happen within a minute. For Listing-type restaurants (Le Bernardin, etc.) this tool can't fetch a slot at all — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. For Experience-mandatory slots (find_slots returned booking_type=experience_mandatory), pass `experience_id` from the slot's `experience_ids` to route through the Experience slot-lock. Slots that charge the card at booking (a Deposit policy, or a prepaid/priced Experience) are refused with a link to book on opentable.com directly.",
       // Not read-only: POSTs a slot-lock mutation that holds restaurant
@@ -580,6 +622,7 @@ export function registerReservationTools(
   server.registerTool(
     'opentable_modify_preview',
     {
+      _meta: foodMeta('other'),
       description:
         "Preview a MODIFICATION to an existing OpenTable reservation. Takes the existing reservation's identity (restaurant_id + confirmation_number + security_token from opentable_list_reservations or the original opentable_book result) plus the NEW slot args (from a fresh opentable_find_slots call) and returns the new cancellation_policy, CC re-hold details, and a `modify_token` that opentable_modify consumes. Mirrors opentable_book_preview, but the /booking/details URL includes confirmationNumber + securityToken + isModify=true so OpenTable's SSR returns the modify state. dining_area_id is OPTIONAL — omitted, it's auto-resolved from the booking-details page like book_preview does. REQUIRED before opentable_modify — no shortcut path. For Listing-type restaurants the modify can't proceed (no slot picker); check opentable_get_restaurant.bookable first.",
       // Not read-only: POSTs a slot-lock mutation that holds restaurant
@@ -801,6 +844,7 @@ export function registerReservationTools(
   server.registerTool(
     'opentable_book',
     {
+      _meta: foodMeta('change', { aliases: ['book a table', 'reserve', 'dinner'] }),
       description:
         "Book an OpenTable reservation. Requires a fresh slot_hash + reservation_token from opentable_find_slots (tokens expire within minutes — call find_slots just before book). dining_area_id is OPTIONAL: when omitted it's auto-resolved to the default dining area from OpenTable's booking-details page, so find_slots → book works without a separate opentable_get_restaurant call. For CC-required slots (prime-time at busy restaurants), opentable_book refuses without a `booking_token` from opentable_book_preview — the preview step surfaces the cancellation policy and the saved card that would be held. Auto-fetches the user's profile (name/email/phone) from /user/dining-dashboard. Returns confirmation_number + security_token; save both — they're required to cancel. For Listing-type restaurants there's no slot to lock — callers should check `opentable_get_restaurant.bookable` first and surface the restaurant's phone/URL instead. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds; the prompt names the restaurant, the card that will be held and the cancellation policy (see MCP_CONFIRM_MODE).",
       // Destructive: the booking lands on a real restaurant's books (another
@@ -1060,6 +1104,7 @@ export function registerReservationTools(
   server.registerTool(
     'opentable_modify',
     {
+      _meta: foodMeta('change', { aliases: ['move my reservation', 'change the time'] }),
       description:
         "Modify an existing OpenTable reservation in place. Requires the existing reservation's identity (restaurant_id + confirmation_number + security_token) plus a fresh modify_token from opentable_modify_preview — preview is mandatory because the new slot's cancellation policy / CC re-hold can differ from the original. Submits /dapi/booking/make-reservation with isModify: true + the existing confirmation_number + security_token; OpenTable preserves confirmation_number across modifies but may regenerate reservation_id and security_token. dining_area_id is OPTIONAL — the modify_token already carries the area opentable_modify_preview resolved; pass it only to restate it (mismatch is refused). Returns the same shape as opentable_book plus was_modified: true so the agent can phrase the user confirmation accurately. For Listing-type restaurants there's no slot to lock — agents should check opentable_get_restaurant.bookable first. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds; the prompt names the restaurant, the current and new slot, and the card re-hold (see MCP_CONFIRM_MODE).",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -1224,6 +1269,7 @@ export function registerReservationTools(
   server.registerTool(
     'opentable_cancel',
     {
+      _meta: foodMeta('change', { aliases: ['cancel dinner', 'cancel my reservation'] }),
       description:
         'Cancel an OpenTable reservation. Requires restaurant_id, confirmation_number, and security_token — all three come from opentable_list_reservations or opentable_book. Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first call returns a preview and a confirmToken, and only a repeat call with that token proceeds; the prompt names the restaurant, date, time and party size from your dining dashboard (see MCP_CONFIRM_MODE). Refused when the confirmation_number belongs to a different restaurant.',
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },

@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
+import { foodMeta } from './hints.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { OpenTableClient } from '../client.js';
 import { parseFavorites } from '../parse-favorites.js';
@@ -25,6 +26,7 @@ export function registerFavoriteTools(
   server.registerTool(
     'opentable_list_favorites',
     {
+      _meta: foodMeta('lookup', { aliases: ['favorite restaurants', 'saved restaurants'] }),
       description:
         "List the user's saved restaurants from OpenTable (Saved Restaurants list). Returns each entry's numeric restaurant_id (a number, or null when OpenTable omits it — the same id opentable_get_restaurant, opentable_find_slots and opentable_remove_favorite take), name, cuisine, neighborhood, price band, rating, and OpenTable URL.",
       inputSchema: z.object({
@@ -42,6 +44,7 @@ export function registerFavoriteTools(
   server.registerTool(
     'opentable_add_favorite',
     {
+      _meta: foodMeta('change'),
       description:
         "Add a restaurant to the user's Saved Restaurants list.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -61,6 +64,7 @@ export function registerFavoriteTools(
   server.registerTool(
     'opentable_remove_favorite',
     {
+      _meta: foodMeta('change'),
       description:
         "Remove a restaurant from the user's Saved Restaurants list.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
