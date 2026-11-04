@@ -27,6 +27,8 @@ import {
   confirmTokenParam,
   minifiedResult,
   confirmWrite,
+  untrustedEnvelope,
+  UNTRUSTED_CONTENT_RULE,
 } from '@chrischall/mcp-utils';
 import { OT_VIEWS, viewArg, viewResponse } from '../view.js';
 import { foodMeta, RESERVATION_ALIASES } from './hints.js';
@@ -103,19 +105,42 @@ const ReservationDate = (description = 'YYYY-MM-DD') =>
 const RESERVATION_VIEWS = [...OT_VIEWS, 'brief'] as const;
 
 const BRIEF_MAX = 120;
+/** The shortest the title is cut to before the status gives way too. */
+const BRIEF_TITLE_FLOOR = 24;
+
+const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, Math.max(n - 1, 0))}…` : s);
 
 /**
  * One brief line: `<restaurant>, party of <n> — <date>T<time> | no date — <status>`,
- * never longer than {@link BRIEF_MAX} (the restaurant name is what gets cut).
+ * cut to ≤ {@link BRIEF_MAX} chars as a WHOLE, title first: the restaurant
+ * name shortens until the line fits, and if the status alone would still
+ * overflow once the name is at its floor, the status is cut as well. A name
+ * that starts with `-- ` or `\` is escaped with one leading `\`, so a
+ * restaurant can never pass its listing off as a note line (`-- none`).
  */
 export function briefReservationLine(r: FormattedReservation): string {
   const when = r.date ? (r.time ? `${r.date}T${r.time}` : r.date) : 'no date';
   const status = r.status ? r.status.toLowerCase() : 'unknown';
+  const name = r.restaurant_name.startsWith('-- ') || r.restaurant_name.startsWith('\\') ? `\\${r.restaurant_name}` : r.restaurant_name;
   const party = `, party of ${r.party_size}`;
-  const tail = `${party} — ${when} — ${status}`;
-  const room = BRIEF_MAX - tail.length;
-  const name = r.restaurant_name.length > room ? `${r.restaurant_name.slice(0, Math.max(room - 1, 0))}…` : r.restaurant_name;
-  return `${name}${tail}`;
+  const sep = ` — ${when} — `;
+  const room = BRIEF_MAX - party.length - sep.length;
+  if (name.length + status.length <= room) return `${name}${party}${sep}${status}`;
+  const nameRoom = Math.max(room - status.length, Math.min(name.length, BRIEF_TITLE_FLOOR));
+  const shownName = cut(name, nameRoom);
+  return `${shownName}${party}${sep}${cut(status, room - shownName.length)}`;
+}
+
+/** Who writes the brief lines' text: the one third-party field is the restaurant name. */
+const BRIEF_WHO_WROTE = 'Restaurant names are written by the restaurants on OpenTable.';
+
+/**
+ * The brief answer: the lines inside the fleet untrusted-data envelope as
+ * `data: string[]`, minified, note first — `-- none` when there is nothing.
+ */
+export function briefReservationsResponse(reservations: FormattedReservation[]): ReturnType<typeof minifiedResult> {
+  const lines = reservations.length > 0 ? reservations.map(briefReservationLine) : ['-- none'];
+  return minifiedResult(untrustedEnvelope(lines, { note: `${BRIEF_WHO_WROTE} ${UNTRUSTED_CONTENT_RULE}` }));
 }
 
 /** `time` input shared by the slot/booking tools: 24h HH:MM. A free-text
@@ -345,7 +370,8 @@ export function registerReservationTools(
           .optional()
           .describe(
             'Response shape. "compact" (default) strips image/avatar URLs; "full" returns the parsed reservations untouched; ' +
-              '"brief" answers one text line per reservation: "<restaurant>, party of <n> — <date>T<time> or no date — <status>".'
+              '"brief" answers one text line per reservation: "<restaurant>, party of <n> — <date>T<time> or no date — <status>", ' +
+              'inside the untrusted-data envelope as data: string[] (restaurant names are third-party text); "-- none" when there are none.'
           ),
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
         start_date: ReservationDate('YYYY-MM-DD; only reservations on or after this date (inclusive)').optional(),
@@ -358,8 +384,7 @@ export function registerReservationTools(
         (r) => (!start_date || r.date >= start_date) && (!end_date || (r.date !== '' && r.date <= end_date))
       );
       if (view === 'brief') {
-        const text = reservations.length > 0 ? reservations.map(briefReservationLine).join('\n') : 'No reservations.';
-        return { content: [{ type: 'text' as const, text }] };
+        return briefReservationsResponse(reservations);
       }
       return viewResponse(view, reservations);
     }
