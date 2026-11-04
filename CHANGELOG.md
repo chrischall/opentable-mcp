@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0](https://github.com/chrischall/opentable-mcp/compare/v1.3.5...v1.4.0) (2026-11-04)
+
+
+### Features
+
+* context-group hints, a brief view and a date window on list_reservations ([#305](https://github.com/chrischall/opentable-mcp/issues/305)) ([b1af4e8](https://github.com/chrischall/opentable-mcp/commit/b1af4e86aef5ae7aa5afe24e94e1c4458239003c))
+
+
+### Bug Fixes
+
+* **deps:** bump the production-dependencies group with 2 updates ([#302](https://github.com/chrischall/opentable-mcp/issues/302)) ([489f07e](https://github.com/chrischall/opentable-mcp/commit/489f07edd3784afd8e877a874cfc8009800c7ee9))
+* **deps:** bump the production-dependencies group with 4 updates ([#304](https://github.com/chrischall/opentable-mcp/issues/304)) ([a8ad77e](https://github.com/chrischall/opentable-mcp/commit/a8ad77e729308045f4208589314be555d040e20b))
+
+
+### Documentation
+
+* **mint:** add sample prompts for the public catalog ([#298](https://github.com/chrischall/opentable-mcp/issues/298)) ([29d95b5](https://github.com/chrischall/opentable-mcp/commit/29d95b5fc63dc9e16808e1eb031c9fa4e19d54a4))
+* **mint:** fit the catalog summary within 200 characters ([#300](https://github.com/chrischall/opentable-mcp/issues/300)) ([f6df1e7](https://github.com/chrischall/opentable-mcp/commit/f6df1e74752c3fdf22af6571aaace4a56a5e33f7))
+
 ## [1.3.5](https://github.com/chrischall/opentable-mcp/compare/v1.3.4...v1.3.5) (2026-10-19)
 
 
