@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/chrischall/opentable-mcp/compare/v1.4.0...v1.4.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **brief:** align the brief view with the fleet contract ([#306](https://github.com/chrischall/opentable-mcp/issues/306)) ([141ea77](https://github.com/chrischall/opentable-mcp/commit/141ea77f56a6ed0febf98c397ad906de574f7579))
+
 ## [1.4.0](https://github.com/chrischall/opentable-mcp/compare/v1.3.5...v1.4.0) (2026-11-04)
 
 
