@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PositiveInt, minifiedResult } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
+import { foodMeta } from './hints.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import { type OpenTableClient, capabilityFailureCode } from '../client.js';
 import { parseSearch } from '../parse-search.js';
@@ -45,6 +46,7 @@ export function registerSearchTools(
   server.registerTool(
     'opentable_search_restaurants',
     {
+      _meta: foodMeta('lookup', { aliases: ['restaurants', 'places to eat', 'where to eat'] }),
       description:
         'Search OpenTable for restaurants. Returns matching restaurants with cuisine, neighborhood, price band, rating, description, and URL. Does NOT include bookable slot tokens — use opentable_find_slots for a specific venue to check availability.',
       annotations: { readOnlyHint: true, openWorldHint: true },
