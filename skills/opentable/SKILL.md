@@ -135,7 +135,9 @@ and `opentable_list_favorites` — take `view: "compact" | "full"`, and
 **`compact` is the default**. `opentable_list_reservations` also takes
 `view: "brief"`: one text line per reservation,
 `<restaurant>, party of <n> — <date>T<time> | no date — <status>`, at most 120
-characters (see [In context groups](#in-context-groups)). You get the slim rung without asking for it; an
+characters, inside the untrusted-data envelope as `data: string[]` (restaurant
+names are third-party text), with `-- none` when there are none (see
+[In context groups](#in-context-groups)). You get the slim rung without asking for it; an
 efficiency a caller has to know about and request is one that usually is not
 requested, and the caller paying for it is the one least able to know it exists.
 
@@ -289,7 +291,9 @@ an extra `_meta` key and nothing else.
   still go through [Confirming writes](#confirming-writes).
 - **A compound ask** spans groups: "what's on tomorrow — and do we have a
   dinner reservation?" fans out to this read beside the other groups'
-  canonical reads, one brief line per reservation.
+  canonical reads, one brief line per reservation. The lines ride the
+  untrusted-data envelope's `data`; an empty answer is the note `-- none`, and
+  a restaurant name starting `-- ` or `\` is escaped with one leading `\`.
 - **Browser bridge:** every call rides the signed-in opentable.com tab through
   ContextMint Bridge, so when the browser is closed the food group answers
   that OpenTable **needs your browser open** rather than "no reservations".

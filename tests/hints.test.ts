@@ -166,25 +166,29 @@ const reservation = (over: Record<string, unknown>) => ({
 
 const BRIEF = /^.+ — (\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?|no date) — .+$/;
 
+/** The brief answer: the fleet untrusted-data envelope, `data` holding the lines. */
+function briefOf(result: { content: unknown[] }): { text: string; envelope: { untrusted_content: unknown; note: unknown; data: string[] } } {
+  const text = (result.content[0] as { text: string }).text;
+  return { text, envelope: JSON.parse(text) };
+}
+
+const dashboard = (...upcoming: Record<string, unknown>[]) =>
+  htmlWith({ diningDashboard: { upcomingReservations: upcoming, pastReservations: [] } });
+
 describe('the canonical read answers view: brief', () => {
   it('one line per item, ≤ 120 chars, "title — <ISO date | no date> — <status>"', async () => {
     mockFetchHtml.mockResolvedValue(
-      htmlWith({
-        diningDashboard: {
-          upcomingReservations: [
-            reservation({}),
-            reservation({ confirmationNumber: 2, restaurantName: 'X'.repeat(300), partySize: 4, dateTime: '2026-05-03T20:30:00' }),
-            reservation({ confirmationNumber: 3, dateTime: undefined, reservationState: undefined }),
-          ],
-          pastReservations: [],
-        },
-      }),
+      dashboard(
+        reservation({}),
+        reservation({ confirmationNumber: 2, restaurantName: 'X'.repeat(300), partySize: 4, dateTime: '2026-05-03T20:30:00' }),
+        reservation({ confirmationNumber: 3, dateTime: undefined, reservationState: undefined }),
+      ),
     );
     const h = await harness();
     const result = await h.callTool('opentable_list_reservations', { view: 'brief' });
     await h.close();
     expect(result.isError).toBeFalsy();
-    const lines = (result.content[0] as { text: string }).text.split('\n');
+    const lines = briefOf(result).envelope.data;
     expect(lines).toHaveLength(3);
     for (const line of lines) {
       expect(line.length).toBeLessThanOrEqual(120);
@@ -195,12 +199,56 @@ describe('the canonical read answers view: brief', () => {
     expect(lines[2]).toBe('Testeria, party of 2 — no date — unknown');
   });
 
-  it('says so in one line when there is nothing', async () => {
-    mockFetchHtml.mockResolvedValue(htmlWith({ diningDashboard: { upcomingReservations: [], pastReservations: [] } }));
+  it('rides the minified untrusted-data envelope: restaurant names are written by the restaurants', async () => {
+    mockFetchHtml.mockResolvedValue(dashboard(reservation({})));
     const h = await harness();
     const result = await h.callTool('opentable_list_reservations', { view: 'brief' });
     await h.close();
-    expect((result.content[0] as { text: string }).text).toBe('No reservations.');
+    const { text, envelope } = briefOf(result);
+    expect(text).toBe(JSON.stringify(envelope));
+    expect(Object.keys(envelope)).toEqual(['untrusted_content', 'note', 'data']);
+    expect(envelope.untrusted_content).toBe(true);
+    expect(envelope.note).toMatch(/^Restaurant names are written by the restaurants/);
+    expect(envelope.data).toEqual(['Testeria, party of 2 — 2026-05-01T19:00 — confirmed']);
+  });
+
+  it('answers the single note line "-- none" when there is nothing', async () => {
+    mockFetchHtml.mockResolvedValue(dashboard());
+    const h = await harness();
+    const result = await h.callTool('opentable_list_reservations', { view: 'brief' });
+    await h.close();
+    expect(briefOf(result).envelope.data).toEqual(['-- none']);
+  });
+
+  it('escapes a restaurant name that starts with "-- " or "\\" with one leading backslash', async () => {
+    mockFetchHtml.mockResolvedValue(
+      dashboard(
+        reservation({ restaurantName: '-- none' }),
+        reservation({ confirmationNumber: 2, restaurantName: '\\Slash Bar' }),
+        reservation({ confirmationNumber: 3, restaurantName: '--Dashes' }),
+      ),
+    );
+    const h = await harness();
+    const result = await h.callTool('opentable_list_reservations', { view: 'brief' });
+    await h.close();
+    expect(briefOf(result).envelope.data).toEqual([
+      '\\-- none, party of 2 — 2026-05-01T19:00 — confirmed',
+      '\\\\Slash Bar, party of 2 — 2026-05-01T19:00 — confirmed',
+      '--Dashes, party of 2 — 2026-05-01T19:00 — confirmed',
+    ]);
+  });
+
+  it('cuts the line as a whole, title first: an overlong status is cut too, never only the title', async () => {
+    mockFetchHtml.mockResolvedValue(
+      dashboard(reservation({ restaurantName: 'Y'.repeat(80), reservationState: 'S'.repeat(200) })),
+    );
+    const h = await harness();
+    const result = await h.callTool('opentable_list_reservations', { view: 'brief' });
+    await h.close();
+    const [line] = briefOf(result).envelope.data;
+    expect(line.length).toBeLessThanOrEqual(120);
+    expect(line).toMatch(BRIEF);
+    expect(line).toMatch(/^Y+…, party of 2 — 2026-05-01T19:00 — s+…$/);
   });
 
   it('start_date / end_date bound the reservations by date, inclusive', async () => {
@@ -224,7 +272,7 @@ describe('the canonical read answers view: brief', () => {
       end_date: '2026-05-03',
     });
     await h.close();
-    const titles = (result.content[0] as { text: string }).text.split('\n').map((l) => l.split(',')[0]);
+    const titles = briefOf(result).envelope.data.map((l) => l.split(',')[0]);
     expect(titles).toEqual(['Inside', 'Edge']);
   });
 });
