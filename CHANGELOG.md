@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.2](https://github.com/chrischall/opentable-mcp/compare/v1.4.1...v1.4.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **deps:** bump @chrischall/mcp-utils from 3.4.0 to 3.4.1 in the production-dependencies group ([#310](https://github.com/chrischall/opentable-mcp/issues/310)) ([6d2b6c5](https://github.com/chrischall/opentable-mcp/commit/6d2b6c5663878d79b7b9820f2bf90bd7ff7f2fa6))
+* **deps:** bump @chrischall/mcp-utils from 3.8.1 to 3.9.0 in the production-dependencies group ([#314](https://github.com/chrischall/opentable-mcp/issues/314)) ([b1d4f40](https://github.com/chrischall/opentable-mcp/commit/b1d4f4040fe2935249c95352f00f57c549de6fe5))
+* **deps:** bump the production-dependencies group with 3 updates ([#312](https://github.com/chrischall/opentable-mcp/issues/312)) ([11fa7d7](https://github.com/chrischall/opentable-mcp/commit/11fa7d7e1a12452fb2376f8126c6ad1a543fb2f8))
+
 ## [1.4.1](https://github.com/chrischall/opentable-mcp/compare/v1.4.0...v1.4.1) (2026-11-04)
 
 
